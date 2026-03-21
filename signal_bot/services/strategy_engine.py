@@ -25,8 +25,8 @@ def calculate_signal(candles: list[dict]) -> SignalResult:
         [{"open": float, "high": float, "low": float, "close": float}, ...]
     Returns a SignalResult.
     """
-    if len(candles) < 22:
-        logger.warning("Not enough candles (%d < 22), no signal", len(candles))
+    if len(candles) < 14:
+        logger.warning("Not enough candles (%d < 14), no signal", len(candles))
         return SignalResult("NO_SIGNAL", 0, {"error": "not enough data"})
 
     df = pd.DataFrame(candles)
@@ -35,7 +35,7 @@ def calculate_signal(candles: list[dict]) -> SignalResult:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["open", "high", "low", "close"])
 
-    if len(df) < 22:
+    if len(df) < 14:
         return SignalResult("NO_SIGNAL", 0, {"error": "bad candle data"})
 
     close = df["close"]
@@ -73,8 +73,8 @@ def calculate_signal(candles: list[dict]) -> SignalResult:
         stoch_k, stoch_d = _manual_stochastic(high, low, close, 5, 3)
 
     stoch_signal = (
-        "BUY" if (stoch_k < 20 and stoch_k > stoch_d)
-        else ("SELL" if (stoch_k > 80 and stoch_k < stoch_d)
+        "BUY" if stoch_k < 25
+        else ("SELL" if stoch_k > 75
               else "NEUTRAL")
     )
 
