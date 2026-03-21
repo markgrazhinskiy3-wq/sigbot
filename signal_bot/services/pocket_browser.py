@@ -837,7 +837,7 @@ async def take_trade_result_screenshot(
     close_time_candidates: list[str] = []
     if placed_at and expiration_sec:
         close_ts = int(placed_at) + expiration_sec
-        for offset_h in range(0, 6):  # UTC+0 … UTC+5
+        for offset_h in range(0, 13):  # UTC+0 … UTC+12
             d = _dt.datetime.utcfromtimestamp(close_ts + offset_h * 3600)
             close_time_candidates.append(f"{d.hour:02d}:{d.minute:02d}")
         logger.info("Expected close time candidates: %s", close_time_candidates)
@@ -940,7 +940,10 @@ async def take_trade_result_screenshot(
             if (candidates.length === 0) return null;  // not ready yet — caller retries
 
             const withTime = candidates.filter(c => c.hasOurTime);
-            const pool     = withTime.length > 0 ? withTime : candidates;
+            // When we know the expected close time, require a match —
+            // never fall back to an old unmatched trade card.
+            if (closeTimes.length > 0 && withTime.length === 0) return null;
+            const pool = withTime.length > 0 ? withTime : candidates;
             pool.sort((a, b) => a.y - b.y);
             const top     = pool[0];
             const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
@@ -1048,8 +1051,9 @@ async def take_trade_result_screenshot(
                     candidates.push({{ r, y: r.top, hasOurTime: hasTime(t) }});
                 }}
                 if (candidates.length === 0) return null;
-                // Prefer element matching expected close time, then topmost
+                // Require time match when we know the expected close time (prevents old trade cards)
                 const withTime = candidates.filter(c => c.hasOurTime);
+                if (closeTimes.length > 0 && withTime.length === 0) return null;
                 const pool = withTime.length > 0 ? withTime : candidates;
                 pool.sort((a, b) => a.y - b.y);
                 const best = pool[0].r;
