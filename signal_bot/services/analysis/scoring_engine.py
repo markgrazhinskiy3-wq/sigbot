@@ -1,28 +1,31 @@
 """
-Signal Scoring Engine — v4
+Signal Scoring Engine — v5
 
-Decision flow:
-  1. Validate & count candles
-  2. Run all modules
-  3. If chaotic market → NO_SIGNAL
-  4. For each direction: best primary strategy score drives
-  5. ANY primary strategy score >= MIN_PRIMARY → candidate signal
-  6. Regime–direction alignment check (core quality gate)
-  7. Check remaining hard conflicts (block outright)
-  8. Secondary filters adjust confidence
-  9. If adjusted confidence >= MODERATE_THRESHOLD → issue signal
-  10. Full debug breakdown always attached
+HARD REJECT → NO_SIGNAL:
+  - chaotic_noise
+  - ни один primary pattern не достиг PARTIAL_MATCH_MIN
+  - impulse прямо против сильного тренда
+  - цена слишком близко к противоположному уровню (< 0.05%)
+  - BUY и SELL практически в паритете
 
-Regime rules (most important filter):
-  uptrend   → only BUY unless bounce/breakout ≥ COUNTER_TREND_MIN
-  downtrend → only SELL unless bounce/breakout ≥ COUNTER_TREND_MIN
-  range / weak_trend → both directions allowed
+SOFT PENALTY → снижает confidence:
+  - weak_trend: -8
+  - контртрендовый сигнал (bounce/breakout дозволен): -10
+  - умеренная близость к уровню (0.05–0.3%): -5
+  - нейтральные свечи: -5
+  - нейтральные индикаторы: -4
+  - только partial_match (нет full match): -8
+  - boлатильность сжата: -4
 
-Thresholds:
-  MIN_PRIMARY          = 35   — minimum primary pattern score to consider direction
-  COUNTER_TREND_MIN    = 62   — bounce/breakout score required to trade against trend
-  MODERATE_THRESHOLD   = 50   — minimum final confidence for signal (raised from 40)
-  STRONG_THRESHOLD     = 65   — final confidence for strong signal
+УРОВНИ СИГНАЛА:
+  - confidence >= 70 → strong
+  - confidence >= 58 → moderate
+  - confidence <  58 → NO_SIGNAL
+
+RECOMMENDED EXPIRATION:
+  - level_bounce / false_breakout    → 1m
+  - impulse в чётком тренде          → 2m
+  - weak setup / range               → 1m (default)
 """
 import logging
 import pandas as pd
@@ -38,10 +41,18 @@ from .false_breakout         import false_breakout_strategy
 
 logger = logging.getLogger(__name__)
 
-MIN_PRIMARY          = 35.0
-COUNTER_TREND_MIN    = 62.0   # bounce/breakout score needed to trade against trend
-MODERATE_THRESHOLD   = 50.0
-STRONG_THRESHOLD     = 65.0
+# ── Thresholds ────────────────────────────────────────────────────────────────
+FULL_MATCH_MIN    = 55.0   # primary score → "matched" (strong candidate)
+PARTIAL_MATCH_MIN = 35.0   # primary score → "partial_match" (moderate candidate)
+STRONG_THRESHOLD  = 70.0   # final confidence → strong signal
+MODERATE_THRESHOLD= 58.0   # final confidence → moderate signal
+
+# Counter-trend: bounce/breakout minimum to allow trade against trend
+COUNTER_TREND_MIN = 58.0
+
+# Level proximity thresholds (level_analysis buy/sell score)
+LEVEL_TOO_CLOSE   = 8      # < 0.05% — hard reject
+LEVEL_MEDIUM      = 35     # 0.05–0.3% — soft penalty
 
 
 def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
@@ -49,8 +60,8 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     if n < 10:
         return _no_signal(
             "Недостаточно данных",
-            {}, regime="unknown",
-            debug={"candles_count": n, "error": "too_few_candles"}
+            regime="unknown",
+            debug={"candles_count": n, "reject_reason": "too_few_candles"}
         )
 
     # ── 1. Run all modules ────────────────────────────────────────────────────
@@ -62,8 +73,28 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     bounce     = level_bounce_strategy(df, levels.supports, levels.resistances)
     fbreak     = false_breakout_strategy(df, levels.supports, levels.resistances)
 
-    # ── 2. Build full debug breakdown ─────────────────────────────────────────
-    debug = {
+    # ── 2. Primary pattern assessment per direction ───────────────────────────
+    def _assess(imp_s, bnc_s, fb_s):
+        """Return (best_score, best_name, is_full_match, is_partial_match)."""
+        raw = {"impulse": imp_s, "bounce": bnc_s, "breakout": fb_s}
+        best_name  = max(raw, key=raw.__getitem__)
+        best_score = raw[best_name]
+        full_match    = best_score >= FULL_MATCH_MIN
+        partial_match = best_score >= PARTIAL_MATCH_MIN
+        # Blended: best 70% + average 30%
+        avg     = (imp_s + bnc_s + fb_s) / 3
+        blended = best_score * 0.70 + avg * 0.30
+        return blended, best_name, best_score, full_match, partial_match
+
+    pa_buy,  pa_buy_name,  pa_buy_raw,  buy_full,  buy_partial  = _assess(
+        impulse.buy_score,  bounce.buy_score,  fbreak.buy_score
+    )
+    pa_sell, pa_sell_name, pa_sell_raw, sell_full, sell_partial = _assess(
+        impulse.sell_score, bounce.sell_score, fbreak.sell_score
+    )
+
+    # ── 3. Debug skeleton ─────────────────────────────────────────────────────
+    debug: dict[str, Any] = {
         "candles_count": n,
         "regime": regime.regime,
         "last_close": round(float(df["close"].iloc[-1]), 6),
@@ -104,152 +135,124 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
                 "reason": indicators.explanation,
             },
         },
+        "pa_buy":        round(pa_buy, 1),
+        "pa_sell":       round(pa_sell, 1),
+        "pa_buy_name":   pa_buy_name,
+        "pa_sell_name":  pa_sell_name,
+        "pa_buy_raw":    round(pa_buy_raw, 1),
+        "pa_sell_raw":   round(pa_sell_raw, 1),
+        "buy_full":      buy_full,
+        "sell_full":     sell_full,
+        "buy_partial":   buy_partial,
+        "sell_partial":  sell_partial,
     }
 
-    # ── 3. Hard filter: chaotic market ────────────────────────────────────────
+    # ── 4. HARD REJECT: chaotic noise ─────────────────────────────────────────
     if regime.regime == "chaotic_noise":
         debug["reject_reason"] = "chaotic_noise"
-        return _no_signal(f"Хаотичный рынок: {regime.explanation}", {}, regime=regime.regime, debug=debug)
+        return _no_signal(f"Хаотичный рынок: {regime.explanation}",
+                          regime=regime.regime, debug=debug,
+                          hard_conflicts=["Хаотичный рынок"])
 
-    # ── 4. Primary pattern scoring: best-of-three per direction ───────────────
-    # One strong pattern is enough — don't average into zero
-    def _best_primary(imp, bnc, fb) -> tuple[float, str]:
-        candidates = {"impulse": imp, "bounce": bnc, "breakout": fb}
-        best_name  = max(candidates, key=candidates.__getitem__)
-        best_score = candidates[best_name]
-        # Blended: best drives 70%, average adds 30%
-        avg = (imp + bnc + fb) / 3
-        blended = best_score * 0.70 + avg * 0.30
-        return blended, best_name
-
-    pa_buy,  pa_buy_name  = _best_primary(impulse.buy_score,  bounce.buy_score,  fbreak.buy_score)
-    pa_sell, pa_sell_name = _best_primary(impulse.sell_score, bounce.sell_score, fbreak.sell_score)
-
-    debug["pa_buy"]       = round(pa_buy, 1)
-    debug["pa_sell"]      = round(pa_sell, 1)
-    debug["pa_buy_name"]  = pa_buy_name
-    debug["pa_sell_name"] = pa_sell_name
-
-    # ── 5. Check if any primary pattern fires ─────────────────────────────────
-    raw_buy_primary  = max(impulse.buy_score,  bounce.buy_score,  fbreak.buy_score)
-    raw_sell_primary = max(impulse.sell_score, bounce.sell_score, fbreak.sell_score)
-
-    has_buy_signal  = raw_buy_primary  >= MIN_PRIMARY
-    has_sell_signal = raw_sell_primary >= MIN_PRIMARY
-
-    debug["raw_primary_buy"]  = round(raw_buy_primary, 1)
-    debug["raw_primary_sell"] = round(raw_sell_primary, 1)
-    debug["has_buy_signal"]   = has_buy_signal
-    debug["has_sell_signal"]  = has_sell_signal
-
-    if not has_buy_signal and not has_sell_signal:
-        # No primary pattern at all — check fallback via secondary signals
-        # If regime + candles strongly agree, still issue a signal
-        fallback_buy  = (regime.buy_score  * 0.5 + candles.buy_score  * 0.5)
-        fallback_sell = (regime.sell_score * 0.5 + candles.sell_score * 0.5)
-        debug["fallback_buy"]  = round(fallback_buy, 1)
-        debug["fallback_sell"] = round(fallback_sell, 1)
-
-        if fallback_buy >= 65 and fallback_buy > fallback_sell * 1.15:
-            # Use fallback as a very weak primary
-            pa_buy = fallback_buy * 0.7
-            has_buy_signal = True
-            debug["fallback_used"] = "buy"
-        elif fallback_sell >= 65 and fallback_sell > fallback_buy * 1.15:
-            pa_sell = fallback_sell * 0.7
-            has_sell_signal = True
-            debug["fallback_used"] = "sell"
-        else:
-            debug["reject_reason"] = "no_primary_pattern"
-            debug["reject_detail"] = (
-                f"PA buy={raw_buy_primary:.0f}, sell={raw_sell_primary:.0f} "
-                f"(min={MIN_PRIMARY}); fallback buy={fallback_buy:.0f}, sell={fallback_sell:.0f}"
-            )
-            return _no_signal(
-                f"Нет паттерна (PA buy={raw_buy_primary:.0f}, sell={raw_sell_primary:.0f})",
-                {}, regime=regime.regime, debug=debug
-            )
-
-    # ── 6. Direction: highest PA score wins ───────────────────────────────────
-    if has_buy_signal and (not has_sell_signal or pa_buy >= pa_sell):
-        direction    = "BUY"
-        confidence_base = (
-            pa_buy                 * 0.50
-            + candles.buy_score   * 0.20
-            + levels.buy_score    * 0.10
-            + regime.buy_score    * 0.10
-            + indicators.buy_score * 0.10
+    # ── 5. HARD REJECT: no primary pattern at all ─────────────────────────────
+    if not buy_partial and not sell_partial:
+        debug["reject_reason"] = "no_primary_pattern"
+        debug["reject_detail"] = (
+            f"buy_raw={pa_buy_raw:.0f}, sell_raw={pa_sell_raw:.0f} "
+            f"(min={PARTIAL_MATCH_MIN})"
         )
-        primary_name = pa_buy_name
-        primary_raw  = raw_buy_primary
-        opp_regime   = regime.sell_score
+        return _no_signal(
+            f"Нет паттерна (buy={pa_buy_raw:.0f}, sell={pa_sell_raw:.0f})",
+            regime=regime.regime, debug=debug,
+            hard_conflicts=["Нет primary pattern"]
+        )
+
+    # ── 6. Choose direction ───────────────────────────────────────────────────
+    # Both partial → pick higher; only one partial → take it
+    if buy_partial and (not sell_partial or pa_buy >= pa_sell):
+        direction    = "BUY"
+        pa_score     = pa_buy
+        pa_name      = pa_buy_name
+        pa_raw       = pa_buy_raw
+        is_full      = buy_full
+        is_partial   = buy_partial
         level_ok     = levels.buy_score
+        level_opp    = levels.sell_score
+        candle_s     = candles.buy_score
+        ind_s        = indicators.buy_score
         opp_fb       = fbreak.sell_score
+        opp_pa_raw   = pa_sell_raw
+        opp_pa_name  = pa_sell_name
+        # Bounce/breakout scores for counter-trend check
+        ct_bounce    = bounce.buy_score
+        ct_breakout  = fbreak.buy_score
     else:
         direction    = "SELL"
-        confidence_base = (
-            pa_sell                 * 0.50
-            + candles.sell_score   * 0.20
-            + levels.sell_score    * 0.10
-            + regime.sell_score    * 0.10
-            + indicators.sell_score * 0.10
-        )
-        primary_name = pa_sell_name
-        primary_raw  = raw_sell_primary
-        opp_regime   = regime.buy_score
+        pa_score     = pa_sell
+        pa_name      = pa_sell_name
+        pa_raw       = pa_sell_raw
+        is_full      = sell_full
+        is_partial   = sell_partial
         level_ok     = levels.sell_score
+        level_opp    = levels.buy_score
+        candle_s     = candles.sell_score
+        ind_s        = indicators.sell_score
         opp_fb       = fbreak.buy_score
+        opp_pa_raw   = pa_buy_raw
+        opp_pa_name  = pa_buy_name
+        ct_bounce    = bounce.sell_score
+        ct_breakout  = fbreak.sell_score
 
     is_buy = direction == "BUY"
     debug["direction_candidate"] = direction
-    debug["confidence_base"]     = round(confidence_base, 1)
 
-    # ── 7. Hard conflicts ─────────────────────────────────────────────────────
-    hard_conflicts = []
+    # ── 7. Regime-specific rules ──────────────────────────────────────────────
+    hard_conflicts: list[str] = []
 
-    # ── 7a. REGIME ALIGNMENT — most important filter ──────────────────────────
-    # uptrend   → SELL only if bounce or breakout ≥ COUNTER_TREND_MIN
-    # downtrend → BUY  only if bounce or breakout ≥ COUNTER_TREND_MIN
-    # range / weak_trend → both directions OK
     trend_regimes = {"uptrend", "downtrend"}
-    if regime.regime in trend_regimes:
-        counter_trend = (
-            (is_buy  and regime.regime == "downtrend") or
-            (not is_buy and regime.regime == "uptrend")
-        )
-        if counter_trend:
-            # Counter-trend is allowed ONLY for bounce/breakout with high score
-            ct_bounce   = bounce.buy_score   if is_buy else bounce.sell_score
-            ct_breakout = fbreak.buy_score   if is_buy else fbreak.sell_score
-            best_ct     = max(ct_bounce, ct_breakout)
-            debug["counter_trend_best"] = round(best_ct, 1)
+    counter_trend = (
+        (is_buy  and regime.regime == "downtrend") or
+        (not is_buy and regime.regime == "uptrend")
+    )
 
-            if primary_name == "impulse":
-                # Never allow counter-trend impulse trades — they chase a stalling move
-                hard_conflicts.append(
-                    f"Импульс против тренда ({regime.regime}) — запрещено"
-                )
-            elif best_ct < COUNTER_TREND_MIN:
-                hard_conflicts.append(
-                    f"Контртрендовый сигнал при {regime.regime}: "
-                    f"отбой/пробой={best_ct:.0f} < {COUNTER_TREND_MIN:.0f}"
-                )
+    if regime.regime in trend_regimes and counter_trend:
+        best_ct = max(ct_bounce, ct_breakout)
+        debug["counter_trend_best"] = round(best_ct, 1)
 
-    # ── 7b. Price literally at the wall (dist < 0.02%) ───────────────────────
-    if level_ok < 8:
+        if pa_name == "impulse":
+            # Hard block: never trade impulse against a clear trend
+            hard_conflicts.append(
+                f"Импульс против {regime.regime} — запрещено"
+            )
+        elif best_ct < COUNTER_TREND_MIN:
+            hard_conflicts.append(
+                f"Контртренд при {regime.regime}: отбой/пробой={best_ct:.0f} < {COUNTER_TREND_MIN:.0f}"
+            )
+
+    # range + impulse: require full match (not just partial)
+    if regime.regime == "range" and pa_name == "impulse" and not is_full:
         hard_conflicts.append(
-            f"Цена у самого {'сопротивления' if is_buy else 'поддержки'}: {levels.explanation}"
+            "Боковой рынок + слабый импульс (partial only) — недостаточно"
         )
 
-    # ── 7c. False breakout strongly confirms opposite direction ───────────────
-    if opp_fb >= 60:
-        hard_conflicts.append(f"Ложный пробой против сигнала (score={opp_fb:.0f})")
-
-    # ── 7d. BUY/SELL raw scores too close (no clear winner) ──────────────────
-    gap = abs(raw_buy_primary - raw_sell_primary)
-    if gap < 8.0 and has_buy_signal and has_sell_signal:
+    # ── 8. Level proximity — 3-state ─────────────────────────────────────────
+    if level_ok < LEVEL_TOO_CLOSE:
         hard_conflicts.append(
-            f"BUY/SELL в паритете ({raw_buy_primary:.0f} vs {raw_sell_primary:.0f})"
+            f"Цена у самого {'сопротивления' if is_buy else 'поддержки'} "
+            f"(score={level_ok:.0f}): {levels.explanation}"
+        )
+
+    # ── 9. Strong opposite false breakout ─────────────────────────────────────
+    if opp_fb >= 65:
+        hard_conflicts.append(
+            f"Ложный пробой против сигнала ({opp_fb:.0f})"
+        )
+
+    # ── 10. BUY/SELL parity — directional confusion ───────────────────────────
+    gap = abs(pa_buy_raw - pa_sell_raw)
+    if gap < 8 and buy_partial and sell_partial:
+        hard_conflicts.append(
+            f"BUY/SELL в паритете ({pa_buy_raw:.0f} vs {pa_sell_raw:.0f})"
         )
 
     debug["hard_conflicts"] = hard_conflicts
@@ -257,27 +260,57 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     if hard_conflicts:
         debug["reject_reason"] = "hard_conflict"
         return _no_signal(
-            "; ".join(hard_conflicts), {},
+            "; ".join(hard_conflicts),
             regime=regime.regime,
-            hard_conflicts=hard_conflicts, soft_conflicts=[],
+            hard_conflicts=hard_conflicts,
             debug=debug
         )
 
-    # ── 8. Soft conflicts ─────────────────────────────────────────────────────
-    soft_conflicts = []
-    if candles.neutral_flag:
-        soft_conflicts.append("Свечи неопределённые")
-    if level_ok < 40:
-        soft_conflicts.append(f"Уровень близко ({levels.explanation})")
-    if (is_buy  and indicators.buy_score  < 20) or \
-       (not is_buy and indicators.sell_score < 20):
-        soft_conflicts.append("Индикаторы нейтральны")
+    # ── 11. Confidence base ────────────────────────────────────────────────────
+    confidence = (
+        pa_score   * 0.50
+        + candle_s * 0.20
+        + level_ok * 0.10
+        + (regime.buy_score if is_buy else regime.sell_score) * 0.10
+        + ind_s    * 0.10
+    )
+    debug["confidence_base"] = round(confidence, 1)
 
-    confidence = confidence_base - len(soft_conflicts) * 1.5
-    debug["soft_conflicts"]  = soft_conflicts
+    # ── 12. Soft penalties ────────────────────────────────────────────────────
+    soft_penalties: list[str] = []
+
+    if not is_full:
+        confidence -= 8.0
+        soft_penalties.append("Только partial match (-8)")
+
+    if regime.regime == "weak_trend":
+        confidence -= 8.0
+        soft_penalties.append("Слабый тренд (-8)")
+
+    if counter_trend:
+        confidence -= 10.0
+        soft_penalties.append(f"Контртрендовый вход (-10)")
+
+    if LEVEL_TOO_CLOSE <= level_ok < LEVEL_MEDIUM:
+        confidence -= 5.0
+        soft_penalties.append(f"Умеренная близость к уровню (-5)")
+
+    if candles.neutral_flag:
+        confidence -= 5.0
+        soft_penalties.append("Нейтральные свечи (-5)")
+
+    if ind_s < 20:
+        confidence -= 4.0
+        soft_penalties.append("Нейтральные индикаторы (-4)")
+
+    if regime.volatility_state == "compressed":
+        confidence -= 4.0
+        soft_penalties.append("Сжатая волатильность (-4)")
+
+    debug["soft_penalties"]   = soft_penalties
     debug["confidence_final"] = round(confidence, 1)
 
-    # ── 9. Signal quality ─────────────────────────────────────────────────────
+    # ── 13. Signal quality decision ───────────────────────────────────────────
     if confidence >= STRONG_THRESHOLD:
         signal_quality = "strong"
     elif confidence >= MODERATE_THRESHOLD:
@@ -286,94 +319,108 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         debug["reject_reason"] = f"low_confidence ({confidence:.0f} < {MODERATE_THRESHOLD})"
         return _no_signal(
             f"Слабый сигнал (уверенность {confidence:.0f})",
-            {}, regime=regime.regime,
-            hard_conflicts=[], soft_conflicts=soft_conflicts,
+            regime=regime.regime,
+            soft_penalties=soft_penalties,
             debug=debug
         )
 
-    # ── 10. Build reasons ─────────────────────────────────────────────────────
-    reasons = []
-    if is_buy:
-        if impulse.buy_score  >= 25: reasons.append(f"Бычий импульс: {impulse.explanation}")
-        if bounce.buy_score   >= 25: reasons.append(f"Отбой поддержки: {bounce.explanation}")
-        if fbreak.buy_score   >= 25: reasons.append(f"Ложный пробой вниз: {fbreak.explanation}")
-        if candles.buy_score  >= 35: reasons.append(f"Сила свечей: {candles.explanation}")
-        if indicators.buy_score >= 45: reasons.append(f"Индикаторы: {indicators.explanation}")
+    # ── 14. Recommended expiration ────────────────────────────────────────────
+    if pa_name in ("bounce", "breakout"):
+        rec_exp = "1m"
+    elif pa_name == "impulse" and regime.regime in ("uptrend", "downtrend"):
+        rec_exp = "2m"
     else:
-        if impulse.sell_score  >= 25: reasons.append(f"Медвежий импульс: {impulse.explanation}")
-        if bounce.sell_score   >= 25: reasons.append(f"Отбой сопротивления: {bounce.explanation}")
-        if fbreak.sell_score   >= 25: reasons.append(f"Ложный пробой вверх: {fbreak.explanation}")
-        if candles.sell_score  >= 35: reasons.append(f"Сила свечей: {candles.explanation}")
-        if indicators.sell_score >= 45: reasons.append(f"Индикаторы: {indicators.explanation}")
+        rec_exp = "1m"
 
+    # ── 15. Human reasons ─────────────────────────────────────────────────────
+    reasons: list[str] = []
+    if is_buy:
+        if impulse.buy_score  >= PARTIAL_MATCH_MIN: reasons.append(f"Бычий импульс: {impulse.explanation}")
+        if bounce.buy_score   >= PARTIAL_MATCH_MIN: reasons.append(f"Отбой поддержки: {bounce.explanation}")
+        if fbreak.buy_score   >= PARTIAL_MATCH_MIN: reasons.append(f"Ложный пробой вниз: {fbreak.explanation}")
+        if candle_s >= 55: reasons.append(f"Свечи: {candles.explanation}")
+        if ind_s >= 45: reasons.append(f"Индикаторы: {indicators.explanation}")
+    else:
+        if impulse.sell_score  >= PARTIAL_MATCH_MIN: reasons.append(f"Медвежий импульс: {impulse.explanation}")
+        if bounce.sell_score   >= PARTIAL_MATCH_MIN: reasons.append(f"Отбой сопротивления: {bounce.explanation}")
+        if fbreak.sell_score   >= PARTIAL_MATCH_MIN: reasons.append(f"Ложный пробой вверх: {fbreak.explanation}")
+        if candle_s >= 55: reasons.append(f"Свечи: {candles.explanation}")
+        if ind_s >= 45: reasons.append(f"Индикаторы: {indicators.explanation}")
     reasons.append(f"Режим: {regime.explanation}")
-    if not reasons:
-        reasons = ["Основная стратегия подтверждена"]
 
     conf5 = _to_5(confidence)
 
     logger.info(
-        "Signal: %s (%s) conf=%.1f→%d/5 | primary=%s(%.0f) | regime=%s | soft=%d",
+        "Signal: %s (%s) conf=%.1f→%d/5 | %s=%s(%.0f) | regime=%s | "
+        "full=%s | soft=%d",
         direction, signal_quality, confidence, conf5,
-        primary_name, primary_raw, regime.regime, len(soft_conflicts)
+        pa_name, "FULL" if is_full else "partial", pa_raw,
+        regime.regime, is_full, len(soft_penalties)
     )
-
-    flat = {k: {"buy": round(v["buy"], 1), "sell": round(v["sell"], 1)}
-            for k, v in debug["modules"].items()}
-    flat["weighted_buy"]  = round(confidence_base if is_buy  else 0, 1)
-    flat["weighted_sell"] = round(confidence_base if not is_buy else 0, 1)
 
     debug["final_decision"] = direction
     debug["reject_reason"]  = None
+    debug["signal_quality"] = signal_quality
+    debug["recommended_expiration"] = rec_exp
+
+    flat = {k: {"buy": round(v["buy"], 1), "sell": round(v["sell"], 1)}
+            for k, v in debug["modules"].items()}
 
     return {
-        "direction":        direction,
-        "signal_quality":   signal_quality,
-        "confidence":       round(confidence, 1),
-        "confidence_5":     conf5,
-        "primary_strategy": primary_name,
-        "reasons":          reasons,
-        "soft_conflicts":   soft_conflicts,
-        "hard_conflicts":   hard_conflicts,
-        "regime":           regime.regime,
-        "filters_passed":   True,
-        "module_scores":    flat,
-        "reject_reason":    None,
-        "debug":            debug,
+        "direction":               direction,
+        "signal_quality":          signal_quality,
+        "confidence":              round(confidence, 1),
+        "confidence_5":            conf5,
+        "primary_strategy":        pa_name,
+        "primary_match_type":      "full" if is_full else "partial",
+        "regime":                  regime.regime,
+        "recommended_expiration":  rec_exp,
+        "reasons":                 reasons,
+        "hard_conflicts":          hard_conflicts,
+        "soft_penalties":          soft_penalties,
+        "reject_reason":           None,
+        "filters_passed":          True,
+        "module_scores":           flat,
+        "debug":                   debug,
     }
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _no_signal(
     reason: str,
-    module_scores: dict,
     regime: str = "unknown",
     hard_conflicts: list | None = None,
-    soft_conflicts: list | None = None,
+    soft_penalties: list | None = None,
     debug: dict | None = None,
 ) -> dict:
     logger.info("NO_SIGNAL: %s", reason)
     d = debug or {}
     d.setdefault("final_decision", "none")
+    d.setdefault("reject_reason", reason)
     return {
-        "direction":        "NO_SIGNAL",
-        "signal_quality":   "none",
-        "confidence":       0.0,
-        "confidence_5":     0,
-        "primary_strategy": None,
-        "reasons":          [],
-        "soft_conflicts":   soft_conflicts or [],
-        "hard_conflicts":   hard_conflicts or [],
-        "regime":           regime,
-        "filters_passed":   False,
-        "module_scores":    module_scores,
-        "reject_reason":    reason,
-        "debug":            d,
+        "direction":              "NO_SIGNAL",
+        "signal_quality":         "none",
+        "confidence":             0.0,
+        "confidence_5":           0,
+        "primary_strategy":       None,
+        "primary_match_type":     None,
+        "regime":                 regime,
+        "recommended_expiration": None,
+        "reasons":                [],
+        "hard_conflicts":         hard_conflicts or [],
+        "soft_penalties":         soft_penalties or [],
+        "reject_reason":          reason,
+        "filters_passed":         False,
+        "module_scores":          {},
+        "debug":                  d,
     }
 
 
 def _to_5(score: float) -> int:
-    if score >= 80: return 5
-    if score >= 68: return 4
-    if score >= 60: return 3
-    if score >= 52: return 2
+    """Map 58–100 confidence onto 1–5 display stars."""
+    if score >= 85: return 5
+    if score >= 75: return 4
+    if score >= 67: return 3
+    if score >= 60: return 2
     return 1

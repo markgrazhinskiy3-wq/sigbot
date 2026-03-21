@@ -1,0 +1,152 @@
+Нужно доработать только модуль анализа сигналов.
+
+Проблема:
+Если сделать правила слишком жесткими, бот снова почти перестает выдавать сигналы.
+Нужно сохранить качество сигналов, но не допустить полного overblocking.
+
+Главная цель:
+Сделать многоступенчатую систему оценки, где бот умеет различать:
+- strong signal
+- moderate signal
+- no signal
+
+Важно:
+- не трогать Telegram-бота, админку, доступы и интерфейс
+- менять только analysis engine
+- принцип: prefer no-signal over weak-signal, but avoid overblocking
+
+Что нужно изменить:
+
+1. Сделать 3 уровня сигнала
+Вместо жесткой схемы signal / no-signal реализовать:
+- strong
+- moderate
+- none
+
+Пример:
+- confidence >= 70 -> strong
+- confidence >= 58 and < 70 -> moderate
+- confidence < 58 -> none
+
+2. Не делать все фильтры абсолютными
+Разделить фильтры на:
+- hard reject
+- soft penalty
+
+Hard reject:
+- chaotic_noise
+- нет primary pattern
+- вход прямо в сильный противоположный уровень
+- сильный конфликт направления
+- полностью хаотичные последние свечи
+
+Soft penalty:
+- слабый momentum
+- нейтральный RSI
+- средняя сила свечей
+- умеренная близость к уровню
+- weak trend
+- неполное подтверждение stochastic
+
+Правило:
+- hard reject -> no signal
+- soft penalty -> просто снижает confidence
+
+3. Если есть один хороший основной паттерн, не блокировать сигнал без веской причины
+Primary patterns:
+- level_bounce
+- false_breakout
+- impulse_pullback
+
+Если найден хотя бы один primary pattern и нет hard reject, разрешать сигнал.
+Secondary modules должны не запрещать всё подряд, а усиливать или ослаблять confidence.
+
+4. Сделать partial match
+Каждый primary pattern должен возвращать:
+- matched
+- partial_match
+- direction
+- score
+- explanation
+
+Если:
+- matched = true -> strong candidate
+- partial_match = true -> moderate candidate
+- neither -> no candidate
+
+5. Ослабить decision logic
+Новая логика:
+- если нет ни одного primary pattern -> none
+- если есть partial_match и нет hard reject -> moderate possible
+- если есть matched primary pattern и подтверждения -> strong possible
+- если есть matched primary pattern, но подтверждения средние -> moderate
+- если есть hard reject -> none
+
+6. Не делать range автоматическим запретом
+Если regime = range:
+- разрешать level_bounce
+- разрешать false_breakout
+- не разрешать impulse_pullback без сильного подтверждения
+
+7. Сделать weak_trend отдельным режимом
+Не смешивать weak_trend и chaotic_noise.
+Если weak_trend:
+- разрешать только strong setups
+- снижать confidence
+- не запрещать автоматически
+
+8. Ослабить свечной фильтр
+Не запрещать сигнал из-за одной плохой свечи.
+Запрещать только если:
+- последние 3 свечи реально разнонаправленные и хаотичные
+- свечи слишком маленькие
+- длинные тени в обе стороны
+- нет читаемой структуры
+
+Иначе просто снижать confidence.
+
+9. Ослабить фильтр уровней
+Не превращать любую близость к уровню в hard reject.
+Сделать 3 состояния:
+- safe distance -> no penalty
+- medium distance -> soft penalty
+- too close -> hard reject
+
+10. Сохранить recommended expiration
+Пусть analysis engine сам рекомендует:
+- level_bounce -> 1m
+- false_breakout -> 1m
+- impulse_pullback in trend -> 2m
+- weak setup -> none
+
+11. Добавить debug output
+Показывать:
+- какой primary pattern найден
+- matched или partial_match
+- какие hard rejects сработали
+- какие soft penalties применились
+- почему signal_quality = strong / moderate / none
+
+12. Итоговый формат ответа
+Возвращать:
+- direction
+- signal_quality: strong / moderate / none
+- confidence
+- primary_strategy
+- regime
+- recommended_expiration
+- reasons
+- hard_conflicts
+- soft_penalties
+- reject_reason
+
+13. Главное правило
+Не превращать все сомнения в no-signal.
+Использовать no-signal только при:
+- отсутствии паттерна
+- хаотичном рынке
+- сильном конфликте
+- входе прямо в уровень
+Во всех остальных пограничных случаях разрешать moderate signal.
+
+Покажи только обновленные файлы аналитического движка и кратко объясни новую decision logic.

@@ -274,11 +274,14 @@ async def cmd_debug(message: Message) -> None:
             lines.append(f"    └ {short}")
 
     lines.append("")
-    lines.append(f"PA buy={debug.get('raw_primary_buy','?')} sell={debug.get('raw_primary_sell','?')}")
+    lines.append(f"PA raw buy={debug.get('pa_buy_raw','?')} sell={debug.get('pa_sell_raw','?')}")
     lines.append(f"PA blended buy={debug.get('pa_buy','?')} sell={debug.get('pa_sell','?')}")
+    lines.append(f"Match: buy={'full' if debug.get('buy_full') else 'partial' if debug.get('buy_partial') else 'none'} / sell={'full' if debug.get('sell_full') else 'partial' if debug.get('sell_partial') else 'none'}")
     lines.append(f"Уверенность: {debug.get('confidence_base','?')} → {debug.get('confidence_final','?')}")
+    lines.append(f"Качество: {debug.get('signal_quality', '?')}")
+    lines.append(f"Экспирация: {debug.get('recommended_expiration', '?')}")
     lines.append(f"Жёсткие конфликты: {', '.join(debug.get('hard_conflicts', [])) or 'нет'}")
-    lines.append(f"Мягкие конфликты: {', '.join(debug.get('soft_conflicts', [])) or 'нет'}")
+    lines.append(f"Мягкие штрафы: {', '.join(debug.get('soft_penalties', [])) or 'нет'}")
 
     final = debug.get("final_decision") or details.get("direction", "—")
     reject = debug.get("reject_reason")

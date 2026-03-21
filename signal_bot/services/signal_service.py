@@ -86,14 +86,20 @@ def format_signal_message(signal: SignalResponse) -> str:
 
     d = signal.details if isinstance(signal.details, dict) else {}
     explanation_lines = _build_explanation(signal.direction, d)
+    rec_exp  = d.get("recommended_expiration")
+    exp_line = f"⏱ Экспирация: <b>{rec_exp}</b>" if rec_exp else ""
 
     lines = [
         f"{arrow} <b>{signal.pair}</b>",
         "",
         f"📊 Сигнал: <b>{dir_label}</b>",
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
-        "",
     ]
+
+    if exp_line:
+        lines.append(exp_line)
+
+    lines.append("")
 
     if explanation_lines:
         lines.append("<b>Почему:</b>")
