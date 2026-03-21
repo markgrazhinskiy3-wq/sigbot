@@ -39,6 +39,21 @@ async def watch_and_report(
         logger.info("Demo trade placed for %s %s", direction, symbol)
     except Exception as e:
         logger.exception("Failed to place demo trade: %s", e)
+        # Notify user and abort — don't send wrong-pair screenshots
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"⚠️ <b>Не удалось поставить сделку по {pair_label}</b>\n\n"
+                    f"Пара не переключилась на платформе — сделка <b>не была открыта</b>.\n"
+                    f"Попробуйте запросить сигнал ещё раз."
+                ),
+                parse_mode="HTML",
+                reply_markup=after_result_keyboard(symbol),
+            )
+        except Exception:
+            pass
+        return
 
     await asyncio.sleep(expiration_sec + 1)
 

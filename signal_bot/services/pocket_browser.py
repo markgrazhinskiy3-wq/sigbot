@@ -536,14 +536,18 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         logger.info("WS assets received: %s", seen_assets)
 
         candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=30)
-        
-        # Fallback: if 0 candles for target symbol, try any symbol (in case asset name format differs)
-        if len(candles) == 0 and binary_frames:
-            logger.warning("No candles for %s — falling back to any received WS data", symbol)
-            candles = _candles_from_binary_frames(binary_frames, count, symbol="", period=30)
-        logger.info("Binary frames gave %d candles for %s", len(candles), symbol)
 
-        if len(candles) < 14:
+        if len(candles) == 0:
+            # Do NOT fall back to data from a different pair — that causes wrong-pair analysis.
+            # The caller (calculate_signal) will treat empty list as NO_SIGNAL, which is correct.
+            logger.warning(
+                "No candles for %s in WS frames (assets received: %s) — returning empty, will produce NO_SIGNAL",
+                symbol, seen_assets,
+            )
+        else:
+            logger.info("Binary frames gave %d candles for %s", len(candles), symbol)
+
+        if 0 < len(candles) < 14:
             logger.warning("Only %d candles for %s — insufficient for analysis", len(candles), symbol)
 
         return candles
@@ -746,6 +750,27 @@ async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> 
         else:
             await _trade_page.wait_for_timeout(1000)
 
+        # Verify the active asset matches what we want before placing any trade
+        try:
+            current_asset_text = await _trade_page.evaluate("""() => {
+                const sels = ['.currencies-block', '.block-active-asset-name', '.asset-name', '[class*="active-asset"]'];
+                for (const s of sels) {
+                    const el = document.querySelector(s);
+                    if (el && el.textContent.trim()) return el.textContent.trim();
+                }
+                return null;
+            }""")
+        except Exception:
+            current_asset_text = None
+
+        symbol_base = symbol.lstrip("#").replace("_otc", "").replace("_", "").upper()
+        asset_text_clean = (current_asset_text or "").upper().replace("/", "").replace(" ", "").replace("OTC", "")
+        if current_asset_text and symbol_base not in asset_text_clean:
+            raise RuntimeError(
+                f"Asset mismatch before trade: page shows '{current_asset_text}', expected symbol containing '{symbol_base}'. "
+                f"Aborting trade to prevent wrong-pair order."
+            )
+
         # Set amount to $1
         amount_selectors = [
             '.blocks-bet__amount input',
@@ -803,11 +828,14 @@ async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> 
                 continue
 
         if not clicked:
-            logger.warning("Could not find %s trade button — page left open for screenshot", direction)
+            raise RuntimeError(
+                f"Could not find {direction} trade button on page. "
+                f"Asset may not have loaded correctly."
+            )
 
     except Exception as e:
         logger.exception("place_demo_trade failed: %s", e)
-        # Keep _trade_page open so we can still take a fallback screenshot
+        raise  # re-raise so result_watcher can abort cleanly
 
 
 async def take_trade_result_screenshot(
