@@ -6,7 +6,7 @@ from aiogram.types import FSInputFile
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from services.pocket_browser import take_screenshot
+from services.pocket_browser import place_demo_trade, take_trade_result_screenshot
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +20,26 @@ async def watch_and_report(
     direction: str,
 ) -> None:
     """
-    Waits for expiration, then takes a screenshot and sends it to the user.
-    Runs as a background asyncio task.
+    Places a $1 demo trade immediately, waits for expiration,
+    then screenshots the result and sends it to the user.
     """
     logger.info(
-        "Watcher started: %s | exp=%ds | user=%d", symbol, expiration_sec, chat_id
+        "Watcher started: %s | exp=%ds | user=%d | dir=%s",
+        symbol, expiration_sec, chat_id, direction,
     )
 
-    await asyncio.sleep(expiration_sec + 3)
+    # Place the demo trade right away so the result will be visible after expiry
+    try:
+        await place_demo_trade(symbol, direction, expiration_sec)
+        logger.info("Demo trade placed for %s %s", direction, symbol)
+    except Exception as e:
+        logger.exception("Failed to place demo trade: %s", e)
+
+    # Wait for the trade to expire
+    await asyncio.sleep(expiration_sec + 5)
 
     try:
-        screenshot_path = await take_screenshot(symbol)
+        screenshot_path = await take_trade_result_screenshot(symbol, direction)
 
         arrow = "🟢" if direction == "BUY" else "🔴"
         caption = (

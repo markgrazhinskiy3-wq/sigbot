@@ -439,29 +439,206 @@ async def _extract_candles_from_dom(page: Page, count: int) -> list[dict]:
         return []
 
 
-async def take_screenshot(symbol: str) -> str:
-    """Take a screenshot of the trading chart and return the file path."""
+_trade_page = None  # kept alive during an active demo trade
+
+
+async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> None:
+    """
+    Open a $1 demo trade on Pocket Option in the given direction.
+    Keeps _trade_page open so take_trade_result_screenshot can use it later.
+    """
+    global _trade_page
+
     context = await _get_context()
-    page = await context.new_page()
+
+    # Close any previous trade page
+    if _trade_page is not None:
+        try:
+            await _trade_page.close()
+        except Exception:
+            pass
+
+    _trade_page = await context.new_page()
     try:
-        await _ensure_logged_in(context, page)
+        await _ensure_logged_in(context, _trade_page)
 
         symbol_clean = symbol.lstrip("#")
-        trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset={symbol_clean}"
-        await page.goto(trade_url, wait_until="networkidle", timeout=30_000)
-        await page.wait_for_timeout(3000)
+        trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset=%23{symbol_clean}"
+        await _trade_page.goto(trade_url, wait_until="networkidle", timeout=30_000)
+        await _trade_page.wait_for_timeout(3000)
 
-        fname = f"result_{symbol_clean}_{int(time.time())}.png"
-        path = str(SCREENSHOTS_DIR / fname)
+        # Set amount to $1
+        amount_selectors = [
+            '.blocks-bet__amount input',
+            'input.amount-control',
+            'input[name="amount"]',
+            '.bet-inputs input[type="text"]',
+            '.input-control--amount input',
+        ]
+        for sel in amount_selectors:
+            try:
+                el = _trade_page.locator(sel).first
+                if await el.count() > 0:
+                    await el.triple_click()
+                    await el.fill("1")
+                    logger.info("Amount set via: %s", sel)
+                    break
+            except Exception:
+                continue
+
+        await _trade_page.wait_for_timeout(300)
+
+        # Click BUY or SELL
+        if direction == "BUY":
+            btn_selectors = [
+                '.block-btns-bet__btn--call',
+                '.btn-call',
+                '[data-direction="call"]',
+                'button:has-text("Выше")',
+                'button:has-text("Higher")',
+                'button:has-text("UP")',
+                '.call-btn',
+            ]
+        else:
+            btn_selectors = [
+                '.block-btns-bet__btn--put',
+                '.btn-put',
+                '[data-direction="put"]',
+                'button:has-text("Ниже")',
+                'button:has-text("Lower")',
+                'button:has-text("DOWN")',
+                '.put-btn',
+            ]
+
+        clicked = False
+        for sel in btn_selectors:
+            try:
+                btn = _trade_page.locator(sel).first
+                if await btn.count() > 0:
+                    await btn.wait_for(state="visible", timeout=3000)
+                    await btn.click()
+                    clicked = True
+                    logger.info("Demo trade placed via %s (direction=%s)", sel, direction)
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            logger.warning("Could not find %s trade button — page left open for screenshot", direction)
+
+    except Exception as e:
+        logger.exception("place_demo_trade failed: %s", e)
+        # Keep _trade_page open so we can still take a fallback screenshot
+
+
+async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
+    """
+    Take a screenshot of the closed trade result popup/notification.
+    Uses the _trade_page kept open by place_demo_trade.
+    Falls back to a new page screenshot if the trade page was lost.
+    """
+    global _trade_page
+
+    symbol_clean = symbol.lstrip("#")
+    fname = f"result_{symbol_clean}_{int(time.time())}.png"
+    path = str(SCREENSHOTS_DIR / fname)
+
+    page = _trade_page
+    owns_page = False
+
+    if page is None or page.is_closed():
+        logger.warning("Trade page is gone — opening new page for fallback screenshot")
+        context = await _get_context()
+        page = await context.new_page()
+        owns_page = True
+        try:
+            await _ensure_logged_in(context, page)
+            trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset=%23{symbol_clean}"
+            await page.goto(trade_url, wait_until="networkidle", timeout=30_000)
+            await page.wait_for_timeout(3000)
+        except Exception as e:
+            logger.exception("Fallback page load failed: %s", e)
+
+    try:
+        # Wait a moment for the result popup to render
+        await page.wait_for_timeout(2000)
+
+        # Dump top-level classes to help identify selectors
+        try:
+            top_classes = await page.evaluate(
+                "() => Array.from(document.querySelectorAll('[class]')).slice(0,40)"
+                ".map(el => el.tagName + '.' + el.className.trim().split(' ').join('.')).join('\\n')"
+            )
+            logger.info("Page top-level elements:\n%s", top_classes)
+        except Exception:
+            pass
+
+        # Try to find and click the most recent closed trade to open its result popup
+        closed_deal_selectors = [
+            '.deals-block .deal:first-child',
+            '.finished-deals .item:first-child',
+            '.closed-deals .deal:first-child',
+            '.deals-list .deal--closed:first-child',
+            '.trades-history .item:first-child',
+            '.block-trades .trade:first-child',
+            '[data-tab="closed"] .item:first-child',
+            '.history-deals .item:first-child',
+            '.orders-history .item:first-child',
+        ]
+        for sel in closed_deal_selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.count() > 0:
+                    await el.click()
+                    logger.info("Clicked closed trade via: %s", sel)
+                    await page.wait_for_timeout(1500)
+                    break
+            except Exception:
+                continue
+
+        # Try to screenshot just the result popup/modal
+        result_popup_selectors = [
+            '.deal-popup',
+            '.trade-popup',
+            '.popup-result',
+            '.deal-result',
+            '.popup.active',
+            '.modal--deal',
+            '.result-popup',
+            '.notification--profit',
+            '.notification--loss',
+            '.notification.active',
+            '.alert--result',
+        ]
+        for sel in result_popup_selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.count() > 0:
+                    await el.wait_for(state="visible", timeout=3000)
+                    await el.screenshot(path=path)
+                    logger.info("Result popup screenshotted via: %s", sel)
+                    return path
+            except Exception:
+                continue
+
+        # Final fallback — screenshot the full viewport
         await page.screenshot(path=path, full_page=False)
-        logger.info("Screenshot saved: %s", path)
+        logger.info("Result screenshot saved (full page fallback): %s", path)
         return path
 
     except Exception as e:
-        logger.exception("Screenshot failed: %s", e)
+        logger.exception("take_trade_result_screenshot failed: %s", e)
         raise
     finally:
-        await page.close()
+        if owns_page:
+            await page.close()
+        # Always clear the trade page reference after we're done
+        _trade_page = None
+
+
+async def take_screenshot(symbol: str) -> str:
+    """Legacy screenshot — kept for compatibility. Delegates to trade result screenshot."""
+    return await take_trade_result_screenshot(symbol, direction="BUY")
 
 
 async def close_browser() -> None:
