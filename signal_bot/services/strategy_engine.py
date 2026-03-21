@@ -12,10 +12,11 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_THRESHOLD: int = _cfg.SIGNAL_CONFIDENCE_THRESHOLD
 
 # Minimum relative spread for EMA/Momentum to be directional (not NEUTRAL)
-EMA_NEUTRAL_PCT      = 0.0005   # 0.05% of price
-MOMENTUM_NEUTRAL_PCT = 0.0005   # 0.05% of price
-# Bollinger Band zone: if price is within this fraction of the band width → NEUTRAL
-BB_NEUTRAL_ZONE      = 0.25     # inner 25% of band = no trade
+# OTC pairs move in tiny increments — keep thresholds small to avoid over-filtering
+EMA_NEUTRAL_PCT      = 0.0001   # 0.01% of price — truly flat EMA = NEUTRAL
+MOMENTUM_NEUTRAL_PCT = 0.0002   # 0.02% of price — micro-noise = NEUTRAL
+# Bollinger Band: inner 40% of band width = ranging market = NEUTRAL
+BB_NEUTRAL_ZONE      = 0.20     # price within 20%–80% of band = NEUTRAL
 
 
 @dataclass
