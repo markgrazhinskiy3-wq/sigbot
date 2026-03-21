@@ -235,15 +235,20 @@ async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
 def _label_for_symbol(symbol: str) -> str:
     """
     Return the clean pair name (without payout %) for use in analysis messages.
-    Checks live cache first, then falls back to config.OTC_PAIRS.
+    Checks live cache first, then config.OTC_PAIRS, then derives from symbol format.
     """
     cached = pairs_cache.get_cached()
     for p in cached:
-        if p["symbol"] == symbol:
+        if p["symbol"].lower() == symbol.lower():
             return p.get("name") or p["label"].split("|")[0].strip()
     for p in config.OTC_PAIRS:
-        if p["symbol"] == symbol:
+        if p["symbol"].lower() == symbol.lower():
             return p["label"]
+    # Derive readable name from symbol: "#AUDCAD_otc" → "AUD/CAD OTC"
+    import re as _re
+    clean = _re.sub(r'[^A-Za-z]', '', symbol).upper().replace("OTC", "")
+    if len(clean) == 6:
+        return f"{clean[:3]}/{clean[3:]} OTC"
     return symbol
 
 

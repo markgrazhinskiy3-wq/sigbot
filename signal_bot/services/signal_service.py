@@ -33,7 +33,7 @@ async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> Signa
 
 def _conf_bar(confidence: int, total: int = 5) -> str:
     filled = min(confidence, total)
-    return "█" * filled + "░" * (total - filled)
+    return "🟩" * filled + "⬜" * (total - filled)
 
 
 def _conf_label(confidence: int) -> str:
