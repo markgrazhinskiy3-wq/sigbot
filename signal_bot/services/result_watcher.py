@@ -40,7 +40,7 @@ async def watch_and_report(
     except Exception as e:
         logger.exception("Failed to place demo trade: %s", e)
 
-    await asyncio.sleep(expiration_sec + 5)
+    await asyncio.sleep(expiration_sec + 1)
 
     try:
         screenshot_path, outcome = await take_trade_result_screenshot(

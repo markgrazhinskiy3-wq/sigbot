@@ -913,8 +913,10 @@ async def take_trade_result_screenshot(
             const pairBase   = {repr(slash_base)};   // e.g. "USD/JPY"  — mandatory
             const pairFull   = {repr(pair_label_js)}; // e.g. "USD/JPY OTC" — preferred
             const closeTimes = {close_times_js};
-            const hasProfit    = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
-            const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+            // Win:  card shows "+$X.XX" (positive payout)
+            // Loss: card shows "$0" / "$0.00" OR "-$X.XX" (negative / zero payout)
+            const hasWin       = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+            const hasLoss      = (t) => /\\$\\s*0(\\.0{{1,2}})?[^\\d]/.test(t) || /\\-\\s*\\$[\\d.]+/.test(t);
             const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
             const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // any HH:MM = closed trade
 
@@ -934,9 +936,9 @@ async def take_trade_result_screenshot(
                 if (!t.includes(pairBase)) continue;      // ← pair is mandatory
                 if (!hasCloseTime(t)) continue;           // ← skip open trades (no HH:MM)
                 if (t.includes('Payout') || t.includes('payout')) continue;
-                if (!hasProfit(t) && !hasZero(t)) continue;
+                if (!hasWin(t) && !hasLoss(t)) continue;
                 const r = el.getBoundingClientRect();
-                if (r.width < 80 || r.height < 20 || r.height > 120) continue;
+                if (r.width < 80 || r.height < 20 || r.height > 150) continue;  // 150px for taller cards
                 if (r.width * r.height > 120000) continue;
                 all.push({{ t, y: r.top, byTime: hasOurTime(t), fullLabel: t.includes(pairFull) }});
             }}
@@ -949,7 +951,7 @@ async def take_trade_result_screenshot(
             const pool = byTime.length > 0 ? byTime : all;
             pool.sort((a, b) => (b.fullLabel - a.fullLabel) || (a.y - b.y));
             const top     = pool[0];
-            const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
+            const outcome = hasWin(top.t) ? 'win' : hasLoss(top.t) ? 'loss' : null;
             if (!outcome) return null;
             return JSON.stringify({{
                 outcome,
@@ -963,8 +965,8 @@ async def take_trade_result_screenshot(
 
         import json as _json
         outcome = "unknown"
-        MAX_RETRIES = 15        # up to 15 × 2 s = 30 extra seconds
-        RETRY_INTERVAL_MS = 2000
+        MAX_RETRIES = 20        # up to 20 × 0.5 s = 10 extra seconds
+        RETRY_INTERVAL_MS = 500
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -1030,8 +1032,8 @@ async def take_trade_result_screenshot(
             const pairBase   = {repr(slash_base)};    // e.g. "USD/JPY" — mandatory
             const pairFull   = {repr(pair_label_js)}; // e.g. "USD/JPY OTC" — preferred
             const closeTimes = {close_times_js};
-            const hasProfit    = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
-            const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+            const hasWin       = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+            const hasLoss      = (t) => /\\$\\s*0(\\.0{{1,2}})?[^\\d]/.test(t) || /\\-\\s*\\$[\\d.]+/.test(t);
             const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
             const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM = closed trade
 
@@ -1043,10 +1045,10 @@ async def take_trade_result_screenshot(
                 if (!t.includes(pairBase)) continue;     // ← pair is mandatory
                 if (!hasCloseTime(t)) continue;          // ← open trades have no HH:MM
                 if (t.includes('Payout') || t.includes('payout')) continue;
-                if (!hasProfit(t) && !hasZero(t)) continue;
+                if (!hasWin(t) && !hasLoss(t)) continue;
                 const r = el.getBoundingClientRect();
                 const area = r.width * r.height;
-                if (r.width < 80 || r.height < 20 || r.height > 120 || area > 120000) continue;
+                if (r.width < 80 || r.height < 20 || r.height > 150 || area > 120000) continue;
                 all.push({{ r, y: r.top, byTime: hasOurTime(t), fullLabel: t.includes(pairFull) }});
             }}
             if (all.length === 0) return null;
