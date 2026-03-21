@@ -1,5 +1,5 @@
 """
-Signal Scoring Engine — v3
+Signal Scoring Engine — v4
 
 Decision flow:
   1. Validate & count candles
@@ -7,15 +7,22 @@ Decision flow:
   3. If chaotic market → NO_SIGNAL
   4. For each direction: best primary strategy score drives
   5. ANY primary strategy score >= MIN_PRIMARY → candidate signal
-  6. Check hard conflicts (block outright)
-  7. Secondary filters adjust confidence
-  8. If adjusted confidence >= MODERATE_THRESHOLD → issue signal
-  9. Full debug breakdown always attached
+  6. Regime–direction alignment check (core quality gate)
+  7. Check remaining hard conflicts (block outright)
+  8. Secondary filters adjust confidence
+  9. If adjusted confidence >= MODERATE_THRESHOLD → issue signal
+  10. Full debug breakdown always attached
 
-Thresholds (intentionally relaxed):
-  MIN_PRIMARY  = 30   — minimum primary pattern score to consider direction
-  MODERATE     = 40   — minimum final confidence for moderate signal
-  STRONG       = 62   — final confidence for strong signal
+Regime rules (most important filter):
+  uptrend   → only BUY unless bounce/breakout ≥ COUNTER_TREND_MIN
+  downtrend → only SELL unless bounce/breakout ≥ COUNTER_TREND_MIN
+  range / weak_trend → both directions allowed
+
+Thresholds:
+  MIN_PRIMARY          = 35   — minimum primary pattern score to consider direction
+  COUNTER_TREND_MIN    = 62   — bounce/breakout score required to trade against trend
+  MODERATE_THRESHOLD   = 50   — minimum final confidence for signal (raised from 40)
+  STRONG_THRESHOLD     = 65   — final confidence for strong signal
 """
 import logging
 import pandas as pd
@@ -31,9 +38,10 @@ from .false_breakout         import false_breakout_strategy
 
 logger = logging.getLogger(__name__)
 
-MIN_PRIMARY      = 30.0
-MODERATE_THRESHOLD = 40.0
-STRONG_THRESHOLD   = 62.0
+MIN_PRIMARY          = 35.0
+COUNTER_TREND_MIN    = 62.0   # bounce/breakout score needed to trade against trend
+MODERATE_THRESHOLD   = 50.0
+STRONG_THRESHOLD     = 65.0
 
 
 def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
@@ -142,12 +150,12 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         debug["fallback_buy"]  = round(fallback_buy, 1)
         debug["fallback_sell"] = round(fallback_sell, 1)
 
-        if fallback_buy >= 60 and fallback_buy > fallback_sell * 1.1:
+        if fallback_buy >= 65 and fallback_buy > fallback_sell * 1.15:
             # Use fallback as a very weak primary
             pa_buy = fallback_buy * 0.7
             has_buy_signal = True
             debug["fallback_used"] = "buy"
-        elif fallback_sell >= 60 and fallback_sell > fallback_buy * 1.1:
+        elif fallback_sell >= 65 and fallback_sell > fallback_buy * 1.15:
             pa_sell = fallback_sell * 0.7
             has_sell_signal = True
             debug["fallback_used"] = "sell"
@@ -199,25 +207,50 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     # ── 7. Hard conflicts ─────────────────────────────────────────────────────
     hard_conflicts = []
 
-    # Strongly opposite regime (score > 75)
-    if opp_regime > 75 and (
-        (is_buy  and regime.regime == "downtrend") or
-        (not is_buy and regime.regime == "uptrend")
-    ):
-        hard_conflicts.append(f"Режим рынка противоположный ({regime.regime})")
+    # ── 7a. REGIME ALIGNMENT — most important filter ──────────────────────────
+    # uptrend   → SELL only if bounce or breakout ≥ COUNTER_TREND_MIN
+    # downtrend → BUY  only if bounce or breakout ≥ COUNTER_TREND_MIN
+    # range / weak_trend → both directions OK
+    trend_regimes = {"uptrend", "downtrend"}
+    if regime.regime in trend_regimes:
+        counter_trend = (
+            (is_buy  and regime.regime == "downtrend") or
+            (not is_buy and regime.regime == "uptrend")
+        )
+        if counter_trend:
+            # Counter-trend is allowed ONLY for bounce/breakout with high score
+            ct_bounce   = bounce.buy_score   if is_buy else bounce.sell_score
+            ct_breakout = fbreak.buy_score   if is_buy else fbreak.sell_score
+            best_ct     = max(ct_bounce, ct_breakout)
+            debug["counter_trend_best"] = round(best_ct, 1)
 
-    # Price literally at the wall (dist < 0.02%)
+            if primary_name == "impulse":
+                # Never allow counter-trend impulse trades — they chase a stalling move
+                hard_conflicts.append(
+                    f"Импульс против тренда ({regime.regime}) — запрещено"
+                )
+            elif best_ct < COUNTER_TREND_MIN:
+                hard_conflicts.append(
+                    f"Контртрендовый сигнал при {regime.regime}: "
+                    f"отбой/пробой={best_ct:.0f} < {COUNTER_TREND_MIN:.0f}"
+                )
+
+    # ── 7b. Price literally at the wall (dist < 0.02%) ───────────────────────
     if level_ok < 8:
-        hard_conflicts.append(f"Цена у самого {'сопротивления' if is_buy else 'поддержки'}: {levels.explanation}")
+        hard_conflicts.append(
+            f"Цена у самого {'сопротивления' if is_buy else 'поддержки'}: {levels.explanation}"
+        )
 
-    # False breakout strongly confirms opposite direction
-    if opp_fb >= 55:
+    # ── 7c. False breakout strongly confirms opposite direction ───────────────
+    if opp_fb >= 60:
         hard_conflicts.append(f"Ложный пробой против сигнала (score={opp_fb:.0f})")
 
-    # Buy and sell are too close (gap < 3 pts in primary raw)
+    # ── 7d. BUY/SELL raw scores too close (no clear winner) ──────────────────
     gap = abs(raw_buy_primary - raw_sell_primary)
-    if gap < 3.0 and has_buy_signal and has_sell_signal:
-        hard_conflicts.append(f"BUY/SELL в паритете ({raw_buy_primary:.0f} vs {raw_sell_primary:.0f})")
+    if gap < 8.0 and has_buy_signal and has_sell_signal:
+        hard_conflicts.append(
+            f"BUY/SELL в паритете ({raw_buy_primary:.0f} vs {raw_sell_primary:.0f})"
+        )
 
     debug["hard_conflicts"] = hard_conflicts
 
@@ -339,8 +372,8 @@ def _no_signal(
 
 
 def _to_5(score: float) -> int:
-    if score >= 78: return 5
-    if score >= 62: return 4
-    if score >= 52: return 3
-    if score >= 42: return 2
+    if score >= 80: return 5
+    if score >= 68: return 4
+    if score >= 60: return 3
+    if score >= 52: return 2
     return 1
