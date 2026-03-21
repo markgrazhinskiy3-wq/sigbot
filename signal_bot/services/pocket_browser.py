@@ -905,11 +905,13 @@ async def take_trade_result_screenshot(
 
         close_times_js = repr(close_time_candidates)
 
-        # JS that detects our trade result — identified primarily by close TIME,
-        # with pair label used as an additional preference (not a hard requirement),
-        # because some pairs may render differently in the Closed panel.
+        # JS that detects our trade result.
+        # Pair base (e.g. "USD/JPY") is MANDATORY — prevents matching wrong-pair cards.
+        # Close time is also required when known — prevents matching old same-pair cards.
+        # "OTC" suffix is optional: PocketOption may omit it in the Closed panel.
         pair_detect_js = f"""() => {{
-            const pairLabel  = {repr(pair_label_js)};
+            const pairBase   = {repr(slash_base)};   // e.g. "USD/JPY"  — mandatory
+            const pairFull   = {repr(pair_label_js)}; // e.g. "USD/JPY OTC" — preferred
             const closeTimes = {close_times_js};
             const hasProfit    = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
             const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
@@ -922,31 +924,30 @@ async def take_trade_result_screenshot(
             for (const s of strictWin)  {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'win',  step:1}}); }}
             for (const s of strictLoss) {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'loss', step:1}}); }}
 
-            // Collect all closed-trade-sized elements with profit/loss info.
-            // Closed trades always have a HH:MM time; open trades do not — this
-            // prevents matching a still-open card showing $0.
+            // Collect closed-trade cards for OUR pair.
+            // Pair base ("USD/JPY") is mandatory; "OTC" suffix is optional (PO may omit it).
+            // Closed trades always show HH:MM; open trades do not.
             const all = [];
             for (const el of document.querySelectorAll('*')) {{
                 if (el.children.length > 8) continue;
                 const t = (el.innerText || '').trim();
-                if (!hasCloseTime(t)) continue;           // ← skip open trades
+                if (!t.includes(pairBase)) continue;      // ← pair is mandatory
+                if (!hasCloseTime(t)) continue;           // ← skip open trades (no HH:MM)
                 if (t.includes('Payout') || t.includes('payout')) continue;
                 if (!hasProfit(t) && !hasZero(t)) continue;
                 const r = el.getBoundingClientRect();
                 if (r.width < 80 || r.height < 20 || r.height > 120) continue;
                 if (r.width * r.height > 120000) continue;
-                all.push({{ t, y: r.top, byTime: hasOurTime(t), byPair: t.includes(pairLabel) }});
+                all.push({{ t, y: r.top, byTime: hasOurTime(t), fullLabel: t.includes(pairFull) }});
             }}
             if (all.length === 0) return null;
 
-            // Priority 1: exact match — pair label + our close time
-            const perfect  = all.filter(c => c.byPair && c.byTime);
-            // Priority 2: time-only match — trade identified by close minute (any pair format)
-            const byTime   = all.filter(c => c.byTime);
-            // When we know expected close times, require a time match — never use old cards.
+            // Require time match when we know expected close time — never use old cards.
+            const byTime = all.filter(c => c.byTime);
             if (closeTimes.length > 0 && byTime.length === 0) return null;
-            const pool = perfect.length > 0 ? perfect : byTime.length > 0 ? byTime : all;
-            pool.sort((a, b) => a.y - b.y);
+            // Among time-matched: prefer "USD/JPY OTC" over "USD/JPY", then topmost
+            const pool = byTime.length > 0 ? byTime : all;
+            pool.sort((a, b) => (b.fullLabel - a.fullLabel) || (a.y - b.y));
             const top     = pool[0];
             const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
             if (!outcome) return null;
@@ -954,7 +955,7 @@ async def take_trade_result_screenshot(
                 outcome,
                 total: all.length,
                 timeMatched: byTime.length > 0,
-                pairMatched: perfect.length > 0,
+                fullLabel: top.fullLabel,
                 topY: Math.round(top.y),
                 text: top.t.replace(/\\s+/g, ' ').slice(0, 100),
             }});
@@ -973,10 +974,10 @@ async def take_trade_result_screenshot(
                     outcome = info.get("outcome", "unknown")
                     logger.info(
                         "Detected trade outcome: %s | attempt=%d total=%s "
-                        "timeMatched=%s pairMatched=%s topY=%s text=%r",
+                        "timeMatched=%s fullLabel=%s topY=%s text=%r",
                         outcome, attempt + 1,
                         info.get("total"), info.get("timeMatched"),
-                        info.get("pairMatched"),
+                        info.get("fullLabel"),
                         info.get("topY"), info.get("text", ""),
                     )
                     break   # found — stop retrying
@@ -1020,63 +1021,71 @@ async def take_trade_result_screenshot(
             except Exception as e:
                 logger.warning("Last-resort detection failed: %s", e)
 
-        # ── Priority 1: Screenshot the specific closed-trade card for our pair ──
-        # Find the element that contains the pair label and scroll it into view,
-        # then clip the screenshot to just that card (+ generous padding).
+        # ── Priority 1: Clip just the closed-trade card for our pair ──
+        # Retries up to 3 times (1 s apart) in case the card appears with a brief delay
+        # after the detection loop already confirmed the outcome.
         PADDING = 12
         clipped = False
-        try:
-            clip_box = await page.evaluate(f"""() => {{
-                const label      = {repr(pair_label_js)};
-                const closeTimes = {close_times_js};
-                const hasProfit    = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
-                const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
-                const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
-                const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM = closed trade
+        clip_js = f"""() => {{
+            const pairBase   = {repr(slash_base)};    // e.g. "USD/JPY" — mandatory
+            const pairFull   = {repr(pair_label_js)}; // e.g. "USD/JPY OTC" — preferred
+            const closeTimes = {close_times_js};
+            const hasProfit    = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
+            const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+            const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+            const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM = closed trade
 
-                // Collect all card-sized elements with profit/loss and a close time.
-                // Trade is identified by close-minute, pair label is just a preference.
-                const all = [];
-                for (const el of document.querySelectorAll('*')) {{
-                    if (el.children.length > 8) continue;
-                    if (!el.innerText) continue;
-                    const t = el.innerText.trim();
-                    if (!hasCloseTime(t)) continue;      // ← open trades have no HH:MM
-                    if (t.includes('Payout') || t.includes('payout')) continue;
-                    if (!hasProfit(t) && !hasZero(t)) continue;
-                    const r = el.getBoundingClientRect();
-                    const area = r.width * r.height;
-                    if (r.width < 80 || r.height < 20 || r.height > 120 || area > 120000) continue;
-                    all.push({{ r, y: r.top, byTime: hasOurTime(t), byPair: t.includes(label) }});
-                }}
-                if (all.length === 0) return null;
-                const perfect = all.filter(c => c.byPair && c.byTime);
-                const byTime  = all.filter(c => c.byTime);
-                if (closeTimes.length > 0 && byTime.length === 0) return null;
-                const pool = perfect.length > 0 ? perfect : byTime.length > 0 ? byTime : all;
-                pool.sort((a, b) => a.y - b.y);
-                const best = pool[0].r;
-                return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
-            }}""")
+            const all = [];
+            for (const el of document.querySelectorAll('*')) {{
+                if (el.children.length > 8) continue;
+                if (!el.innerText) continue;
+                const t = el.innerText.trim();
+                if (!t.includes(pairBase)) continue;     // ← pair is mandatory
+                if (!hasCloseTime(t)) continue;          // ← open trades have no HH:MM
+                if (t.includes('Payout') || t.includes('payout')) continue;
+                if (!hasProfit(t) && !hasZero(t)) continue;
+                const r = el.getBoundingClientRect();
+                const area = r.width * r.height;
+                if (r.width < 80 || r.height < 20 || r.height > 120 || area > 120000) continue;
+                all.push({{ r, y: r.top, byTime: hasOurTime(t), fullLabel: t.includes(pairFull) }});
+            }}
+            if (all.length === 0) return null;
+            const byTime = all.filter(c => c.byTime);
+            if (closeTimes.length > 0 && byTime.length === 0) return null;
+            const pool = byTime.length > 0 ? byTime : all;
+            pool.sort((a, b) => (b.fullLabel - a.fullLabel) || (a.y - b.y));
+            const best = pool[0].r;
+            return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
+        }}"""
 
-            if clip_box and clip_box['width'] > 0 and clip_box['height'] > 0:
-                pad = PADDING
-                vw = page.viewport_size['width']  if page.viewport_size else 1440
-                vh = page.viewport_size['height'] if page.viewport_size else 900
-                clip = {
-                    "x":      max(0, clip_box['x'] - pad),
-                    "y":      max(0, clip_box['y'] - pad),
-                    "width":  min(vw, clip_box['width']  + pad * 2),
-                    "height": min(vh, clip_box['height'] + pad * 2),
-                }
-                await page.screenshot(path=path, clip=clip)
-                logger.info(
-                    "Clipped screenshot of closed trade card (%dx%d px)",
-                    clip['width'], clip['height']
-                )
-                clipped = True
-        except Exception as e:
-            logger.warning("Clipped screenshot failed: %s", e)
+        for clip_attempt in range(3):
+            try:
+                clip_box = await page.evaluate(clip_js)
+                if clip_box and clip_box['width'] > 0 and clip_box['height'] > 0:
+                    pad = PADDING
+                    vw = page.viewport_size['width']  if page.viewport_size else 1440
+                    vh = page.viewport_size['height'] if page.viewport_size else 900
+                    clip = {
+                        "x":      max(0, clip_box['x'] - pad),
+                        "y":      max(0, clip_box['y'] - pad),
+                        "width":  min(vw, clip_box['width']  + pad * 2),
+                        "height": min(vh, clip_box['height'] + pad * 2),
+                    }
+                    await page.screenshot(path=path, clip=clip)
+                    logger.info(
+                        "Clipped screenshot of closed trade card (%dx%d px) attempt=%d",
+                        clip['width'], clip['height'], clip_attempt + 1,
+                    )
+                    clipped = True
+                    break
+                else:
+                    logger.debug("Clip attempt %d: card not found yet", clip_attempt + 1)
+                    if clip_attempt < 2:
+                        await page.wait_for_timeout(1000)
+            except Exception as e:
+                logger.warning("Clipped screenshot attempt %d failed: %s", clip_attempt + 1, e)
+                if clip_attempt < 2:
+                    await page.wait_for_timeout(1000)
 
         if clipped:
             return path, outcome
