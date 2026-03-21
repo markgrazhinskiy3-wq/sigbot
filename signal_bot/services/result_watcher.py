@@ -8,6 +8,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from services.pocket_browser import place_demo_trade, take_trade_result_screenshot
 from services.signal_service import format_result_caption
+from bot.keyboards import after_result_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,12 @@ async def watch_and_report(
         await bot.send_photo(chat_id=chat_id, photo=photo, caption=caption, parse_mode="HTML")
         logger.info("Result screenshot sent to user %d", chat_id)
 
+        await bot.send_message(
+            chat_id=chat_id,
+            text="Что делаем дальше?",
+            reply_markup=after_result_keyboard(symbol, expiration_sec),
+        )
+
     except Exception as e:
         logger.exception("Result watcher failed for user %d: %s", chat_id, e)
         try:
@@ -56,6 +63,7 @@ async def watch_and_report(
                     "⚠️ Не удалось сделать скриншот результата.\n"
                     "Проверьте результат самостоятельно на платформе."
                 ),
+                reply_markup=after_result_keyboard(symbol, expiration_sec),
             )
         except Exception:
             pass

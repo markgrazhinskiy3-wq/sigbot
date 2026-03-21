@@ -11,6 +11,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="📈 Получить сигнал", callback_data="action:get_signal"),
     )
+    builder.row(
+        InlineKeyboardButton(text="🔁 Перезапустить бота", callback_data="action:restart_bot"),
+    )
     return builder.as_markup()
 
 
@@ -46,6 +49,24 @@ def expiration_keyboard(symbol: str) -> InlineKeyboardMarkup:
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
+def after_result_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup:
+    """Keyboard shown after a trade result arrives."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Следующий сигнал",
+            callback_data=f"next_signal:{symbol}:{expiration_sec}",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="📊 Выбрать пару", callback_data="action:get_signal"),
+    )
     builder.row(
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
     )
