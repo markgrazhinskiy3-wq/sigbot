@@ -20,7 +20,7 @@ class SignalResponse:
 
 async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> SignalResponse:
     logger.info("Fetching signal for %s (exp=%ds)", symbol, expiration_sec)
-    candles = await get_candles(symbol, count=60)
+    candles = await get_candles(symbol, count=80)   # more candles for level detection
     result: SignalResult = calculate_signal(candles)
     return SignalResponse(
         direction=result.direction,
@@ -48,10 +48,22 @@ def _conf_label(confidence: int) -> str:
 
 def format_signal_message(signal: SignalResponse) -> str:
     if signal.direction == "NO_SIGNAL":
+        reject = signal.details.get("reject_reason") if isinstance(signal.details, dict) else None
+        regime = signal.details.get("regime", "") if isinstance(signal.details, dict) else ""
+        regime_label = {
+            "chaotic_noise": "🌪 Хаотичный рынок",
+            "range": "↔️ Боковой рынок",
+            "uptrend": "📈 Восходящий тренд",
+            "downtrend": "📉 Нисходящий тренд",
+        }.get(regime, "")
+        reason_line = f"\n<i>{reject}</i>" if reject else ""
+        regime_line = f"\n{regime_label}" if regime_label else ""
         return (
-            f"🔍 <b>{signal.pair}</b>\n\n"
-            f"⚠️ <b>Рынок сейчас в неопределённости</b>\n"
-            f"Нет чёткого направления — входить рискованно.\n\n"
+            f"🔍 <b>{signal.pair}</b>\n"
+            f"\n"
+            f"⚠️ <b>Сигнал не найден</b>{regime_line}\n"
+            f"Условия входа не выполнены — лучше пропустить.{reason_line}\n"
+            f"\n"
             f"<i>Попробуйте другую пару или подождите немного.</i>"
         )
 
