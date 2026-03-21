@@ -272,55 +272,75 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
     except Exception:
         pass
 
-    # Step 1: Try clicking the element that displays the current asset name
-    # (we already know it shows 'LBP/USD OTC' — that element must be clickable)
-    opened = False
+    # Step 1: Get bounding box of the asset name element and use REAL mouse click
+    # JS el.click() doesn't fire Vue.js handlers — page.mouse.click() does
     try:
-        clicked = await page.evaluate(f"""() => {{
+        box = await page.evaluate(f"""() => {{
             const text = {repr(current)};
-            // Find the innermost visible element that contains exactly this text
             const all = Array.from(document.querySelectorAll('*'));
-            const candidates = all.filter(el =>
-                el.textContent.trim() === text &&
-                el.children.length <= 3 &&
-                el.offsetWidth > 0 && el.offsetHeight > 0
-            );
-            if (candidates.length > 0) {{
-                candidates[candidates.length - 1].click();
-                return true;
-            }}
-            // Fallback: click any visible element whose text contains the asset text
-            for (const el of all) {{
-                if (el.textContent.trim().includes(text) &&
-                    el.children.length === 0 &&
-                    el.offsetWidth > 0) {{
-                    el.click();
-                    return true;
+            // Find element containing exactly this text, walking up to find button parent
+            for (const el of all.reverse()) {{
+                if (el.textContent.trim() === text && el.offsetWidth > 0) {{
+                    // Walk up to the first element with cursor:pointer or is a button
+                    let target = el;
+                    for (let i = 0; i < 6; i++) {{
+                        const s = window.getComputedStyle(target);
+                        if (target.tagName === 'BUTTON' || target.tagName === 'A' ||
+                            target.getAttribute('role') === 'button' ||
+                            s.cursor === 'pointer') {{
+                            const r = target.getBoundingClientRect();
+                            return {{x: r.left + r.width/2, y: r.top + r.height/2}};
+                        }}
+                        if (!target.parentElement) break;
+                        target = target.parentElement;
+                    }}
+                    // Fallback: return bounding box of innermost element
+                    const r = el.getBoundingClientRect();
+                    return {{x: r.left + r.width/2, y: r.top + r.height/2}};
                 }}
             }}
-            return false;
+            return null;
         }}""")
-        if clicked:
-            logger.info("Clicked current asset element via JS text search")
+
+        if box:
+            logger.info("Asset element found at (%.0f, %.0f) — mouse clicking", box['x'], box['y'])
+            await page.mouse.click(box['x'], box['y'])
             await page.wait_for_timeout(1500)
-            opened = True
+        else:
+            logger.warning("Asset element bounding box not found")
     except Exception as e:
-        logger.warning("JS click on asset failed: %s", e)
+        logger.warning("Mouse click on asset failed: %s", e)
 
-    # Step 2: Also try Playwright text locators
-    if not opened:
+    # Step 2: Take debug screenshot to see if panel opened
+    try:
+        dbg_path = str(SCREENSHOTS_DIR / "asset_panel_debug.png")
+        await page.screenshot(path=dbg_path, full_page=False)
+        logger.info("Asset panel debug screenshot: %s", dbg_path)
+    except Exception:
+        pass
+
+    # Step 3: Check if a search input appeared (panel opened successfully)
+    panel_open = False
+    input_sel = None
+    for sel in [
+        'input[placeholder*="earch" i]',
+        'input[placeholder*="оиск" i]',
+        '.assets-search__input',
+        '.search-assets input',
+        '.assets-filter input',
+    ]:
         try:
-            el = page.get_by_text(current, exact=True).first
+            el = page.locator(sel).first
             if await el.count() > 0:
-                await el.click(timeout=3000)
-                logger.info("Clicked asset via Playwright text locator")
-                await page.wait_for_timeout(1500)
-                opened = True
+                panel_open = True
+                input_sel = sel
+                logger.info("Asset panel opened — search input found via: %s", sel)
+                break
         except Exception:
-            pass
+            continue
 
-    # Step 3: Try CSS selectors as last resort
-    if not opened:
+    # Step 4: If panel not opened via mouse click, try CSS selectors
+    if not panel_open:
         for sel in [
             '.block-active-asset-name',
             '.header-main__asset',
@@ -330,6 +350,8 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
             '[data-action="open-assets"]',
             '.instrument-name',
             '.header__asset',
+            '.chart-header__asset',
+            '.trade-asset',
         ]:
             try:
                 el = page.locator(sel).first
@@ -337,89 +359,46 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
                     await el.click(timeout=3000)
                     logger.info("Opened asset panel via CSS: %s", sel)
                     await page.wait_for_timeout(1500)
-                    opened = True
-                    break
+                    # Check again for search input
+                    for isel in ['input[placeholder*="earch" i]', 'input[placeholder*="оиск" i]', 'input[type="search"]']:
+                        try:
+                            if await page.locator(isel).count() > 0:
+                                panel_open = True
+                                input_sel = isel
+                                break
+                        except Exception:
+                            continue
+                    if panel_open:
+                        break
             except Exception:
                 continue
 
-    if not opened:
-        logger.warning("Could not open asset selector for %s", slash_name)
+    if not panel_open:
+        logger.warning("Asset selector panel did not open for %s", slash_name)
         return False
 
-    # Step 4: Take debug screenshot + dump DOM after click
+    # Step 5: Type in the search box
     try:
-        dbg_path = str(SCREENSHOTS_DIR / "asset_panel_debug.png")
-        await page.screenshot(path=dbg_path, full_page=False)
-        logger.info("Asset panel debug screenshot saved: %s", dbg_path)
-    except Exception:
-        pass
-    try:
-        new_html = await page.evaluate("""() => {
-            const inputs = Array.from(document.querySelectorAll('input')).map(i =>
-                i.tagName + '[placeholder="' + (i.placeholder||'') + '"][class="' + i.className + '"]'
-            ).join(', ');
-            const visible = Array.from(document.querySelectorAll('[class]'))
-                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0)
-                .slice(0, 50)
-                .map(el => el.tagName + '.' + el.className.trim().split(/\s+/).slice(0,3).join('.'))
-                .join('\n');
-            return 'INPUTS: ' + inputs + '\n\nVISIBLE ELEMENTS:\n' + visible;
-        }""")
-        logger.info("After opening asset panel:\n%s", new_html)
-    except Exception:
-        pass
+        search_el = page.locator(input_sel).first
+        await search_el.click()
+        await search_el.fill(slash_name)
+        logger.info("Typed '%s' in asset search", slash_name)
+        await page.wait_for_timeout(800)
+    except Exception as e:
+        logger.warning("Could not type in asset search: %s", e)
+        return False
 
-    # Step 5: Type in search box
-    searched = False
+    # Step 6: Click the matching asset in results
     for sel in [
-        '.assets-search__input',
-        '.search-assets input',
-        'input[placeholder*="search" i]',
-        'input[placeholder*="поиск" i]',
-        'input[placeholder*="Search" i]',
-        '.assets-filter input',
-        '.modal input[type="text"]',
-        '.popup input[type="text"]',
-        'input[type="text"]:visible',
-        'input[type="search"]',
-    ]:
-        try:
-            el = page.locator(sel).first
-            if await el.count() > 0:
-                await el.click()
-                await el.fill(slash_name)
-                logger.info("Typed asset search '%s' via: %s", slash_name, sel)
-                await page.wait_for_timeout(800)
-                searched = True
-                break
-        except Exception:
-            continue
-
-    if not searched:
-        # Try any visible input that appeared
-        try:
-            inputs = page.locator('input:visible')
-            cnt = await inputs.count()
-            if cnt > 0:
-                await inputs.first.fill(slash_name)
-                logger.info("Typed asset in first visible input")
-                await page.wait_for_timeout(800)
-                searched = True
-        except Exception:
-            pass
-
-    # Step 6: Click the matching item
-    for sel in [
-        f'text="{slash_name}"',
         f'.asset-item:has-text("{slash_name}")',
         f'.assets-item:has-text("{slash_name}")',
         f'.item:has-text("{slash_name}")',
         f'[data-asset="#{symbol_clean}"]',
         f'[data-id="#{symbol_clean}"]',
-        '.assets-list .item:first-child',
+        f'[data-symbol="{symbol}"]',
         '.asset-item:first-child',
         '.assets-item:first-child',
-        'li:first-child',
+        'li.asset:first-child',
     ]:
         try:
             el = page.locator(sel).first
@@ -431,7 +410,19 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
         except Exception:
             continue
 
-    logger.warning("Asset UI switch failed for %s", slash_name)
+    # Try clicking first visible result after search
+    try:
+        results = page.locator(f'text="{slash_name}"')
+        cnt = await results.count()
+        if cnt > 0:
+            await results.first.click()
+            logger.info("Clicked text match for '%s'", slash_name)
+            await page.wait_for_timeout(2000)
+            return True
+    except Exception:
+        pass
+
+    logger.warning("Could not select asset %s from panel", slash_name)
     return False
 
 
