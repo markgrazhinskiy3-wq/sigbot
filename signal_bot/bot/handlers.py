@@ -207,6 +207,58 @@ async def cmd_broadcast(message: Message) -> None:
 
 # ─── Callback handlers ───────────────────────────────────────────────────────
 
+@router.callback_query(F.data.startswith("admin:approve:"))
+async def cb_admin_approve(callback: CallbackQuery) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ Только для администратора.", show_alert=True)
+        return
+
+    target_id = int(callback.data.split(":")[2])
+    ok = await set_status(target_id, "approved")
+    if ok:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ <b>Одобрен</b>",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+        try:
+            await callback.bot.send_message(
+                target_id,
+                "✅ <b>Доступ одобрен!</b>\n\nДобро пожаловать в Signal Bot. Нажмите /start",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    else:
+        await callback.answer("❌ Пользователь не найден.", show_alert=True)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:deny:"))
+async def cb_admin_deny(callback: CallbackQuery) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ Только для администратора.", show_alert=True)
+        return
+
+    target_id = int(callback.data.split(":")[2])
+    ok = await set_status(target_id, "denied")
+    if ok:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n⛔ <b>Отклонён</b>",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+        try:
+            await callback.bot.send_message(
+                target_id, "⛔ Ваш запрос на доступ отклонён."
+            )
+        except Exception:
+            pass
+    else:
+        await callback.answer("❌ Пользователь не найден.", show_alert=True)
+    await callback.answer()
+
+
 async def _check_user_access(callback: CallbackQuery) -> bool:
     if _is_admin(callback.from_user.id):
         return True
