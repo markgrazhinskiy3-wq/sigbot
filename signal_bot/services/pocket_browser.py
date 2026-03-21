@@ -380,15 +380,39 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
         return False
 
     # Step 5: Type in the search box
+    # The input may be hidden by CSS — use mouse coordinates to click, not Playwright visibility click
+    typed = False
     try:
-        search_el = page.locator(input_sel).first
-        await search_el.click()
-        await search_el.fill(slash_name)
-        logger.info("Typed '%s' in asset search", slash_name)
-        await page.wait_for_timeout(800)
+        search_box = await page.evaluate("""() => {
+            // Find specifically the search/filter input (not Amount or other inputs)
+            const sel = 'input[placeholder*="earch"], input[placeholder*="оиск"], input[placeholder*="Search"], input[placeholder*="Filter"]';
+            const el = document.querySelector(sel);
+            if (el) {
+                const r = el.getBoundingClientRect();
+                return {x: r.left + r.width/2, y: r.top + r.height/2, ph: el.placeholder};
+            }
+            return null;
+        }""")
+        if search_box and search_box.get('y', 0) > 0:
+            await page.mouse.click(search_box['x'], search_box['y'])
+            await page.wait_for_timeout(200)
+            await page.keyboard.type(slash_name)
+            logger.info("Typed '%s' via mouse+keyboard (coords: %.0f,%.0f, placeholder='%s')", slash_name, search_box['x'], search_box['y'], search_box.get('ph', ''))
+            await page.wait_for_timeout(800)
+            typed = True
     except Exception as e:
-        logger.warning("Could not type in asset search: %s", e)
-        return False
+        logger.warning("Mouse+keyboard type failed: %s", e)
+
+    if not typed:
+        # Fallback: just keyboard.type in case search field is already focused
+        try:
+            await page.keyboard.type(slash_name)
+            logger.info("Typed '%s' via keyboard fallback", slash_name)
+            await page.wait_for_timeout(800)
+            typed = True
+        except Exception as e:
+            logger.warning("Keyboard fallback also failed: %s", e)
+            return False
 
     # Step 6: Click the matching asset in results
     for sel in [
@@ -470,7 +494,11 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         await page.wait_for_timeout(2000)
 
         # Switch to the correct asset via UI if the platform defaulted to another pair
-        await _switch_to_asset(page, symbol)
+        switched = await _switch_to_asset(page, symbol)
+        if switched:
+            # Clear stale data from the previous asset so we only use fresh data
+            binary_frames.clear()
+            logger.info("Asset switched — cleared WS buffer, waiting for fresh %s data", symbol)
 
         # After potential asset switch, wait for fresh history data (up to 25s)
         deadline = 25
@@ -479,7 +507,7 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
             if any(ev == "updateHistoryNewFast" for ev, _ in binary_frames):
                 break
 
-        candles = _candles_from_binary_frames(binary_frames, count, period=30)
+        candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=30)
         logger.info("Binary frames gave %d candles for %s", len(candles), symbol)
 
         if len(candles) < 14:
@@ -523,12 +551,15 @@ def _ticks_to_candles(ticks: list, period: int = 60) -> list[dict]:
 def _candles_from_binary_frames(
     binary_frames: list[tuple[str, bytes]],
     count: int,
+    symbol: str = "",
     period: int = 60,
 ) -> list[dict]:
     """
     Extract candles from Socket.IO binary frames.
     Primary: 'updateHistoryNewFast' → ticks aggregated into OHLC.
+    Filters by symbol if provided (e.g. '#EURUSD_otc' → 'EURUSD_otc').
     """
+    symbol_clean = symbol.lstrip("#").upper() if symbol else ""
     best: list[dict] = []
     for event_name, data in binary_frames:
         if event_name != "updateHistoryNewFast":
@@ -541,6 +572,10 @@ def _candles_from_binary_frames(
         history = parsed.get("history")
         asset = parsed.get("asset", "unknown")
         if not isinstance(history, list) or not history:
+            continue
+        # Filter to matching symbol — accept if symbol not specified or asset matches
+        if symbol_clean and asset.upper() != symbol_clean:
+            logger.debug("Skipping WS frame for %s (want %s)", asset, symbol_clean)
             continue
         candles = _ticks_to_candles(history, period=period)
         logger.info("Parsed %d candles from %s history (%s)", len(candles), asset, event_name)
