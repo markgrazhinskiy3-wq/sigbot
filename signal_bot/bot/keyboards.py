@@ -74,6 +74,32 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
     return builder.as_markup()
 
 
+def signal_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
+    """
+    Keyboard shown after a BUY/SELL signal.
+    - Next signal: re-opens the expiration picker for the same pair
+    - Change pair: goes back to pair list
+    - Main menu
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Следующий сигнал",
+            callback_data=f"pair:{symbol}",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="🔀 Сменить пару",
+            callback_data="action:get_signal",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(

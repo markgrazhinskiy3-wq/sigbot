@@ -17,7 +17,7 @@ from services.signal_service import get_signal, format_signal_message
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
-    back_to_menu_keyboard, no_signal_keyboard,
+    back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -481,7 +481,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         kb = (
             no_signal_keyboard(symbol, expiration_sec)
             if signal.direction == "NO_SIGNAL"
-            else back_to_menu_keyboard()
+            else signal_result_keyboard(symbol)
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
