@@ -42,12 +42,34 @@ def format_signal_message(signal: SignalResponse) -> str:
         return (
             f"🔍 <b>{signal.pair}</b>\n\n"
             f"⚠️ <b>Сигнал слабый</b>\n"
-            f"Индикаторы не дают чёткого направления. Воздержитесь от сделки.\n\n"
+            f"Рынок не даёт чёткого направления. Воздержитесь от сделки.\n\n"
             f"<i>Попробуйте другую пару или подождите.</i>"
         )
 
     arrow = "🟢" if signal.direction == "BUY" else "🔴"
-    d = signal.details
+
+    lines = [
+        f"{arrow} <b>{signal.pair}</b>\n",
+        f"📊 Сигнал: <b>{signal.direction}</b>",
+        f"💪 Сила: {signal.confidence}/5",
+        f"⏱ Экспирация: {signal.expiration_sec} сек",
+        f"\n<i>Анализ и результат придут по истечении сделки.</i>",
+    ]
+    return "\n".join(lines)
+
+
+def format_result_caption(
+    pair_label: str,
+    direction: str,
+    expiration_sec: int,
+    details: dict,
+) -> str:
+    """
+    Caption sent with the result screenshot.
+    Explains why the signal was issued and what to look for in the result.
+    """
+    arrow = "🟢" if direction == "BUY" else "🔴"
+    d = details
 
     rsi = d.get("RSI", {})
     ema = d.get("EMA", {})
@@ -55,20 +77,42 @@ def format_signal_message(signal: SignalResponse) -> str:
     momentum = d.get("Momentum", {})
     candle = d.get("Candle", {})
 
-    def sig_emoji(s: str) -> str:
-        return "↑" if s == "BUY" else ("↓" if s == "SELL" else "–")
+    def reason(label: str, sig: str, extra: str = "") -> str | None:
+        if sig == direction:
+            return f"• {label}{extra}"
+        return None
+
+    reasons = []
+
+    rsi_val = rsi.get("value", "?")
+    if rsi.get("signal") == direction:
+        hint = " — перепроданность" if direction == "BUY" else " — перекупленность"
+        reasons.append(f"• RSI ({rsi_val}){hint}")
+
+    ema_sig = ema.get("signal", "")
+    if ema_sig == direction:
+        hint = " — восходящий кросс" if direction == "BUY" else " — нисходящий кросс"
+        reasons.append(f"• EMA 9/21{hint}")
+
+    stoch_k = stoch.get("k", "?")
+    if stoch.get("signal") == direction:
+        hint = " — зона перепроданности" if direction == "BUY" else " — зона перекупленности"
+        reasons.append(f"• Stoch K ({stoch_k}){hint}")
+
+    if momentum.get("signal") == direction:
+        hint = " — положительный импульс" if direction == "BUY" else " — отрицательный импульс"
+        reasons.append(f"• Momentum{hint}")
+
+    if candle.get("signal") == direction:
+        hint = " — бычья свеча" if direction == "BUY" else " — медвежья свеча"
+        reasons.append(f"• Свеча{hint}")
+
+    reasons_text = "\n".join(reasons) if reasons else "• Большинство индикаторов совпали"
 
     lines = [
-        f"{arrow} <b>{signal.pair}</b>\n",
-        f"📊 Сигнал: <b>{signal.direction}</b>",
-        f"💪 Сила: {signal.confidence}/5",
-        f"⏱ Экспирация: {signal.expiration_sec} сек\n",
-        f"<b>Индикаторы:</b>",
-        f"• RSI({rsi.get('value', '?')}): {sig_emoji(rsi.get('signal', ''))} {rsi.get('signal', '?')}",
-        f"• EMA 9/21: {sig_emoji(ema.get('signal', ''))} {ema.get('signal', '?')}",
-        f"• Stoch K={stoch.get('k', '?')}: {sig_emoji(stoch.get('signal', ''))} {stoch.get('signal', '?')}",
-        f"• Momentum: {sig_emoji(momentum.get('signal', ''))} {momentum.get('signal', '?')}",
-        f"• Свеча: {sig_emoji(candle.get('signal', ''))} {candle.get('signal', '?')}",
-        f"\n<i>Скриншот результата придёт по истечении времени.</i>",
+        f"{arrow} <b>{pair_label}</b> — результат сделки",
+        f"Сигнал: <b>{direction}</b> | Экспирация: {expiration_sec} сек\n",
+        f"<b>Почему вошли в {direction}:</b>",
+        reasons_text,
     ]
     return "\n".join(lines)

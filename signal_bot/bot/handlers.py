@@ -297,6 +297,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                 pair_label=pair_label,
                 expiration_sec=expiration_sec,
                 direction=signal.direction,
+                details=signal.details,
             )
 
     except Exception as e:
