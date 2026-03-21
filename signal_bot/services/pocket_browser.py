@@ -905,13 +905,16 @@ async def take_trade_result_screenshot(
 
         close_times_js = repr(close_time_candidates)
 
-        # JS that searches ONLY for our specific pair — returns JSON or null (not found yet)
+        # JS that detects our trade result — identified primarily by close TIME,
+        # with pair label used as an additional preference (not a hard requirement),
+        # because some pairs may render differently in the Closed panel.
         pair_detect_js = f"""() => {{
             const pairLabel  = {repr(pair_label_js)};
             const closeTimes = {close_times_js};
-            const hasProfit  = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
-            const hasZero    = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
-            const hasTime    = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+            const hasProfit    = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+            const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+            const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+            const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // any HH:MM = closed trade
 
             // CSS popup classes — fastest check
             const strictWin  = ['.notification--profit', '.result--win', '.deal--win', '.trade--profit'];
@@ -919,39 +922,39 @@ async def take_trade_result_screenshot(
             for (const s of strictWin)  {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'win',  step:1}}); }}
             for (const s of strictLoss) {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'loss', step:1}}); }}
 
-            // Closed trades always show a HH:MM timestamp; open trades do not.
-            // This prevents matching an open trade card showing $0.
-            const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t);
-
-            // Walk elements: must contain our pair + profit/loss + HH:MM + be card-sized
-            const candidates = [];
+            // Collect all closed-trade-sized elements with profit/loss info.
+            // Closed trades always have a HH:MM time; open trades do not — this
+            // prevents matching a still-open card showing $0.
+            const all = [];
             for (const el of document.querySelectorAll('*')) {{
                 if (el.children.length > 8) continue;
                 const t = (el.innerText || '').trim();
-                if (!t.includes(pairLabel)) continue;
-                if (!hasCloseTime(t)) continue;           // ← skip open trades (no HH:MM)
+                if (!hasCloseTime(t)) continue;           // ← skip open trades
                 if (t.includes('Payout') || t.includes('payout')) continue;
                 if (!hasProfit(t) && !hasZero(t)) continue;
                 const r = el.getBoundingClientRect();
                 if (r.width < 80 || r.height < 20 || r.height > 120) continue;
                 if (r.width * r.height > 120000) continue;
-                candidates.push({{ t, y: r.top, hasOurTime: hasTime(t) }});
+                all.push({{ t, y: r.top, byTime: hasOurTime(t), byPair: t.includes(pairLabel) }});
             }}
-            if (candidates.length === 0) return null;  // not ready yet — caller retries
+            if (all.length === 0) return null;
 
-            const withTime = candidates.filter(c => c.hasOurTime);
-            // When we know the expected close time, require a match —
-            // never fall back to an old unmatched trade card.
-            if (closeTimes.length > 0 && withTime.length === 0) return null;
-            const pool = withTime.length > 0 ? withTime : candidates;
+            // Priority 1: exact match — pair label + our close time
+            const perfect  = all.filter(c => c.byPair && c.byTime);
+            // Priority 2: time-only match — trade identified by close minute (any pair format)
+            const byTime   = all.filter(c => c.byTime);
+            // When we know expected close times, require a time match — never use old cards.
+            if (closeTimes.length > 0 && byTime.length === 0) return null;
+            const pool = perfect.length > 0 ? perfect : byTime.length > 0 ? byTime : all;
             pool.sort((a, b) => a.y - b.y);
             const top     = pool[0];
             const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
             if (!outcome) return null;
             return JSON.stringify({{
                 outcome,
-                total: candidates.length,
-                timeMatched: withTime.length > 0,
+                total: all.length,
+                timeMatched: byTime.length > 0,
+                pairMatched: perfect.length > 0,
                 topY: Math.round(top.y),
                 text: top.t.replace(/\\s+/g, ' ').slice(0, 100),
             }});
@@ -969,10 +972,11 @@ async def take_trade_result_screenshot(
                     info = _json.loads(raw)
                     outcome = info.get("outcome", "unknown")
                     logger.info(
-                        "Detected trade outcome: %s | attempt=%d candidates=%s "
-                        "timeMatched=%s topY=%s text=%r",
+                        "Detected trade outcome: %s | attempt=%d total=%s "
+                        "timeMatched=%s pairMatched=%s topY=%s text=%r",
                         outcome, attempt + 1,
                         info.get("total"), info.get("timeMatched"),
+                        info.get("pairMatched"),
                         info.get("topY"), info.get("text", ""),
                     )
                     break   # found — stop retrying
@@ -1023,38 +1027,33 @@ async def take_trade_result_screenshot(
         clipped = False
         try:
             clip_box = await page.evaluate(f"""() => {{
-                const label = {repr(pair_label_js)};
-                const hasProfit = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
-                const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+                const label      = {repr(pair_label_js)};
+                const closeTimes = {close_times_js};
+                const hasProfit    = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
+                const hasZero      = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+                const hasOurTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+                const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM = closed trade
 
-                // Collect all candidate elements that contain our pair label
-                // and a profit/loss value. Pick the TOPMOST one (smallest Y) —
-                // that is the most recently closed trade in the Closed panel
-                // (PocketOption renders newest trades at the top of the list).
-                const closeTimes   = {close_times_js};
-                const hasTime      = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
-                const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM means closed trade
-                const candidates = [];
+                // Collect all card-sized elements with profit/loss and a close time.
+                // Trade is identified by close-minute, pair label is just a preference.
+                const all = [];
                 for (const el of document.querySelectorAll('*')) {{
                     if (el.children.length > 8) continue;
                     if (!el.innerText) continue;
                     const t = el.innerText.trim();
-                    if (!t.includes(label)) continue;
-                    if (!hasCloseTime(t)) continue;      // ← skip open trades (no HH:MM yet)
+                    if (!hasCloseTime(t)) continue;      // ← open trades have no HH:MM
                     if (t.includes('Payout') || t.includes('payout')) continue;
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
                     const area = r.width * r.height;
-                    if (r.width < 80 || r.height < 20) continue;
-                    if (r.height > 120) continue;        // ← skip multi-row containers
-                    if (area > 120000) continue;
-                    candidates.push({{ r, y: r.top, hasOurTime: hasTime(t) }});
+                    if (r.width < 80 || r.height < 20 || r.height > 120 || area > 120000) continue;
+                    all.push({{ r, y: r.top, byTime: hasOurTime(t), byPair: t.includes(label) }});
                 }}
-                if (candidates.length === 0) return null;
-                // Require time match when we know the expected close time (prevents old trade cards)
-                const withTime = candidates.filter(c => c.hasOurTime);
-                if (closeTimes.length > 0 && withTime.length === 0) return null;
-                const pool = withTime.length > 0 ? withTime : candidates;
+                if (all.length === 0) return null;
+                const perfect = all.filter(c => c.byPair && c.byTime);
+                const byTime  = all.filter(c => c.byTime);
+                if (closeTimes.length > 0 && byTime.length === 0) return null;
+                const pool = perfect.length > 0 ? perfect : byTime.length > 0 ? byTime : all;
                 pool.sort((a, b) => a.y - b.y);
                 const best = pool[0].r;
                 return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
