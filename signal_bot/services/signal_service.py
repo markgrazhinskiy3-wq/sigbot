@@ -40,11 +40,12 @@ def format_signal_message(signal: SignalResponse) -> str:
             f"<i>Попробуйте другую пару или подождите.</i>"
         )
 
-    arrow = "🟢" if signal.direction == "BUY" else "🔴"
+    arrow = "🟢 ⬆️" if signal.direction == "BUY" else "🔴 ⬇️"
+    dir_label = "BUY ⬆️" if signal.direction == "BUY" else "SELL ⬇️"
 
     lines = [
         f"{arrow} <b>{signal.pair}</b>\n",
-        f"📊 Сигнал: <b>{signal.direction}</b>",
+        f"📊 Сигнал: <b>{dir_label}</b>",
         f"💪 Сила: {signal.confidence}/5",
         f"⏱ Экспирация: {signal.expiration_sec} сек",
         f"\n<i>Анализ и результат придут по истечении сделки.</i>",
@@ -59,7 +60,8 @@ def format_result_caption(
     details: dict,
     outcome: str = "unknown",
 ) -> str:
-    arrow = "🟢" if direction == "BUY" else "🔴"
+    arrow = "🟢 ⬆️" if direction == "BUY" else "🔴 ⬇️"
+    dir_label = "BUY ⬆️" if direction == "BUY" else "SELL ⬇️"
     d = details
 
     rsi = d.get("RSI", {})
@@ -103,9 +105,9 @@ def format_result_caption(
 
     lines = [
         f"{arrow} <b>{pair_label}</b>",
-        f"Сигнал: <b>{direction}</b> | Экспирация: {expiration_sec} сек\n",
+        f"Сигнал: <b>{dir_label}</b> | Экспирация: {expiration_sec} сек\n",
         outcome_line,
-        f"\n<b>Почему вошли в {direction}:</b>",
+        f"\n<b>Почему вошли в {dir_label}:</b>",
         reasons_text,
     ]
     return "\n".join(lines)

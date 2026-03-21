@@ -17,8 +17,7 @@ from services.signal_service import get_signal, format_signal_message
 from services.result_watcher import schedule_result_watcher
 from services.pocket_browser import close_browser
 from bot.keyboards import (
-    main_menu_keyboard, pairs_keyboard, expiration_keyboard,
-    back_to_menu_keyboard, after_result_keyboard,
+    main_menu_keyboard, pairs_keyboard, expiration_keyboard, back_to_menu_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,55 +338,4 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
             "⚠️ <b>Ошибка при перезапуске.</b>\n\nПопробуйте снова.",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
-        )
-
-
-# ─── Next signal (same pair + expiration) ────────────────────────────────────
-
-@router.callback_query(F.data.startswith("next_signal:"))
-async def cb_next_signal(callback: CallbackQuery) -> None:
-    if not await _check_user_access(callback):
-        return
-
-    _, symbol, sec_str = callback.data.split(":", 2)
-    expiration_sec = int(sec_str)
-    pair_label = next(
-        (p["label"] for p in config.OTC_PAIRS if p["symbol"] == symbol),
-        symbol,
-    )
-
-    await callback.answer("⏳ Анализирую рынок...")
-    await callback.message.edit_text(
-        f"🔄 <b>Анализирую {pair_label}...</b>\n\nПодождите, собираю данные.",
-        parse_mode="HTML",
-    )
-
-    try:
-        signal = await get_signal(symbol, pair_label, expiration_sec)
-        text = format_signal_message(signal)
-
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
-        )
-
-        if signal.direction != "NO_SIGNAL":
-            schedule_result_watcher(
-                bot=callback.bot,
-                chat_id=callback.from_user.id,
-                symbol=symbol,
-                pair_label=pair_label,
-                expiration_sec=expiration_sec,
-                direction=signal.direction,
-                details=signal.details,
-            )
-
-    except Exception as e:
-        logger.exception("Next signal fetch error: %s", e)
-        await callback.message.edit_text(
-            "❌ <b>Ошибка получения сигнала</b>\n\n"
-            "Не удалось подключиться к платформе. Попробуйте позже.",
-            parse_mode="HTML",
-            reply_markup=after_result_keyboard(symbol, expiration_sec),
         )

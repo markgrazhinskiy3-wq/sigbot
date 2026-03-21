@@ -55,13 +55,13 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def after_result_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup:
+def after_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
     """Keyboard shown after a trade result arrives."""
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
             text="🔄 Следующий сигнал",
-            callback_data=f"next_signal:{symbol}:{expiration_sec}",
+            callback_data=f"pair:{symbol}",  # re-uses pair handler → shows expiration picker
         )
     )
     builder.row(

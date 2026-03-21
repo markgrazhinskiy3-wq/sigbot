@@ -51,7 +51,7 @@ async def watch_and_report(
         await bot.send_message(
             chat_id=chat_id,
             text="Что делаем дальше?",
-            reply_markup=after_result_keyboard(symbol, expiration_sec),
+            reply_markup=after_result_keyboard(symbol),
         )
 
     except Exception as e:
@@ -63,7 +63,7 @@ async def watch_and_report(
                     "⚠️ Не удалось сделать скриншот результата.\n"
                     "Проверьте результат самостоятельно на платформе."
                 ),
-                reply_markup=after_result_keyboard(symbol, expiration_sec),
+                reply_markup=after_result_keyboard(symbol),
             )
         except Exception:
             pass
