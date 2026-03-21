@@ -421,62 +421,67 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
             logger.warning("Keyboard fallback also failed: %s", e)
             return False
 
-    # Step 6: Click the matching asset in results
-    # IMPORTANT: always use short timeout so we don't block 30s on invisible elements
+    # Step 6: Use JavaScript DOM traversal to find & click any element with matching text
+    # This is more reliable than Playwright's text selector (works regardless of element type)
+    base_part = slash_name.split("/")[0].strip().lower()  # e.g. "aud"
+    quote_part = slash_name.split("/")[1].replace(" OTC", "").replace(" otc", "").strip().lower() if "/" in slash_name else ""
+
+    clicked = await page.evaluate(f"""() => {{
+        const base  = {repr(base_part)};
+        const quote = {repr(quote_part)};
+        const full  = {repr(slash_name.lower())};
+
+        function score(el) {{
+            if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return 0;
+            const txt = (el.textContent || '').trim().toLowerCase();
+            if (txt.length > 80) return 0;
+            // exact match
+            if (txt === full) return 100;
+            // base+quote both present
+            if (txt.includes(base) && txt.includes(quote)) return 90;
+            // base present
+            if (txt.includes(base) && txt.includes('otc')) return 50;
+            return 0;
+        }}
+
+        // Collect all candidates, score them, pick highest
+        const candidates = Array.from(document.querySelectorAll(
+            'li, span, div, button, a, td'
+        )).filter(el => el.children.length <= 4);
+
+        let best = null, bestScore = 0;
+        for (const el of candidates) {{
+            const s = score(el);
+            if (s > bestScore) {{ bestScore = s; best = el; }}
+        }}
+
+        if (best && bestScore >= 50) {{
+            best.dispatchEvent(new MouseEvent('mousedown', {{bubbles:true}}));
+            best.click();
+            best.dispatchEvent(new MouseEvent('mouseup', {{bubbles:true}}));
+            return bestScore;
+        }}
+        return 0;
+    }}""")
+
+    if clicked and clicked >= 50:
+        logger.info("JS DOM click succeeded for '%s' (score=%s)", slash_name, clicked)
+        await page.wait_for_timeout(2000)
+        return True
+
+    # Playwright fallback selectors with short timeouts
     for sel in [
-        f'.asset-item:has-text("{slash_name}")',
-        f'.assets-item:has-text("{slash_name}")',
-        f'.item:has-text("{slash_name}")',
         f'[data-asset="#{symbol_clean}"]',
         f'[data-id="#{symbol_clean}"]',
         f'[data-symbol="{symbol}"]',
+        f'.asset-item:has-text("{base_part.upper()}")',
+        f'.assets-item:has-text("{base_part.upper()}")',
     ]:
         try:
             el = page.locator(sel).first
             if await el.count() > 0:
-                await el.click(timeout=3000)
-                logger.info("Selected asset via: %s", sel)
-                await page.wait_for_timeout(2000)
-                return True
-        except Exception:
-            continue
-
-    # Try exact text match with short timeout
-    try:
-        results = page.locator(f'text="{slash_name}"')
-        cnt = await results.count()
-        if cnt > 0:
-            await results.first.click(timeout=3000)
-            logger.info("Clicked text match for '%s'", slash_name)
-            await page.wait_for_timeout(2000)
-            return True
-    except Exception:
-        pass
-
-    # Try partial name match (first 3 chars of each currency)
-    base_part = slash_name.split("/")[0].strip()  # e.g. "AUD"
-    try:
-        results = page.locator(f'text=/{base_part}/i')
-        cnt = await results.count()
-        if cnt > 0:
-            for i in range(min(cnt, 5)):
-                txt = await results.nth(i).text_content() or ""
-                if base_part.lower() in txt.lower() and "otc" in txt.lower():
-                    await results.nth(i).click(timeout=3000)
-                    logger.info("Clicked partial match [%d] '%s' for '%s'", i, txt.strip(), slash_name)
-                    await page.wait_for_timeout(2000)
-                    return True
-    except Exception:
-        pass
-
-    # Last resort: click the first visible item in the filtered list
-    for sel in ['.asset-item:first-child', '.assets-item:first-child', 'li.asset:first-child']:
-        try:
-            el = page.locator(sel).first
-            if await el.count() > 0:
-                await el.scroll_into_view_if_needed(timeout=2000)
                 await el.click(timeout=3000, force=True)
-                logger.info("Clicked first-child fallback via: %s", sel)
+                logger.info("Selected asset via Playwright fallback: %s", sel)
                 await page.wait_for_timeout(2000)
                 return True
         except Exception:

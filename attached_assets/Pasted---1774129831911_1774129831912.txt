@@ -1,0 +1,181 @@
+Нужно не просто ослабить фильтры, а перевести аналитический движок в диагностический режим и исправить причину, почему он вообще не находит сигналы.
+
+Проблема:
+Бот по-прежнему почти всегда возвращает no-signal.
+Значит проблема уже не только в порогах confidence, а в том, что:
+- либо паттерны вообще не детектятся,
+- либо данные свечей приходят в неудобном формате,
+- либо условия паттернов слишком узкие,
+- либо signal engine неверно агрегирует результат.
+
+Что нужно сделать:
+
+1. Добавить полный debug output для анализа
+При каждом анализе вернуть:
+- сколько свечей было получено
+- какой таймфрейм использован
+- порядок свечей: old->new или new->old
+- последнюю цену
+- результаты каждого аналитического модуля
+- почему каждый модуль не дал сигнал
+- какой reject_reason был применен
+- был ли hard reject или просто low confidence
+
+Формат debug результата:
+{
+  "candles_count": 50,
+  "timeframe": "1m",
+  "candles_order": "old_to_new",
+  "last_close": 1.2345,
+  "impulse_pullback": {
+    "direction": "none",
+    "score": 0,
+    "reason": "not enough momentum"
+  },
+  "level_bounce": {
+    "direction": "none",
+    "score": 0,
+    "reason": "no bounce detected"
+  },
+  "false_breakout": {
+    "direction": "none",
+    "score": 0,
+    "reason": "no breakout recovery"
+  },
+  "candle_strength": {
+    "score": 22,
+    "reason": "mixed candles"
+  },
+  "level_analysis": {
+    "score": 40,
+    "reason": "price in middle of range"
+  },
+  "market_regime": {
+    "regime": "range",
+    "score": 45,
+    "reason": "weak directional structure"
+  },
+  "indicator_confirmation": {
+    "score": 38,
+    "reason": "neutral indicators"
+  },
+  "hard_conflicts": [],
+  "soft_conflicts": ["weak momentum", "neutral RSI"],
+  "final_decision": "none",
+  "reject_reason": "no primary strategy detected"
+}
+
+2. Проверить данные свечей
+Переделать preprocessing candles:
+- убедиться, что свечи отсортированы от старых к новым
+- убедиться, что у каждой свечи есть open, high, low, close
+- убедиться, что high >= max(open, close), low <= min(open, close)
+- если порядок свечей обратный, автоматически переворачивать
+- отфильтровать битые свечи
+- добавить функцию validate_candles()
+
+Если данные плохие, не пытаться анализировать молча.
+Возвращать явную диагностику.
+
+3. Ослабить детектирование паттернов
+Сейчас паттерны слишком узкие.
+Нужно сделать их более живыми.
+
+Impulse pullback:
+- не требовать идеальные 3-5 свечей подряд
+- достаточно 2-4 свечей с явным доминированием направления
+- откат может быть 1-2 свечи и не обязан быть идеально маленьким
+- если есть общее направление и подтверждение продолжения, модуль может вернуть moderate score
+
+Level bounce:
+- не искать идеальный отбой
+- достаточно касания зоны уровня + подтверждающей свечи
+- использовать зону, а не одну точку
+- добавить tolerance around support/resistance
+
+False breakout:
+- не требовать идеального пробоя и мгновенного возврата
+- достаточно выхода за уровень и возврата в диапазон за последние 2-3 свечи
+- тоже использовать level zone tolerance
+
+4. Сделать зоны вместо жестких уровней
+Уровни сейчас, вероятно, слишком точечные.
+Нужно:
+- support/resistance определять как зоны
+- добавить tolerance percentage или ATR-based tolerance
+- анализировать proximity to zone, а не proximity to exact price
+
+5. Упростить decision logic
+Новая логика:
+- если хотя бы один primary pattern дал buy/sell и score > minimal threshold
+- и нет hard conflict
+- то можно выдать signal_quality=moderate
+- если несколько подтверждений совпали, то strong
+- если ни один primary pattern не найден, только тогда no-signal
+
+6. Добавить fallback signal mode
+Если primary strategy не сработала идеально, но:
+- market regime не chaotic
+- candle strength не слабый
+- EMA direction понятен
+- хотя бы один pattern partially matched
+то разрешить moderate signal
+
+7. Снизить минимальные требования для primary pattern
+Например:
+- impulse_pullback minimal score: 45
+- level_bounce minimal score: 45
+- false_breakout minimal score: 50
+
+Не ставить слишком высокие пороги.
+
+8. Добавить частичный матч
+Каждый primary strategy module должен возвращать:
+- matched: true/false
+- partial_match: true/false
+- direction
+- score
+- reason
+
+Если matched=false, но partial_match=true, signal engine может учесть это как moderate setup.
+
+9. Изменить final decision order
+Сделать так:
+
+Step 1:
+validate candles
+
+Step 2:
+run primary strategies
+
+Step 3:
+if all primary strategies = none and no partial_match:
+    no signal
+
+Step 4:
+if one primary strategy matched or partial_match strong enough:
+    check hard conflicts
+
+Step 5:
+if no hard conflict:
+    use secondary filters to adjust confidence
+    return moderate or strong signal
+
+10. Добавить отдельную debug команду /analysis_debug
+Если проект уже содержит удобную точку вызова, сделать режим, где можно увидеть:
+- почему нет сигнала
+- какой модуль не сработал
+- какие условия оказались слишком жесткими
+
+11. Главное
+Не переписывай весь проект.
+Покажи только обновленные файлы аналитического движка:
+- preprocessing / validate candles
+- primary pattern modules
+- signal scoring engine
+- debug breakdown
+
+Главная цель:
+сначала добиться, чтобы primary patterns начали детектиться хотя бы иногда,
+а уже потом усиливать фильтрацию.
+Проблема сейчас не в том, что сигнал слабый, а в том, что паттерны вообще не срабатывают.

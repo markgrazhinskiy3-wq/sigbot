@@ -203,6 +203,99 @@ async def cmd_broadcast(message: Message) -> None:
     await message.answer(f"📢 Рассылка: ✅ {sent} отправлено, ❌ {failed} ошибок.")
 
 
+# ─── /debug — raw signal analysis dump (admin only) ──────────────────────────
+
+@router.message(Command("debug"))
+async def cmd_debug(message: Message) -> None:
+    """
+    /debug [PAIR_SYMBOL]
+    Example: /debug #AUDCAD_otc
+    Returns the full module scoring breakdown for the requested pair.
+    Admin-only.
+    """
+    if not _is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split(maxsplit=1)
+    symbol = parts[1].strip() if len(parts) > 1 else None
+
+    if not symbol:
+        pairs = pairs_cache.get_cached()
+        if not pairs:
+            await message.answer("Сначала обновите кэш пар (/start → выбор пары).")
+            return
+        symbol = pairs[0]["symbol"]
+
+    await message.answer(f"🔬 Запускаю анализ <code>{symbol}</code>...", parse_mode="HTML")
+
+    try:
+        pair_label = _label_for_symbol(symbol)
+        signal_resp = await get_signal(symbol=symbol, pair_label=pair_label, expiration_sec=60)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    details = signal_resp.details if hasattr(signal_resp, "details") else {}
+    debug   = details.get("debug", {}) if isinstance(details, dict) else {}
+
+    if not debug:
+        await message.answer("Нет данных debug (не удалось получить свечи).")
+        return
+
+    # ── Format debug output ───────────────────────────────────────────────────
+    lines = [
+        f"🔬 <b>DEBUG: {symbol}</b>",
+        f"Свечей: {debug.get('candles_count', '?')} raw → {debug.get('candles_clean', '?')} clean",
+        f"Порядок: {debug.get('order', '?')} | avg_body: {float(debug.get('avg_body_pct', 0)):.5f}%",
+        f"Режим рынка: {debug.get('regime', '?')}",
+        f"Цена: {debug.get('last_close', '?')}",
+        "",
+        "<b>Модули:</b>",
+    ]
+
+    modules = debug.get("modules", {})
+    module_labels = {
+        "impulse_pullback": "Импульс/откат",
+        "level_bounce":     "Отбой уровня",
+        "false_breakout":   "Ложный пробой",
+        "candle_strength":  "Сила свечей",
+        "level_analysis":   "Анализ уровней",
+        "market_regime":    "Режим рынка",
+        "indicators":       "Индикаторы",
+    }
+    for key, label in module_labels.items():
+        m = modules.get(key, {})
+        b = m.get("buy", 0)
+        s = m.get("sell", 0)
+        reason = m.get("reason", "")
+        lines.append(f"  {label}: BUY={b:.0f} / SELL={s:.0f}")
+        if reason:
+            short = reason[:80] + "…" if len(reason) > 80 else reason
+            lines.append(f"    └ {short}")
+
+    lines.append("")
+    lines.append(f"PA buy={debug.get('raw_primary_buy','?')} sell={debug.get('raw_primary_sell','?')}")
+    lines.append(f"PA blended buy={debug.get('pa_buy','?')} sell={debug.get('pa_sell','?')}")
+    lines.append(f"Уверенность: {debug.get('confidence_base','?')} → {debug.get('confidence_final','?')}")
+    lines.append(f"Жёсткие конфликты: {', '.join(debug.get('hard_conflicts', [])) or 'нет'}")
+    lines.append(f"Мягкие конфликты: {', '.join(debug.get('soft_conflicts', [])) or 'нет'}")
+
+    final = debug.get("final_decision") or details.get("direction", "—")
+    reject = debug.get("reject_reason")
+    if reject:
+        lines.append(f"\n❌ Отклонён: {reject}")
+        if debug.get("reject_detail"):
+            lines.append(f"  {debug['reject_detail']}")
+    else:
+        lines.append(f"\n✅ Решение: <b>{final}</b>")
+
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3997] + "…"
+
+    await message.answer(text, parse_mode="HTML")
+
+
 # ─── Callback handlers ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("admin:approve:"))
