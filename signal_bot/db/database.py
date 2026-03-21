@@ -28,7 +28,11 @@ async def init_db() -> None:
     logger.info("Database initialized at %s", DB_PATH)
 
 
-async def add_or_get_user(user_id: int, username: str | None) -> dict:
+async def add_or_get_user(user_id: int, username: str | None) -> tuple[dict, bool]:
+    """
+    Returns (user_dict, is_new).
+    is_new=True only when the user was just inserted for the first time.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -36,7 +40,7 @@ async def add_or_get_user(user_id: int, username: str | None) -> dict:
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                return dict(row)
+                return dict(row), False
 
         now = datetime.utcnow().isoformat()
         await db.execute(
@@ -50,7 +54,7 @@ async def add_or_get_user(user_id: int, username: str | None) -> dict:
             "username": username or "",
             "status": "pending",
             "created_at": now,
-        }
+        }, True
 
 
 async def get_status(user_id: int) -> str | None:

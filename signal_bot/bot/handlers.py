@@ -12,7 +12,7 @@ from db.database import (
     add_or_get_user, get_status, set_status,
     list_all, list_pending, list_approved,
 )
-from services.access_service import check_access
+from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
 from services.result_watcher import schedule_result_watcher
 from bot.keyboards import (
@@ -34,8 +34,11 @@ async def cmd_start(message: Message) -> None:
     user_id = message.from_user.id
     username = message.from_user.username
 
-    user = await add_or_get_user(user_id, username)
+    user, is_new = await add_or_get_user(user_id, username)
     status = user["status"]
+
+    if is_new and status == "pending":
+        await notify_admin_new_user(message.bot, user_id, username)
 
     if status == "pending":
         await message.answer(
@@ -43,41 +46,20 @@ async def cmd_start(message: Message) -> None:
             "Ваша заявка на доступ отправлена. Вы получите уведомление после рассмотрения.",
             parse_mode="HTML",
         )
-        await _notify_admin_new_user(message.bot, user_id, username)
         return
 
     if status == "denied":
-        await message.answer(
-            "⛔ Доступ к боту запрещён.",
-            parse_mode="HTML",
-        )
+        await message.answer("⛔ Доступ к боту запрещён.")
         return
 
     if _is_admin(user_id) and status != "approved":
         await set_status(user_id, "approved")
 
     await message.answer(
-        "👋 <b>Pocket Option Signal Bot</b>\n\n"
-        "Выберите действие:",
+        "👋 <b>Pocket Option Signal Bot</b>\n\nВыберите действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
-
-
-async def _notify_admin_new_user(bot: Bot, user_id: int, username: str | None) -> None:
-    uname = f"@{username}" if username else f"ID:{user_id}"
-    try:
-        await bot.send_message(
-            config.ADMIN_USER_ID,
-            f"🆕 <b>Новый запрос на доступ</b>\n\n"
-            f"Пользователь: {uname}\n"
-            f"ID: <code>{user_id}</code>\n\n"
-            f"✅ Одобрить: /approve {user_id}\n"
-            f"❌ Отклонить: /deny {user_id}",
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        logger.error("Failed to notify admin: %s", e)
 
 
 # ─── Admin commands ──────────────────────────────────────────────────────────
@@ -94,7 +76,7 @@ async def cmd_admin(message: Message) -> None:
         "/deny <code>ID</code> — отклонить пользователя\n"
         "/users — список всех пользователей\n"
         "/pending — список ожидающих\n"
-        "/broadcast <code>текст</code> — рассылка всем",
+        "/broadcast <code>текст</code> — рассылка всем одобренным",
         parse_mode="HTML",
     )
 
@@ -112,7 +94,9 @@ async def cmd_approve(message: Message) -> None:
     target_id = int(parts[1])
     ok = await set_status(target_id, "approved")
     if ok:
-        await message.answer(f"✅ Пользователь <code>{target_id}</code> одобрен.", parse_mode="HTML")
+        await message.answer(
+            f"✅ Пользователь <code>{target_id}</code> одобрен.", parse_mode="HTML"
+        )
         try:
             await message.bot.send_message(
                 target_id,
@@ -123,7 +107,9 @@ async def cmd_approve(message: Message) -> None:
         except Exception:
             pass
     else:
-        await message.answer(f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML")
+        await message.answer(
+            f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML"
+        )
 
 
 @router.message(Command("deny"))
@@ -139,16 +125,17 @@ async def cmd_deny(message: Message) -> None:
     target_id = int(parts[1])
     ok = await set_status(target_id, "denied")
     if ok:
-        await message.answer(f"⛔ Пользователь <code>{target_id}</code> отклонён.", parse_mode="HTML")
+        await message.answer(
+            f"⛔ Пользователь <code>{target_id}</code> отклонён.", parse_mode="HTML"
+        )
         try:
-            await message.bot.send_message(
-                target_id,
-                "⛔ Ваш запрос на доступ отклонён.",
-            )
+            await message.bot.send_message(target_id, "⛔ Ваш запрос на доступ отклонён.")
         except Exception:
             pass
     else:
-        await message.answer(f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML")
+        await message.answer(
+            f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML"
+        )
 
 
 @router.message(Command("users"))
@@ -203,7 +190,6 @@ async def cmd_broadcast(message: Message) -> None:
 
     text = parts[1]
     users = await list_approved()
-
     sent, failed = 0, 0
     for u in users:
         try:
@@ -212,14 +198,16 @@ async def cmd_broadcast(message: Message) -> None:
         except Exception:
             failed += 1
 
-    await message.answer(f"📢 Рассылка завершена: ✅ {sent} отправлено, ❌ {failed} ошибок.")
+    await message.answer(f"📢 Рассылка: ✅ {sent} отправлено, ❌ {failed} ошибок.")
 
 
 # ─── Callback handlers ───────────────────────────────────────────────────────
 
 async def _check_user_access(callback: CallbackQuery) -> bool:
+    if _is_admin(callback.from_user.id):
+        return True
     status = await check_access(callback.from_user.id)
-    if status == "approved" or _is_admin(callback.from_user.id):
+    if status == "approved":
         return True
     if status == "pending":
         await callback.answer("⏳ Ваша заявка ещё на рассмотрении.", show_alert=True)
@@ -313,8 +301,8 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
         await callback.message.edit_text(
-            f"❌ <b>Ошибка получения сигнала</b>\n\n"
-            f"<code>{str(e)[:300]}</code>",
+            "❌ <b>Ошибка получения сигнала</b>\n\n"
+            "Не удалось подключиться к платформе. Попробуйте позже.",
             parse_mode="HTML",
             reply_markup=back_to_menu_keyboard(),
         )

@@ -2,11 +2,3 @@ aiogram==3.13.1
 playwright==1.48.0
 python-dotenv==1.0.1
 aiofiles==24.1.0
-aiofiles==24.1.0
-aiogram==3.13.1
-playwright==1.48.0
-python-dotenv==1.0.1
-aiosqlite
-numpy
-pandas
-pandas-ta
