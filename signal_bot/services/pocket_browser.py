@@ -398,26 +398,31 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
         }""")
         if search_box and search_box.get('y', 0) > 0:
             await page.mouse.click(search_box['x'], search_box['y'])
-            await page.wait_for_timeout(200)
+            await page.wait_for_timeout(400)
             await page.keyboard.type(slash_name)
             logger.info("Typed '%s' via mouse+keyboard (coords: %.0f,%.0f, placeholder='%s')", slash_name, search_box['x'], search_box['y'], search_box.get('ph', ''))
-            await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1500)
             typed = True
     except Exception as e:
         logger.warning("Mouse+keyboard type failed: %s", e)
 
     if not typed:
-        # Fallback: just keyboard.type in case search field is already focused
+        # Fallback: use Playwright locator to focus then type
         try:
+            if input_sel:
+                inp = page.locator(input_sel).first
+                await inp.focus(timeout=3000)
+                await page.wait_for_timeout(300)
             await page.keyboard.type(slash_name)
-            logger.info("Typed '%s' via keyboard fallback", slash_name)
-            await page.wait_for_timeout(800)
+            logger.info("Typed '%s' via keyboard fallback (focused via %s)", slash_name, input_sel)
+            await page.wait_for_timeout(1500)
             typed = True
         except Exception as e:
             logger.warning("Keyboard fallback also failed: %s", e)
             return False
 
     # Step 6: Click the matching asset in results
+    # IMPORTANT: always use short timeout so we don't block 30s on invisible elements
     for sel in [
         f'.asset-item:has-text("{slash_name}")',
         f'.assets-item:has-text("{slash_name}")',
@@ -425,31 +430,57 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
         f'[data-asset="#{symbol_clean}"]',
         f'[data-id="#{symbol_clean}"]',
         f'[data-symbol="{symbol}"]',
-        '.asset-item:first-child',
-        '.assets-item:first-child',
-        'li.asset:first-child',
     ]:
         try:
             el = page.locator(sel).first
             if await el.count() > 0:
-                await el.click()
+                await el.click(timeout=3000)
                 logger.info("Selected asset via: %s", sel)
                 await page.wait_for_timeout(2000)
                 return True
         except Exception:
             continue
 
-    # Try clicking first visible result after search
+    # Try exact text match with short timeout
     try:
         results = page.locator(f'text="{slash_name}"')
         cnt = await results.count()
         if cnt > 0:
-            await results.first.click()
+            await results.first.click(timeout=3000)
             logger.info("Clicked text match for '%s'", slash_name)
             await page.wait_for_timeout(2000)
             return True
     except Exception:
         pass
+
+    # Try partial name match (first 3 chars of each currency)
+    base_part = slash_name.split("/")[0].strip()  # e.g. "AUD"
+    try:
+        results = page.locator(f'text=/{base_part}/i')
+        cnt = await results.count()
+        if cnt > 0:
+            for i in range(min(cnt, 5)):
+                txt = await results.nth(i).text_content() or ""
+                if base_part.lower() in txt.lower() and "otc" in txt.lower():
+                    await results.nth(i).click(timeout=3000)
+                    logger.info("Clicked partial match [%d] '%s' for '%s'", i, txt.strip(), slash_name)
+                    await page.wait_for_timeout(2000)
+                    return True
+    except Exception:
+        pass
+
+    # Last resort: click the first visible item in the filtered list
+    for sel in ['.asset-item:first-child', '.assets-item:first-child', 'li.asset:first-child']:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.scroll_into_view_if_needed(timeout=2000)
+                await el.click(timeout=3000, force=True)
+                logger.info("Clicked first-child fallback via: %s", sel)
+                await page.wait_for_timeout(2000)
+                return True
+        except Exception:
+            continue
 
     logger.warning("Could not select asset %s from panel", slash_name)
     return False
@@ -785,7 +816,15 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
             await page.wait_for_timeout(500)
             if any(ev == "updateHistoryNewFast" for ev, _ in binary_frames):
                 break
-        
+
+        # After initial history, collect real-time ticks for extra candle data (30s)
+        initial_candles = _candles_from_binary_frames(binary_frames, 9999, symbol=symbol, period=15)
+        if 0 < len(initial_candles) < 40:
+            logger.info("Only %d candles so far — waiting 30s for more real-time ticks…", len(initial_candles))
+            for _ in range(60):
+                await page.wait_for_timeout(500)
+            logger.info("Extra tick collection done, total binary frames: %d", len(binary_frames))
+
         # Log what WS data arrived (all assets) for debugging
         seen_assets = list({
             json.loads(d.decode("utf-8")).get("asset", "?")
@@ -794,7 +833,9 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         })
         logger.info("WS assets received: %s", seen_assets)
 
-        candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=30)
+        # Use 15-second candles (instead of 30s) — same tick data → ~2x more data points
+        # This gives the scoring engine more candles to work with for pattern detection
+        candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=15)
 
         if len(candles) == 0:
             # Do NOT fall back to data from a different pair — that causes wrong-pair analysis.

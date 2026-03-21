@@ -35,9 +35,9 @@ from .false_breakout         import false_breakout_strategy
 logger = logging.getLogger(__name__)
 
 STRONG_THRESHOLD   = 68.0
-MODERATE_THRESHOLD = 55.0
-FAILSAFE_THRESHOLD = 52.0   # only with strong primary + no hard conflict
-FAILSAFE_PA_MIN    = 50.0   # primary strategy score needed for fail-safe
+MODERATE_THRESHOLD = 50.0
+FAILSAFE_THRESHOLD = 46.0   # only with strong primary + no hard conflict
+FAILSAFE_PA_MIN    = 45.0   # primary strategy score needed for fail-safe
 
 
 def run_scoring_engine(df: pd.DataFrame, debug: bool = False) -> dict[str, Any]:
@@ -170,8 +170,8 @@ def run_scoring_engine(df: pd.DataFrame, debug: bool = False) -> dict[str, Any]:
     if level_ok_score < 40:
         soft_conflicts.append(f"Уровень близко: {levels.explanation}")
 
-    # Apply soft conflict penalty to confidence
-    confidence -= len(soft_conflicts) * 2.5
+    # Apply soft conflict penalty to confidence (1.5 pts each — informational, not blocking)
+    confidence -= len(soft_conflicts) * 1.5
 
     # ── Hard conflict → no signal ─────────────────────────────────────────────
     if hard_conflicts:
@@ -190,9 +190,12 @@ def run_scoring_engine(df: pd.DataFrame, debug: bool = False) -> dict[str, Any]:
         logger.debug("Fail-safe signal: primary=%s raw=%.1f conf=%.1f",
                      primary_name, primary_raw, confidence)
     else:
+        sc_str = ", ".join(soft_conflicts)
+        reason = f"Условия не выполнены (оценка {confidence:.0f})"
+        if soft_conflicts:
+            reason += f"; конфликты: {sc_str}"
         return _no_signal(
-            f"Недостаточная уверенность ({confidence:.0f}/{MODERATE_THRESHOLD:.0f})"
-            + (f"; мягкие конфликты: {', '.join(soft_conflicts)}" if soft_conflicts else ""),
+            reason,
             module_scores, regime=regime.regime,
             hard_conflicts=[], soft_conflicts=soft_conflicts
         )
