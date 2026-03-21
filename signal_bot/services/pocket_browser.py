@@ -52,58 +52,131 @@ async def _get_context() -> BrowserContext:
 
 async def _login(page: Page) -> None:
     logger.info("Logging into Pocket Option")
-    await page.goto(config.PO_LOGIN_URL, wait_until="networkidle", timeout=30_000)
-    await page.wait_for_timeout(1500)
+    await page.goto(config.PO_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+    await page.wait_for_timeout(3000)
+
+    logger.info("Login page URL: %s", page.url)
 
     email_selectors = [
         'input[name="email"]',
         'input[type="email"]',
         'input[placeholder*="Email" i]',
-        'input[placeholder*="email" i]',
+        'input[placeholder*="mail" i]',
+        'input[autocomplete="email"]',
+        'input[autocomplete="username"]',
+        'form input[type="text"]',
+        'input.email',
+        '#email',
+        '#login',
     ]
     password_selectors = [
         'input[name="password"]',
         'input[type="password"]',
+        'input[placeholder*="Password" i]',
+        'input[placeholder*="пароль" i]',
+        '#password',
     ]
     submit_selectors = [
         'button[type="submit"]',
+        'input[type="submit"]',
         'button:has-text("Sign in")',
         'button:has-text("Log in")',
         'button:has-text("Login")',
+        'button:has-text("Войти")',
+        'button:has-text("Вход")',
+        'form button',
+        '.login-btn',
+        '.btn-login',
+        '.submit-btn',
     ]
 
+    email_filled = False
     for sel in email_selectors:
         try:
             el = page.locator(sel).first
-            if await el.count() > 0:
-                await el.fill(config.PO_LOGIN)
+            cnt = await el.count()
+            if cnt > 0:
+                await el.wait_for(state="visible", timeout=3000)
+                await el.click()
+                await el.fill("")
+                await el.type(config.PO_LOGIN, delay=50)
+                email_filled = True
+                logger.info("Email filled via selector: %s", sel)
                 break
         except Exception:
             continue
 
+    if not email_filled:
+        debug_path = str(SCREENSHOTS_DIR / "login_debug_email.png")
+        await page.screenshot(path=debug_path)
+        logger.error("Could not find email field. Debug screenshot: %s", debug_path)
+        raise RuntimeError("Login failed — email field not found on login page")
+
+    await page.wait_for_timeout(500)
+
+    password_filled = False
     for sel in password_selectors:
         try:
             el = page.locator(sel).first
-            if await el.count() > 0:
-                await el.fill(config.PO_PASSWORD)
+            cnt = await el.count()
+            if cnt > 0:
+                await el.wait_for(state="visible", timeout=3000)
+                await el.click()
+                await el.fill("")
+                await el.type(config.PO_PASSWORD, delay=50)
+                password_filled = True
+                logger.info("Password filled via selector: %s", sel)
                 break
         except Exception:
             continue
 
+    if not password_filled:
+        debug_path = str(SCREENSHOTS_DIR / "login_debug_password.png")
+        await page.screenshot(path=debug_path)
+        logger.error("Could not find password field. Debug screenshot: %s", debug_path)
+        raise RuntimeError("Login failed — password field not found on login page")
+
+    await page.wait_for_timeout(500)
+
+    clicked = False
     for sel in submit_selectors:
         try:
             btn = page.locator(sel).first
-            if await btn.count() > 0:
+            cnt = await btn.count()
+            if cnt > 0:
+                await btn.wait_for(state="visible", timeout=3000)
                 await btn.click()
+                clicked = True
+                logger.info("Submit clicked via selector: %s", sel)
                 break
         except Exception:
             continue
 
-    await page.wait_for_load_state("networkidle", timeout=30_000)
-    await page.wait_for_timeout(2000)
+    if not clicked:
+        await page.keyboard.press("Enter")
+        logger.info("Submit via Enter key")
 
-    if "login" in page.url.lower() or "auth" in page.url.lower():
-        raise RuntimeError("Login failed — check credentials")
+    try:
+        await page.wait_for_load_state("networkidle", timeout=30_000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(3000)
+
+    current_url = page.url.lower()
+    logger.info("Post-login URL: %s", current_url)
+
+    success_indicators = ["cabinet", "trade", "dashboard", "platform"]
+    fail_indicators = ["login", "signin", "auth", "register"]
+
+    is_success = any(ind in current_url for ind in success_indicators)
+    is_fail = any(ind in current_url for ind in fail_indicators)
+
+    if is_fail and not is_success:
+        debug_path = str(SCREENSHOTS_DIR / "login_debug_fail.png")
+        await page.screenshot(path=debug_path)
+        logger.error("Login failed, URL=%s. Debug screenshot: %s", current_url, debug_path)
+        raise RuntimeError("Login failed — check credentials or captcha")
+
     logger.info("Login successful, URL: %s", page.url)
 
 
