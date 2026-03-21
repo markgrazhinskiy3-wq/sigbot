@@ -48,24 +48,32 @@ def _conf_label(confidence: int) -> str:
 
 def format_signal_message(signal: SignalResponse) -> str:
     if signal.direction == "NO_SIGNAL":
-        reject = signal.details.get("reject_reason") if isinstance(signal.details, dict) else None
-        regime = signal.details.get("regime", "") if isinstance(signal.details, dict) else ""
+        d      = signal.details if isinstance(signal.details, dict) else {}
+        reject = d.get("reject_reason") or ""
+        regime = d.get("regime", "")
+        hard   = d.get("hard_conflicts", [])
+        soft   = d.get("soft_conflicts", [])
         regime_label = {
             "chaotic_noise": "🌪 Хаотичный рынок",
-            "range": "↔️ Боковой рынок",
-            "uptrend": "📈 Восходящий тренд",
-            "downtrend": "📉 Нисходящий тренд",
+            "range":         "↔️ Боковой рынок",
+            "uptrend":       "📈 Восходящий тренд",
+            "downtrend":     "📉 Нисходящий тренд",
+            "weak_trend":    "〰️ Слабый тренд",
         }.get(regime, "")
-        reason_line = f"\n<i>{reject}</i>" if reject else ""
-        regime_line = f"\n{regime_label}" if regime_label else ""
-        return (
-            f"🔍 <b>{signal.pair}</b>\n"
-            f"\n"
-            f"⚠️ <b>Сигнал не найден</b>{regime_line}\n"
-            f"Условия входа не выполнены — лучше пропустить.{reason_line}\n"
-            f"\n"
-            f"<i>Попробуйте другую пару или подождите немного.</i>"
-        )
+
+        lines = [
+            f"🔍 <b>{signal.pair}</b>",
+            "",
+            f"⚠️ <b>Сигнал не найден</b>" + (f" — {regime_label}" if regime_label else ""),
+            "Условия входа не выполнены — лучше пропустить.",
+        ]
+        if hard:
+            lines.append(f"\n<i>🚫 {hard[0]}</i>")
+        elif reject:
+            lines.append(f"\n<i>{reject}</i>")
+        lines.append("")
+        lines.append("<i>Попробуйте другую пару или подождите немного.</i>")
+        return "\n".join(lines)
 
     if signal.direction == "BUY":
         arrow     = "⬆️"

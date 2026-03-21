@@ -32,9 +32,9 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
     if avg_body == 0:
         avg_body = 1e-8
 
-    # ── Find impulse in recent 15 bars ────────────────────────────────────────
-    # We scan backwards from bar -4 (need room for pullback + confirmation)
-    scan_start = max(0, n - 15)
+    # ── Find impulse in recent 40 bars ────────────────────────────────────────
+    # Scan wide enough to catch patterns that completed 15-30 bars ago
+    scan_start = max(0, n - 40)
     best_bull = _find_pattern(body, body_abs, avg_body, "bull", scan_start, n)
     best_bear = _find_pattern(body, body_abs, avg_body, "bear", scan_start, n)
 

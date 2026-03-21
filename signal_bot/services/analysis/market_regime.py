@@ -1,6 +1,9 @@
 """
 Market Regime Analysis
-Determines: uptrend | downtrend | range | chaotic_noise
+Determines: uptrend | downtrend | weak_trend | range | chaotic_noise
+
+chaotic_noise is now only set for genuinely dirty, alternating markets.
+range is preferred over chaotic_noise when direction is unclear.
 """
 import numpy as np
 import pandas as pd
@@ -9,20 +12,21 @@ from dataclasses import dataclass
 
 @dataclass
 class MarketRegimeResult:
-    regime: str           # uptrend | downtrend | range | chaotic_noise
+    regime: str           # uptrend | downtrend | weak_trend | range | chaotic_noise
     trend_direction: str  # up | down | sideways
     volatility_state: str # high | normal | compressed
-    buy_score: float      # 0-100: how favorable this regime is for BUY
-    sell_score: float     # 0-100: how favorable for SELL
+    buy_score: float      # 0-100
+    sell_score: float     # 0-100
     explanation: str
 
 
 def market_regime_analysis(df: pd.DataFrame) -> MarketRegimeResult:
     n = len(df)
-    if n < 20:
+    if n < 15:
+        # Not enough data → range (neutral), not chaotic
         return MarketRegimeResult(
-            "chaotic_noise", "sideways", "low", 0.0, 0.0,
-            "Недостаточно данных для анализа режима"
+            "range", "sideways", "normal", 55.0, 55.0,
+            "Мало данных — считаем боковым рынком"
         )
 
     close = df["close"]
@@ -36,82 +40,102 @@ def market_regime_analysis(df: pd.DataFrame) -> MarketRegimeResult:
     base = float(ema20.iloc[-1 - slope_bars])
     ema_slope_pct = (float(ema20.iloc[-1]) - base) / base * 100 if base != 0 else 0.0
 
-    # ── Swing structure (split candles into 3 segments) ───────────────────────
+    # ── Swing structure ───────────────────────────────────────────────────────
     lookback = min(30, n)
     seg = max(3, lookback // 3)
     h = high.iloc[-lookback:]
     l = low.iloc[-lookback:]
-    h1 = float(h.iloc[:seg].max())
-    h2 = float(h.iloc[seg:2 * seg].max())
-    h3 = float(h.iloc[2 * seg:].max())
-    l1 = float(l.iloc[:seg].min())
-    l2 = float(l.iloc[seg:2 * seg].min())
-    l3 = float(l.iloc[2 * seg:].min())
+    h1, h2, h3 = float(h.iloc[:seg].max()), float(h.iloc[seg:2*seg].max()), float(h.iloc[2*seg:].max())
+    l1, l2, l3 = float(l.iloc[:seg].min()), float(l.iloc[seg:2*seg].min()), float(l.iloc[2*seg:].min())
 
-    hh = h3 > h2 > h1   # higher highs → uptrend
-    hl = l3 > l2 > l1   # higher lows  → uptrend
-    lh = h3 < h2 < h1   # lower highs  → downtrend
-    ll = l3 < l2 < l1   # lower lows   → downtrend
+    hh = h3 > h2 > h1
+    hl = l3 > l2 > l1
+    lh = h3 < h2 < h1
+    ll = l3 < l2 < l1
 
-    # ── Candle direction chaos ────────────────────────────────────────────────
-    last_n = min(12, n)
-    dirs = (close.iloc[-last_n:].values > open_.iloc[-last_n:].values).astype(int)
+    # ── Direction alternation (chaos indicator) ───────────────────────────────
+    # Use last 10 candles; chaotic_noise only if MOST candles alternate
+    last_n = min(10, n)
+    dirs   = (close.iloc[-last_n:].values > open_.iloc[-last_n:].values).astype(int)
     changes = int(sum(dirs[i] != dirs[i - 1] for i in range(1, len(dirs))))
-    chaos_ratio = changes / max(1, last_n - 1)  # 0-1
+    # Threshold raised: need ≥75% alternation rate (was 58%)
+    chaos_ratio = changes / max(1, last_n - 1)
 
-    # ── Bullish candle percentage (last 20) ───────────────────────────────────
-    recent = min(20, n)
+    # ── Body size (tiny bodies = indecision, not necessarily chaos) ───────────
+    bodies     = abs(close.iloc[-last_n:].values - open_.iloc[-last_n:].values)
+    ranges_    = (high.iloc[-last_n:].values - low.iloc[-last_n:].values)
+    avg_body_r = float(np.mean(bodies / (ranges_ + 1e-10)))  # 0=doji, 1=full body
+
+    # ── Bullish % ────────────────────────────────────────────────────────────
+    recent   = min(20, n)
     bull_pct = float((close.iloc[-recent:] > open_.iloc[-recent:]).mean() * 100)
 
-    # ── Volatility via ATR ────────────────────────────────────────────────────
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low  - close.shift()).abs(),
-    ], axis=1).max(axis=1)
-    atr_now = float(tr.rolling(10).mean().iloc[-1])
-    atr_avg = float(tr.rolling(10).mean().iloc[-21:-1].mean()) if n > 31 else atr_now
-    atr_ratio = atr_now / atr_avg if atr_avg > 0 else 1.0
+    # ── ATR volatility ────────────────────────────────────────────────────────
+    tr       = pd.concat([high - low,
+                           (high - close.shift()).abs(),
+                           (low  - close.shift()).abs()], axis=1).max(axis=1)
+    atr_now  = float(tr.rolling(10).mean().iloc[-1])
+    atr_hist = float(tr.rolling(10).mean().iloc[-21:-1].mean()) if n > 31 else atr_now
+    atr_r    = atr_now / atr_hist if atr_hist > 0 else 1.0
 
-    if atr_ratio > 1.5:
-        volatility_state = "high"
-    elif atr_ratio < 0.6:
-        volatility_state = "compressed"
+    if atr_r > 1.5:
+        vol_state = "high"
+    elif atr_r < 0.6:
+        vol_state = "compressed"
     else:
-        volatility_state = "normal"
+        vol_state = "normal"
 
-    # ── Classify regime ───────────────────────────────────────────────────────
-    if chaos_ratio >= 0.58:
+    # ── Classify ─────────────────────────────────────────────────────────────
+    # CHAOTIC: high alternation rate AND tiny candle bodies
+    if chaos_ratio >= 0.75 and avg_body_r < 0.35:
         return MarketRegimeResult(
-            "chaotic_noise", "sideways", volatility_state,
-            0.0, 0.0,
-            f"Хаотичный рынок: {changes} смен направления из {last_n - 1} свечей"
+            "chaotic_noise", "sideways", vol_state, 0.0, 0.0,
+            f"Хаотичный рынок: {changes}/{last_n-1} смен, тела свечей малы ({avg_body_r:.2f})"
         )
 
+    # Score for trend directions
     up_pts  = (40 if (hh and hl) else (20 if (hh or hl) else 0))
-    up_pts += (30 if ema_slope_pct >  0.02 else (15 if ema_slope_pct >  0.005 else 0))
-    up_pts += (20 if bull_pct > 60 else (10 if bull_pct > 50 else 0))
+    up_pts += (25 if ema_slope_pct >  0.02 else (12 if ema_slope_pct >  0.005 else 0))
+    up_pts += (20 if bull_pct > 60 else (10 if bull_pct > 52 else 0))
 
     dn_pts  = (40 if (lh and ll) else (20 if (lh or ll) else 0))
-    dn_pts += (30 if ema_slope_pct < -0.02 else (15 if ema_slope_pct < -0.005 else 0))
-    dn_pts += (20 if bull_pct < 40 else (10 if bull_pct < 50 else 0))
+    dn_pts += (25 if ema_slope_pct < -0.02 else (12 if ema_slope_pct < -0.005 else 0))
+    dn_pts += (20 if bull_pct < 40 else (10 if bull_pct < 48 else 0))
 
-    if up_pts >= 40 and up_pts > dn_pts + 10:
+    # STRONG UPTREND
+    if up_pts >= 60 and up_pts > dn_pts + 15:
         return MarketRegimeResult(
-            "uptrend", "up", volatility_state,
-            float(min(100, up_pts)), 30.0,
+            "uptrend", "up", vol_state,
+            float(min(100, up_pts)), 35.0,
             f"Восходящий тренд: EMA {ema_slope_pct:+.3f}%, бычьих {bull_pct:.0f}%"
         )
 
-    if dn_pts >= 40 and dn_pts > up_pts + 10:
+    # STRONG DOWNTREND
+    if dn_pts >= 60 and dn_pts > up_pts + 15:
         return MarketRegimeResult(
-            "downtrend", "down", volatility_state,
-            30.0, float(min(100, dn_pts)),
-            f"Нисходящий тренд: EMA {ema_slope_pct:+.3f}%, медвежьих {100 - bull_pct:.0f}%"
+            "downtrend", "down", vol_state,
+            35.0, float(min(100, dn_pts)),
+            f"Нисходящий тренд: EMA {ema_slope_pct:+.3f}%, медвежьих {100-bull_pct:.0f}%"
         )
 
+    # WEAK TREND (one side slightly dominant — allow signals by trend)
+    if up_pts >= 35 and up_pts > dn_pts + 8:
+        return MarketRegimeResult(
+            "weak_trend", "up", vol_state,
+            65.0, 45.0,
+            f"Слабый бычий уклон: EMA {ema_slope_pct:+.3f}%"
+        )
+
+    if dn_pts >= 35 and dn_pts > up_pts + 8:
+        return MarketRegimeResult(
+            "weak_trend", "down", vol_state,
+            45.0, 65.0,
+            f"Слабый медвежий уклон: EMA {ema_slope_pct:+.3f}%"
+        )
+
+    # RANGE (default — most common, allows level_bounce and false_breakout)
     return MarketRegimeResult(
-        "range", "sideways", volatility_state,
-        55.0, 55.0,
-        f"Боковой рынок: нет чёткой структуры H/L"
+        "range", "sideways", vol_state,
+        60.0, 60.0,
+        f"Боковой рынок: EMA flat ({ema_slope_pct:+.3f}%)"
     )
