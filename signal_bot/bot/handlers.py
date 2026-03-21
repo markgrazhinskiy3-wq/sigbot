@@ -23,13 +23,6 @@ from bot.keyboards import (
 logger = logging.getLogger(__name__)
 router = Router()
 
-# ── Signal pre-analysis cache ──────────────────────────────────────────────────
-# {user_id: (symbol, SignalResponse)} — computed when pair is selected,
-# consumed when expiration is chosen (avoids double analysis).
-_signal_cache: dict[int, tuple[str, object]] = {}
-
-_EXP_STR_TO_SEC = {"1m": 60, "2m": 120}
-
 
 def _is_admin(user_id: int) -> bool:
     return user_id == config.ADMIN_USER_ID
@@ -460,42 +453,13 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
 
     symbol = callback.data.split(":", 1)[1]
     pair_label = _label_for_symbol(symbol)
-    user_id = callback.from_user.id
 
-    await callback.answer("⏳ Анализирую пару...")
     await callback.message.edit_text(
-        f"🔄 <b>Анализирую {pair_label}...</b>\n\nОпределяю оптимальное время экспирации.",
+        f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации сделки:",
         parse_mode="HTML",
+        reply_markup=expiration_keyboard(symbol),
     )
-
-    try:
-        signal = await get_signal(symbol, pair_label, expiration_sec=60)
-        _signal_cache[user_id] = (symbol, signal)
-
-        d = signal.details if isinstance(signal.details, dict) else {}
-        rec_str = d.get("recommended_expiration")
-        rec_sec = _EXP_STR_TO_SEC.get(rec_str) if rec_str else None
-
-        if rec_sec:
-            rec_label = "1 мин" if rec_sec == 60 else "2 мин"
-            hint = f"\n\n<i>💡 По текущему рынку рекомендую <b>{rec_label}</b></i>"
-        else:
-            hint = ""
-
-        await callback.message.edit_text(
-            f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации сделки:{hint}",
-            parse_mode="HTML",
-            reply_markup=expiration_keyboard(symbol, recommended_sec=rec_sec),
-        )
-    except Exception as e:
-        logger.exception("Pre-analysis error for %s: %s", symbol, e)
-        # Fallback — show picker without recommendation
-        _signal_cache.pop(user_id, None)
-        await callback.message.edit_text(
-            f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации сделки:",
-            parse_mode="HTML",
-            reply_markup=expiration_keyboard(symbol),
-        )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("exp:"))
@@ -506,26 +470,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     _, symbol, sec_str = callback.data.split(":", 2)
     expiration_sec = int(sec_str)
     pair_label = _label_for_symbol(symbol)
-    user_id = callback.from_user.id
 
-    # ── Try to use pre-analysed result from cache ──────────────────────────────
-    cached = _signal_cache.get(user_id)
-    if cached and cached[0] == symbol:
-        from dataclasses import replace as _dc_replace
-        signal = _dc_replace(cached[1], expiration_sec=expiration_sec)
-        _signal_cache.pop(user_id, None)
-
-        await callback.answer()
-        text = format_signal_message(signal)
-        kb = (
-            no_signal_keyboard(symbol, expiration_sec)
-            if signal.direction == "NO_SIGNAL"
-            else signal_result_keyboard(symbol)
-        )
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-        return
-
-    # ── No cache — run fresh analysis ─────────────────────────────────────────
     await callback.answer("⏳ Анализирую рынок...")
     await callback.message.edit_text(
         f"🔄 <b>Анализирую {pair_label}...</b>\n\nПодождите, собираю данные.",

@@ -41,15 +41,12 @@ def pairs_keyboard(pairs: list[dict] | None = None) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def expiration_keyboard(symbol: str, recommended_sec: int | None = None) -> InlineKeyboardMarkup:
+def expiration_keyboard(symbol: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for exp in config.EXPIRATIONS:
-        label = exp["label"]
-        if recommended_sec is not None and exp["seconds"] == recommended_sec:
-            label = f"✅ {label} — рекомендую"
         builder.row(
             InlineKeyboardButton(
-                text=label,
+                text=exp["label"],
                 callback_data=f"exp:{symbol}:{exp['seconds']}",
             )
         )
