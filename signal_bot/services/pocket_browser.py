@@ -897,101 +897,116 @@ async def take_trade_result_screenshot(
 
         # Detect win/loss by looking for the most recent closed trade entry.
         # PocketOption shows "+$X.XX" for wins and "$0" for losses in Closed panel.
-        # We pass the pair label (e.g. "GBP/USD OTC") to find OUR trade specifically.
+        # We pass the pair label (e.g. "NZD/USD OTC") to find OUR trade specifically.
         is_otc = "_otc" in symbol_clean.lower()
         base = symbol_clean.replace("_otc", "").replace("_OTC", "").upper()
         slash_base = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
         pair_label_js = f"{slash_base} OTC" if is_otc else slash_base
 
-        close_times_js = repr(close_time_candidates)  # e.g. ['22:17', '21:17', ...]
+        close_times_js = repr(close_time_candidates)
+
+        # JS that searches ONLY for our specific pair — returns JSON or null (not found yet)
+        pair_detect_js = f"""() => {{
+            const pairLabel  = {repr(pair_label_js)};
+            const closeTimes = {close_times_js};
+            const hasProfit  = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+            const hasZero    = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+            const hasTime    = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+
+            // CSS popup classes — fastest check
+            const strictWin  = ['.notification--profit', '.result--win', '.deal--win', '.trade--profit'];
+            const strictLoss = ['.notification--loss',  '.result--lose', '.deal--lose', '.trade--loss'];
+            for (const s of strictWin)  {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'win',  step:1}}); }}
+            for (const s of strictLoss) {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'loss', step:1}}); }}
+
+            // Walk elements: must contain our pair + profit/loss + be card-sized
+            const candidates = [];
+            for (const el of document.querySelectorAll('*')) {{
+                if (el.children.length > 8) continue;
+                const t = (el.innerText || '').trim();
+                if (!t.includes(pairLabel)) continue;
+                if (t.includes('Payout') || t.includes('payout')) continue;
+                if (!hasProfit(t) && !hasZero(t)) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width < 80 || r.height < 20 || r.height > 120) continue;
+                if (r.width * r.height > 120000) continue;
+                candidates.push({{ t, y: r.top, hasOurTime: hasTime(t) }});
+            }}
+            if (candidates.length === 0) return null;  // not ready yet — caller retries
+
+            const withTime = candidates.filter(c => c.hasOurTime);
+            const pool     = withTime.length > 0 ? withTime : candidates;
+            pool.sort((a, b) => a.y - b.y);
+            const top     = pool[0];
+            const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
+            if (!outcome) return null;
+            return JSON.stringify({{
+                outcome,
+                total: candidates.length,
+                timeMatched: withTime.length > 0,
+                topY: Math.round(top.y),
+                text: top.t.replace(/\\s+/g, ' ').slice(0, 100),
+            }});
+        }}"""
+
+        import json as _json
         outcome = "unknown"
-        try:
-            outcome = await page.evaluate(f"""() => {{
-                const pairLabel   = {repr(pair_label_js)};
-                const closeTimes  = {close_times_js};   // expected close HH:MM candidates
-                const hasProfit = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
-                const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
-                const hasTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+        MAX_RETRIES = 15        # up to 15 × 2 s = 30 extra seconds
+        RETRY_INTERVAL_MS = 2000
 
-                // 1. Specific popup CSS classes (most reliable if they exist)
-                const strictWin  = ['.notification--profit', '.result--win', '.deal--win', '.trade--profit'];
-                const strictLoss = ['.notification--loss',  '.result--lose', '.deal--lose', '.trade--loss'];
-                for (const s of strictWin)  {{ if (document.querySelector(s)) return 'win';  }}
-                for (const s of strictLoss) {{ if (document.querySelector(s)) return 'loss'; }}
+        for attempt in range(MAX_RETRIES):
+            try:
+                raw = await page.evaluate(pair_detect_js)
+                if raw is not None:
+                    info = _json.loads(raw)
+                    outcome = info.get("outcome", "unknown")
+                    logger.info(
+                        "Detected trade outcome: %s | attempt=%d candidates=%s "
+                        "timeMatched=%s topY=%s text=%r",
+                        outcome, attempt + 1,
+                        info.get("total"), info.get("timeMatched"),
+                        info.get("topY"), info.get("text", ""),
+                    )
+                    break   # found — stop retrying
+                else:
+                    logger.debug("Attempt %d: trade card not in Closed panel yet", attempt + 1)
+            except Exception as e:
+                logger.warning("Detect attempt %d failed: %s", attempt + 1, e)
 
-                // 2. Collect candidate trade-card elements:
-                //    - contains our pair label
-                //    - contains profit or zero amount
-                //    - not a payout widget
-                //    - reasonable height (single card ≤ 120px; whole panel >> 120px)
-                //    - not an enormous container (area ≤ 120 000 px²)
-                const candidates = [];
-                for (const el of document.querySelectorAll('*')) {{
-                    if (el.children.length > 8) continue;
-                    const t = (el.innerText || '').trim();
-                    if (!t.includes(pairLabel)) continue;
-                    if (t.includes('Payout') || t.includes('payout')) continue;
-                    if (!hasProfit(t) && !hasZero(t)) continue;
-                    const r = el.getBoundingClientRect();
-                    if (r.width < 80 || r.height < 20) continue;
-                    if (r.height > 120) continue;          // ← skip multi-row containers
-                    if (r.width * r.height > 120000) continue;
-                    candidates.push({{ t, y: r.top, hasOurTime: hasTime(t) }});
-                }}
+            if attempt < MAX_RETRIES - 1:
+                await page.wait_for_timeout(RETRY_INTERVAL_MS)
 
-                if (candidates.length > 0) {{
-                    // Prefer a card that shows our expected close time (most precise match).
-                    // Among those, or among all if none match by time, take the topmost (newest).
-                    const withTime    = candidates.filter(c => c.hasOurTime);
-                    const pool        = withTime.length > 0 ? withTime : candidates;
-                    pool.sort((a, b) => a.y - b.y);
-                    const top = pool[0];
-                    const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
-                    if (outcome) return JSON.stringify({{
-                        outcome,
-                        total: candidates.length,
-                        timeMatched: withTime.length > 0,
-                        topY: Math.round(top.y),
-                        text: top.t.replace(/\\s+/g, ' ').slice(0, 100),
-                    }});
-                }}
-
-                // 3. Fallback: any trade/deal element sorted by Y
-                const allEls = Array.from(document.querySelectorAll('[class*="trade"], [class*="deal"], [class*="history"], [class*="closed"]'));
-                const sidebarCandidates = [];
-                for (const el of allEls) {{
-                    const t = (el.innerText || '');
-                    if (t.includes('Payout') || t.includes('payout')) continue;
-                    if (!hasProfit(t) && !hasZero(t)) continue;
-                    const r = el.getBoundingClientRect();
-                    if (r.width < 80 || r.height < 20 || r.height > 120) continue;
-                    sidebarCandidates.push({{ t, y: r.top }});
-                }}
-                if (sidebarCandidates.length > 0) {{
-                    sidebarCandidates.sort((a, b) => a.y - b.y);
-                    const top = sidebarCandidates[0];
-                    if (hasProfit(top.t)) return 'win';
-                    if (hasZero(top.t))   return 'loss';
-                }}
-
-                // 4. Explicit loss text (very narrow to avoid false positives)
-                if (/проиграли|you lose|trade lost/i.test(document.body.innerText)) return 'loss';
-
-                return 'unknown';
-            }}""")
-            # Step 2 returns a JSON string with debug info; other steps return plain string
-            if isinstance(outcome, str) and outcome.startswith('{'):
-                import json as _json
-                info = _json.loads(outcome)
-                logger.info(
-                    "Detected trade outcome: %s | candidates=%d topY=%d text=%r",
-                    info.get("outcome"), info.get("total"), info.get("topY"), info.get("text"),
-                )
-                outcome = info.get("outcome", "unknown")
-            else:
-                logger.info("Detected trade outcome: %s", outcome)
-        except Exception as e:
-            logger.warning("Could not detect outcome: %s", e)
+        # Absolute last resort (no pair filter) — only if all retries exhausted
+        if outcome == "unknown":
+            logger.warning("Pair-specific detection failed after %d attempts — using last-resort fallback", MAX_RETRIES)
+            try:
+                outcome = await page.evaluate(f"""() => {{
+                    const hasProfit = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+                    const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+                    const els = Array.from(document.querySelectorAll(
+                        '[class*="trade"], [class*="deal"], [class*="history"], [class*="closed"]'
+                    ));
+                    const pool = [];
+                    for (const el of els) {{
+                        const t = el.innerText || '';
+                        if (t.includes('Payout') || t.includes('payout')) continue;
+                        if (!hasProfit(t) && !hasZero(t)) continue;
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 80 || r.height < 20 || r.height > 120) continue;
+                        pool.push({{ t, y: r.top }});
+                    }}
+                    if (pool.length > 0) {{
+                        pool.sort((a, b) => a.y - b.y);
+                        const top = pool[0];
+                        if (hasProfit(top.t)) return 'win';
+                        if (hasZero(top.t))   return 'loss';
+                    }}
+                    if (/проиграли|you lose|trade lost/i.test(document.body.innerText)) return 'loss';
+                    return 'unknown';
+                }}""")
+                logger.info("Last-resort outcome: %s", outcome)
+            except Exception as e:
+                logger.warning("Last-resort detection failed: %s", e)
 
         # ── Priority 1: Screenshot the specific closed-trade card for our pair ──
         # Find the element that contains the pair label and scroll it into view,
