@@ -52,7 +52,6 @@ def format_signal_message(signal: SignalResponse) -> str:
         reject = d.get("reject_reason") or ""
         regime = d.get("regime", "")
         hard   = d.get("hard_conflicts", [])
-        soft   = d.get("soft_conflicts", [])
         regime_label = {
             "chaotic_noise": "🌪 Хаотичный рынок",
             "range":         "↔️ Боковой рынок",
@@ -85,14 +84,117 @@ def format_signal_message(signal: SignalResponse) -> str:
     bar   = _conf_bar(signal.confidence)
     label = _conf_label(signal.confidence)
 
-    return (
-        f"{arrow} <b>{signal.pair}</b>\n"
-        f"\n"
-        f"📊 Сигнал: <b>{dir_label}</b>\n"
-        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})\n"
-        f"\n"
-        f"<i>Откройте сделку вручную на Pocket Option.</i>"
-    )
+    d = signal.details if isinstance(signal.details, dict) else {}
+    explanation_lines = _build_explanation(signal.direction, d)
+
+    lines = [
+        f"{arrow} <b>{signal.pair}</b>",
+        "",
+        f"📊 Сигнал: <b>{dir_label}</b>",
+        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
+        "",
+    ]
+
+    if explanation_lines:
+        lines.append("<b>Почему:</b>")
+        for item in explanation_lines:
+            lines.append(f"• {item}")
+        lines.append("")
+
+    lines.append("<i>Откройте сделку вручную на Pocket Option.</i>")
+    return "\n".join(lines)
+
+
+def _build_explanation(direction: str, details: dict) -> list[str]:
+    """
+    Build 2–4 bullet points in plain Russian language explaining the signal.
+    No technical jargon — as if explaining to a friend who has never traded.
+    """
+    is_buy   = direction == "BUY"
+    primary  = details.get("primary_strategy") or ""
+    regime   = details.get("regime", "")
+    quality  = details.get("signal_quality", "")
+    debug    = details.get("debug", {})
+    modules  = debug.get("modules", {})
+
+    items: list[str] = []
+
+    # ── 1. Main reason — what triggered the signal ────────────────────────────
+    if primary == "impulse":
+        if is_buy:
+            items.append(
+                "Рынок шёл вверх, затем сделал небольшой откат — это нормальная пауза перед продолжением роста."
+            )
+        else:
+            items.append(
+                "Рынок двигался вниз, немного скорректировался вверх — и теперь снова разворачивается в сторону падения."
+            )
+
+    elif primary == "bounce":
+        if is_buy:
+            items.append(
+                "Цена опустилась до уровня, где раньше покупатели уже останавливали падение. Сейчас они снова вступают в игру."
+            )
+        else:
+            items.append(
+                "Цена поднялась до уровня, где раньше продавцы всегда останавливали рост. Покупатели выдохлись — ожидаем разворот."
+            )
+
+    elif primary == "breakout":
+        if is_buy:
+            items.append(
+                "Цена ненадолго ушла ниже важного уровня, но не смогла там закрепиться и быстро вернулась. Продавцы попали в ловушку — ожидаем движение вверх."
+            )
+        else:
+            items.append(
+                "Цена пробилась выше важного уровня, но не удержалась там и упала обратно. Покупатели попали в ловушку — ожидаем движение вниз."
+            )
+
+    else:
+        # Fallback — generic by regime
+        if is_buy:
+            items.append("Большинство факторов указывают на движение вверх.")
+        else:
+            items.append("Большинство факторов указывают на движение вниз.")
+
+    # ── 2. Market regime context ──────────────────────────────────────────────
+    if regime == "uptrend" and is_buy:
+        items.append("Общий тренд сейчас восходящий — работаем по движению.")
+    elif regime == "downtrend" and not is_buy:
+        items.append("Общий тренд сейчас нисходящий — работаем по движению.")
+    elif regime == "uptrend" and not is_buy:
+        items.append("Тренд восходящий, но цена явно устала расти — разворот назрел.")
+    elif regime == "downtrend" and is_buy:
+        items.append("Тренд нисходящий, но цена чрезмерно упала — ожидаем кратковременный отскок.")
+    elif regime == "range":
+        if is_buy:
+            items.append("Рынок движется в боковом диапазоне — торгуем от нижней границы.")
+        else:
+            items.append("Рынок движется в боковом диапазоне — торгуем от верхней границы.")
+    elif regime == "weak_trend":
+        items.append("Тренд слабый — сделка короткая, быстрый вход и выход.")
+
+    # ── 3. Supporting factors ─────────────────────────────────────────────────
+    candle_buy  = modules.get("candle_strength", {}).get("buy",  0)
+    candle_sell = modules.get("candle_strength", {}).get("sell", 0)
+    ind_buy     = modules.get("indicators", {}).get("buy",  0)
+    ind_sell    = modules.get("indicators", {}).get("sell", 0)
+
+    if is_buy and candle_buy >= 55:
+        items.append("Последние свечи закрываются с ростом — покупатели активны.")
+    elif not is_buy and candle_sell >= 55:
+        items.append("Последние свечи закрываются в минус — продавцы активны.")
+
+    if is_buy and ind_buy >= 45:
+        items.append("Рыночные показатели дополнительно подтверждают рост.")
+    elif not is_buy and ind_sell >= 45:
+        items.append("Рыночные показатели дополнительно подтверждают падение.")
+
+    # ── 4. Confidence note ────────────────────────────────────────────────────
+    if quality == "strong":
+        items.append("Несколько факторов совпали одновременно — сигнал уверенный.")
+
+    return items
 
 
 def format_result_caption(
