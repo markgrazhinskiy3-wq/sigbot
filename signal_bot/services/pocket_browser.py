@@ -238,6 +238,137 @@ async def _ensure_logged_in(context: BrowserContext, page: Page) -> None:
         await _login(page)
 
 
+async def _switch_to_asset(page: Page, symbol: str) -> bool:
+    """
+    Switch the Pocket Option platform to the given asset via UI.
+    Returns True if the asset was confirmed/switched successfully.
+    """
+    symbol_clean = symbol.lstrip("#")
+    base = symbol_clean.replace("_otc", "").upper()
+    slash_name = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
+
+    # Check if asset is already correct
+    try:
+        current = await page.evaluate("""() => {
+            const sels = [
+                '.block-active-asset-name',
+                '.header-main__asset .name',
+                '.asset-name',
+                '.current-pair',
+                '.current-symbol',
+                '[class*="asset-name"]',
+                '[class*="active-asset"]',
+            ];
+            for (const s of sels) {
+                const el = document.querySelector(s);
+                if (el && el.textContent.trim()) return el.textContent.trim();
+            }
+            return '';
+        }""")
+        if current and slash_name.replace("/", "").lower() in current.replace("/", "").lower():
+            logger.info("Asset already correct: %s", current)
+            return True
+        logger.info("Current asset: '%s', need: '%s' — switching", current, slash_name)
+    except Exception:
+        pass
+
+    # Try JavaScript-based switch (Vuex store or global helpers)
+    try:
+        switched = await page.evaluate(f"""() => {{
+            const asset = '#{symbol_clean}';
+            const vApp = document.querySelector('#app')?.__vue_app__;
+            if (vApp) {{
+                const store = vApp._context?.app?.$store;
+                if (store) {{
+                    try {{ store.commit('SET_ACTIVE_ASSET', asset); }} catch(e) {{}}
+                    try {{ store.dispatch('changeAsset', asset); }} catch(e) {{}}
+                    return 'vuex';
+                }}
+            }}
+            if (typeof window.setAsset === 'function') {{ window.setAsset(asset); return 'setAsset'; }}
+            if (typeof window.changeAsset === 'function') {{ window.changeAsset(asset); return 'changeAsset'; }}
+            return false;
+        }}""")
+        if switched:
+            logger.info("Asset switched via JS (%s)", switched)
+            await page.wait_for_timeout(2000)
+            return True
+    except Exception:
+        pass
+
+    # UI-based switch: open asset selector
+    opened = False
+    for sel in [
+        '.block-active-asset-name',
+        '.header-main__asset',
+        '.assets-toggle',
+        '.asset-select-btn',
+        '.open-assets',
+        '[data-action="open-assets"]',
+        '.instrument-name',
+        '.header__asset',
+    ]:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.click(timeout=3000)
+                logger.info("Opened asset panel via: %s", sel)
+                await page.wait_for_timeout(1000)
+                opened = True
+                break
+        except Exception:
+            continue
+
+    if not opened:
+        logger.warning("Could not open asset selector for %s", slash_name)
+        return False
+
+    # Type in search box
+    for sel in [
+        '.assets-search__input',
+        '.search-assets input',
+        'input[placeholder*="search" i]',
+        'input[placeholder*="поиск" i]',
+        '.assets-filter input',
+        '.modal input[type="text"]',
+        '.popup input[type="text"]',
+    ]:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.click()
+                await el.fill(slash_name)
+                logger.info("Typed asset search: %s", slash_name)
+                await page.wait_for_timeout(800)
+                break
+        except Exception:
+            continue
+
+    # Click the matching item in the list
+    for sel in [
+        f'.asset-item:has-text("{slash_name}")',
+        f'.assets-item:has-text("{slash_name}")',
+        f'.item:has-text("{slash_name}")',
+        f'[data-asset="#{symbol_clean}"]',
+        f'[data-id="#{symbol_clean}"]',
+        '.assets-list .item:first-child',
+        '.asset-item:first-child',
+        '.assets-item:first-child',
+    ]:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.click()
+                logger.info("Selected asset via: %s", sel)
+                await page.wait_for_timeout(2000)
+                return True
+        except Exception:
+            continue
+
+    logger.warning("Asset UI switch failed for %s", slash_name)
+    return False
+
+
 async def get_candles(symbol: str, count: int = 60) -> list[dict]:
     """
     Navigate to trading page for the given symbol and collect OHLC candle data.
@@ -275,12 +406,15 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         await _ensure_logged_in(context, page)
 
         symbol_clean = symbol.lstrip("#")
-        # Pocket Option internal assets use "#" prefix; encode it in the URL
         trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset=%23{symbol_clean}"
         await page.goto(trade_url, wait_until="domcontentloaded", timeout=30_000)
+        await page.wait_for_timeout(2000)
 
-        # Wait for history data to arrive (up to 20s)
-        deadline = 20
+        # Switch to the correct asset via UI if the platform defaulted to another pair
+        await _switch_to_asset(page, symbol)
+
+        # After potential asset switch, wait for fresh history data (up to 25s)
+        deadline = 25
         for _ in range(deadline * 2):
             await page.wait_for_timeout(500)
             if any(ev == "updateHistoryNewFast" for ev, _ in binary_frames):
@@ -465,7 +599,11 @@ async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> 
         symbol_clean = symbol.lstrip("#")
         trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset=%23{symbol_clean}"
         await _trade_page.goto(trade_url, wait_until="networkidle", timeout=30_000)
-        await _trade_page.wait_for_timeout(3000)
+        await _trade_page.wait_for_timeout(2000)
+
+        # Switch to the correct asset via UI if the platform defaulted to another pair
+        await _switch_to_asset(_trade_page, symbol)
+        await _trade_page.wait_for_timeout(1000)
 
         # Set amount to $1
         amount_selectors = [
