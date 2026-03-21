@@ -94,3 +94,33 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+
+## Python Bots (standalone, separate from pnpm monorepo)
+
+### Root-level Pocket Partners Stats Bot
+
+- Entry: `main.py` — aiogram 3.x polling bot
+- Config: `config.py` — reads `TELEGRAM_BOT_TOKEN`, `PP_LOGIN`, `PP_PASSWORD`, `ALLOWED_USER_IDS` from environment
+- Routes: `bot/handlers.py` — /start, inline period buttons, custom range FSM
+- Parser: `parser/pocket_parser.py` — Playwright-based scraper for pocketpartners.com dashboard
+- Utils: `utils/date_parser.py` — date range parsing helpers
+- Workflow: "Telegram Bot" → `python main.py`
+- Requires secrets: `TELEGRAM_BOT_TOKEN`, `PP_LOGIN`, `PP_PASSWORD`, `ALLOWED_USER_IDS`
+
+### `signal_bot/` — Pocket Option OTC Signal Bot
+
+Separate standalone Python bot for OTC trading signals on Pocket Option.
+
+- Entry: `signal_bot/main.py` — initializes SQLite DB, starts polling
+- Config: `signal_bot/config.py` — reads `SIGNAL_BOT_TOKEN`, `ADMIN_USER_ID`, `PO_LOGIN`, `PO_PASSWORD`, `AUTO_TRADE`, `HEADLESS`
+- Database: `signal_bot/db/database.py` — aiosqlite, users table (pending/approved/denied)
+- Services:
+  - `services/access_service.py` — user registration + admin notification
+  - `services/pocket_browser.py` — Playwright login to pocketoption.com, candle collection via WS intercept, screenshots
+  - `services/strategy_engine.py` — RSI(14), EMA(9/21), Stochastic(5,3,3), Momentum, candle direction → BUY/SELL/NO_SIGNAL
+  - `services/signal_service.py` — orchestrates browser + engine, formats signal message
+  - `services/result_watcher.py` — asyncio task, waits N seconds then sends screenshot
+- Bot: `signal_bot/bot/handlers.py` + `keyboards.py` — FSM flow, admin commands (/approve, /deny, /users, /pending, /broadcast)
+- Workflow: "Signal Bot" → `python3 signal_bot/main.py`
+- Requires secrets: `SIGNAL_BOT_TOKEN`, `ADMIN_USER_ID`, `PO_LOGIN`, `PO_PASSWORD`
+- AUTO_TRADE=false by default (analysis only, no real trades)

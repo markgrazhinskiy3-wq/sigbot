@@ -26,6 +26,10 @@ author = "agent"
 task = "workflow.run"
 args = "Telegram Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Signal Bot"
+
 [[workflows.workflow]]
 name = "Telegram Bot"
 author = "agent"
@@ -33,6 +37,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python main.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Signal Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 signal_bot/main.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
@@ -47,4 +62,4 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["gitFull", "playwright-driver", "chromium", "nss", "nspr", "atk", "at-spi2-atk", "xorg.libX11", "xorg.libxcb", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "libxkbcommon", "libgbm", "pango", "cairo", "alsa-lib", "cups"]
+packages = ["alsa-lib", "at-spi2-atk", "atk", "cairo", "chromium", "cups", "gitFull", "glibcLocales", "libgbm", "libxkbcommon", "nspr", "nss", "pango", "playwright-driver", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb"]
