@@ -555,53 +555,88 @@ async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
             except Exception as e:
                 logger.warning("OTC search fallback failed: %s", e)
 
-        # Extract all visible asset items with their payout percentages
+        # Extract all visible asset items with their payout percentages.
+        # PocketOption renders payout as "+92%" — the "+" bleeds into name text if we
+        # use textContent on a container. We target individual item elements and
+        # extract name / payout from distinct child nodes.
         pairs_raw = await page.evaluate("""() => {
             const results = [];
 
-            // Strategy 1: look for elements with data-id / data-asset / data-symbol containing 'otc'
-            const dataSelectors = [
-                '[data-id*="otc" i]', '[data-id*="_otc"]',
-                '[data-asset*="otc" i]', '[data-symbol*="otc" i]',
-                '[data-id*="OTC"]',
-            ];
-            for (const dsel of dataSelectors) {
-                const items = document.querySelectorAll(dsel);
-                if (items.length > 0) {
-                    items.forEach(item => {
-                        // Extract name
-                        const nameEl = item.querySelector('[class*="name"], [class*="title"], [class*="label"]');
-                        const name = nameEl ? nameEl.textContent.trim() : item.textContent.replace(/\\d+%/, '').trim().split('\\n')[0].trim();
-                        // Extract payout %
-                        const pctMatch = item.textContent.match(/(\\d{2,3})\\s*%/);
-                        const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
-                        // Extract symbol from data attribute
-                        const rawSym = item.dataset.id || item.dataset.asset || item.dataset.symbol || '';
-                        results.push({name, pct, rawSym});
-                    });
-                    if (results.length > 0) return results;
-                }
+            // Helper: find the deepest element whose direct text (not children) matches pattern
+            function ownText(el) {
+                let t = '';
+                el.childNodes.forEach(n => { if (n.nodeType === 3) t += n.textContent; });
+                return t.trim();
             }
 
-            // Strategy 2: scan all list items / divs for "OTC" text + a % number nearby
+            // Helper: extract payout integer from a text like "+92%" or "92%"
+            function parsePct(text) {
+                const m = text.match(/(\\d{2,3})\\s*%/);
+                return m ? parseInt(m[1]) : 0;
+            }
+
+            // Helper: clean up pair name — remove trailing/leading "+", "%" digits, whitespace
+            function cleanName(raw) {
+                return raw
+                    .replace(/[+%]\\s*\\d*/g, '')   // strip "+92" or "+%"
+                    .replace(/\\s+/g, ' ')
+                    .trim();
+            }
+
+            // Strategy A: find items via data attributes — must be LEAF-level items
+            // (skip containers with multiple children that also match data-id)
+            const dataAttrs = ['data-id', 'data-asset', 'data-symbol', 'data-value'];
+            for (const attr of dataAttrs) {
+                const items = document.querySelectorAll('[' + attr + '*="otc" i], [' + attr + '*="_otc"]');
+                items.forEach(item => {
+                    const rawSym = item.getAttribute(attr) || '';
+                    // Skip container elements that themselves contain child [data-*] elements
+                    const hasChildItems = item.querySelectorAll('[' + attr + ']').length > 0;
+                    if (hasChildItems) return;
+
+                    // Find dedicated name + profit child elements
+                    const nameEl = item.querySelector('[class*="name" i], [class*="title" i], [class*="label" i]');
+                    const profitEl = item.querySelector('[class*="profit" i], [class*="payout" i], [class*="percent" i], [class*="return" i]');
+
+                    let name = nameEl ? cleanName(nameEl.textContent) : '';
+                    const pctSrc = profitEl ? profitEl.textContent : item.textContent;
+                    const pct = parsePct(pctSrc);
+
+                    if (!name) {
+                        name = cleanName(item.textContent.split('\\n')[0]);
+                    }
+                    if (name && pct > 0) results.push({name, pct, rawSym});
+                });
+                if (results.length > 0) break;
+            }
+
+            if (results.length > 0) return results;
+
+            // Strategy B: scan candidate list/div elements for individual pair rows
+            // Each row should have: OTC in name, a payout %, and be a "leaf" row
             const candidates = document.querySelectorAll(
-                'li, .asset-item, .assets-item, .asset, [class*="asset"], [class*="pair"]'
+                'li, tr, .asset-item, .assets-item, [class*="asset-row"], [class*="pair-item"]'
             );
             candidates.forEach(item => {
-                const text = item.textContent;
-                if (!text.toLowerCase().includes('otc')) return;
-                // Must have a payout percentage
-                const pctMatch = text.match(/(\\d{2,3})\\s*%/);
-                if (!pctMatch) return;
-                const pct = parseInt(pctMatch[1]);
-                // Extract name: first line / first text that isn't a number
-                const nameEl = item.querySelector('[class*="name"], [class*="title"], [class*="label"], span, b');
-                let name = nameEl ? nameEl.textContent.trim() : '';
+                // Skip items that contain sub-items (they are containers)
+                if (item.querySelector('li, .asset-item, .assets-item')) return;
+
+                const fullText = item.textContent;
+                if (!fullText.toLowerCase().includes('otc')) return;
+
+                const pct = parsePct(fullText);
+                if (pct < 50 || pct > 100) return;  // sanity check
+
+                const nameEl = item.querySelector('[class*="name" i], [class*="title" i], span:first-child, b');
+                let name = nameEl ? cleanName(nameEl.textContent) : '';
                 if (!name) {
-                    name = text.replace(/\\d+%/, '').trim().split('\\n')[0].trim().substring(0, 30);
+                    // Take first non-empty line, max 25 chars
+                    name = cleanName(fullText.split('\\n').map(s => s.trim()).filter(Boolean)[0] || '');
+                    if (name.length > 25) name = name.substring(0, 25);
                 }
-                const rawSym = item.dataset.id || item.dataset.asset || item.dataset.symbol || '';
-                results.push({name, pct, rawSym});
+
+                const rawSym = item.dataset.id || item.dataset.asset || item.dataset.symbol || item.dataset.value || '';
+                if (name) results.push({name, pct, rawSym});
             });
 
             return results;
@@ -615,27 +650,48 @@ async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
         seen: set[str] = set()
         pairs: list[dict] = []
 
+        import re as _re
+
+        def _clean_name(raw: str) -> str:
+            """Strip noise from pair names: trailing +, % signs, payout numbers."""
+            s = raw.strip()
+            # Remove trailing/embedded "+" and any digits that follow (e.g. "OTC+92")
+            s = _re.sub(r'\+\s*\d*', '', s)
+            # Remove stray % and digits
+            s = _re.sub(r'\d{2,3}\s*%', '', s)
+            return s.strip()
+
         for raw in pairs_raw:
-            name: str = (raw.get("name") or "").strip()
+            name: str = _clean_name(raw.get("name") or "")
             pct: int = raw.get("pct", 0)
             raw_sym: str = (raw.get("rawSym") or "").strip()
 
             if pct < min_payout:
                 continue
-            if not name or len(name) < 3:
+            if not name or len(name) < 5:
                 continue
             if "otc" not in name.lower():
+                continue
+            # Skip clearly bad entries: too long, multiple "/" (concatenated pairs),
+            # or contains known garbage text
+            slash_count = name.count("/")
+            if slash_count > 1 or len(name) > 20 or "payout" in name.lower() or "asset" in name.lower():
+                logger.debug("Skipping garbage entry: %r", name)
                 continue
 
             # Build symbol from data attribute if available, otherwise derive from name
             if raw_sym:
-                sym = "#" + raw_sym.lstrip("#").lower()
-                if not sym.endswith("_otc"):
-                    sym += "_otc"
+                # Clean raw_sym: strip "#", lowercase, remove "+" and garbage
+                sym_base = raw_sym.lstrip("#").lower()
+                sym_base = _re.sub(r'[^a-z0-9_]', '', sym_base)   # only alphanum + _
+                if not sym_base.endswith("_otc"):
+                    sym_base += "_otc"
+                sym = "#" + sym_base
             else:
                 # Derive symbol from name: "EUR/USD OTC" → "#EURUSD_otc"
-                base = name.replace(" OTC", "").replace(" otc", "").strip()
-                base = base.replace("/", "").replace("-", "").replace(" ", "").upper()
+                base = name.upper()
+                base = _re.sub(r'\s*OTC\s*', '', base)
+                base = _re.sub(r'[^A-Z]', '', base)    # only letters
                 sym = f"#{base}_otc"
 
             key = sym.lower()
