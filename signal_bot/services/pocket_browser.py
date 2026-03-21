@@ -20,6 +20,23 @@ _context: BrowserContext | None = None
 SCREENSHOTS_DIR = Path(os.path.dirname(__file__)).parent / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
+COOKIES_PATH = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
+
+
+def _load_saved_cookies() -> list[dict] | None:
+    """Load cookies previously exported from browser via set_cookies.py."""
+    if not COOKIES_PATH.exists():
+        return None
+    try:
+        with open(COOKIES_PATH) as f:
+            cookies = json.load(f)
+        if isinstance(cookies, list) and len(cookies) > 0:
+            logger.info("Loaded %d saved cookies from %s", len(cookies), COOKIES_PATH)
+            return cookies
+    except Exception as e:
+        logger.warning("Failed to load saved cookies: %s", e)
+    return None
+
 
 async def _get_context() -> BrowserContext:
     global _playwright, _browser, _context
@@ -180,14 +197,45 @@ async def _login(page: Page) -> None:
     logger.info("Login successful, URL: %s", page.url)
 
 
+async def _try_cookie_login(context: BrowserContext, page: Page) -> bool:
+    """Attempt login via saved cookies. Returns True if successful."""
+    cookies = _load_saved_cookies()
+    if not cookies:
+        return False
+    try:
+        await context.add_cookies(cookies)
+        await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=20_000)
+        await page.wait_for_timeout(2000)
+        url = page.url.lower()
+        success = "login" not in url and "auth" not in url
+        if success:
+            logger.info("Cookie login successful, URL: %s", page.url)
+        else:
+            logger.warning("Cookie login failed (URL: %s) — cookies may be expired", page.url)
+        return success
+    except Exception as e:
+        logger.warning("Cookie login error: %s", e)
+        return False
+
+
 async def _is_logged_in(page: Page) -> bool:
     try:
-        await page.goto(config.PO_TRADE_URL, wait_until="networkidle", timeout=20_000)
+        await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=20_000)
         await page.wait_for_timeout(1000)
         url = page.url.lower()
         return "login" not in url and "auth" not in url
     except Exception:
         return False
+
+
+async def _ensure_logged_in(context: BrowserContext, page: Page) -> None:
+    """Ensure session is active: try cookies first, then automated login."""
+    logged_in = await _is_logged_in(page)
+    if logged_in:
+        return
+    cookie_ok = await _try_cookie_login(context, page)
+    if not cookie_ok:
+        await _login(page)
 
 
 async def get_candles(symbol: str, count: int = 60) -> list[dict]:
@@ -209,11 +257,9 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
     page.on("websocket", handle_ws)
 
     try:
-        logged_in = await _is_logged_in(page)
-        if not logged_in:
-            await _login(page)
-            await page.goto(config.PO_TRADE_URL, wait_until="networkidle", timeout=30_000)
-            await page.wait_for_timeout(2000)
+        await _ensure_logged_in(context, page)
+        await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+        await page.wait_for_timeout(2000)
 
         symbol_clean = symbol.lstrip("#")
         trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset={symbol_clean}"
@@ -394,9 +440,7 @@ async def take_screenshot(symbol: str) -> str:
     context = await _get_context()
     page = await context.new_page()
     try:
-        logged_in = await _is_logged_in(page)
-        if not logged_in:
-            await _login(page)
+        await _ensure_logged_in(context, page)
 
         symbol_clean = symbol.lstrip("#")
         trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset={symbol_clean}"
