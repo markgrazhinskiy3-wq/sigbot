@@ -71,7 +71,7 @@ def format_signal_message(signal: SignalResponse) -> str:
         f"📊 Сигнал: <b>{dir_label}</b>\n"
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})\n"
         f"\n"
-        f"<i>Результат придет после закрытия сделки.</i>"
+        f"<i>Откройте сделку вручную на Pocket Option.</i>"
     )
 
 

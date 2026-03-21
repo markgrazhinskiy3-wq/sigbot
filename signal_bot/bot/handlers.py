@@ -14,8 +14,6 @@ from db.database import (
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
-from services.result_watcher import schedule_result_watcher
-from services.pocket_browser import close_browser
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
@@ -394,17 +392,6 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
-        if signal.direction != "NO_SIGNAL":
-            schedule_result_watcher(
-                bot=callback.bot,
-                chat_id=callback.from_user.id,
-                symbol=symbol,
-                pair_label=pair_label,
-                expiration_sec=expiration_sec,
-                direction=signal.direction,
-                details=signal.details,
-            )
-
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
         await callback.message.edit_text(
@@ -422,24 +409,9 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
-    await callback.answer("🔁 Перезапускаю...")
+    await callback.answer("🔁 Готово")
     await callback.message.edit_text(
-        "🔄 <b>Перезапуск бота...</b>\n\nЗакрываю браузерную сессию.",
+        "✅ <b>Готово.</b>\n\nМожно запрашивать новые сигналы.",
         parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
     )
-
-    try:
-        await close_browser()
-        await callback.message.edit_text(
-            "✅ <b>Бот перезапущен.</b>\n\nБраузерная сессия закрыта. При следующем запросе откроется заново.",
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(),
-        )
-        logger.info("Browser session closed by user %d", callback.from_user.id)
-    except Exception as e:
-        logger.exception("Restart failed: %s", e)
-        await callback.message.edit_text(
-            "⚠️ <b>Ошибка при перезапуске.</b>\n\nПопробуйте снова.",
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(),
-        )
