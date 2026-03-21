@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-TELEGRAM_BOT_TOKEN: str = os.environ["SIGNAL_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ["SIGNAL_BOT_TOKEN"]
 
 ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
 

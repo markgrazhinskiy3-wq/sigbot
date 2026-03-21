@@ -37,6 +37,10 @@ async def cmd_start(message: Message) -> None:
     user, is_new = await add_or_get_user(user_id, username)
     status = user["status"]
 
+    if _is_admin(user_id) and status != "approved":
+        await set_status(user_id, "approved")
+        status = "approved"
+
     if is_new and status == "pending":
         await notify_admin_new_user(message.bot, user_id, username)
 
@@ -51,9 +55,6 @@ async def cmd_start(message: Message) -> None:
     if status == "denied":
         await message.answer("⛔ Доступ к боту запрещён.")
         return
-
-    if _is_admin(user_id) and status != "approved":
-        await set_status(user_id, "approved")
 
     await message.answer(
         "👋 <b>Pocket Option Signal Bot</b>\n\nВыберите действие:",

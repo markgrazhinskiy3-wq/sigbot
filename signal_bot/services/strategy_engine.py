@@ -3,9 +3,13 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import config as _cfg
+
 logger = logging.getLogger(__name__)
 
-CONFIDENCE_THRESHOLD = 3
+CONFIDENCE_THRESHOLD: int = _cfg.SIGNAL_CONFIDENCE_THRESHOLD
 
 
 @dataclass
