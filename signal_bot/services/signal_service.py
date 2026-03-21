@@ -65,14 +65,14 @@ def format_signal_message(signal: SignalResponse) -> str:
     bar   = _conf_bar(signal.confidence)
     label = _conf_label(signal.confidence)
 
-    lines = [
-        f"{arrow} <b>{signal.pair}</b>",
-        f"📊 Сигнал: <b>{dir_label}</b>",
-        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
-        "",
-        "<i>Результат придет после закрытия сделки.</i>",
-    ]
-    return "\n".join(lines)
+    return (
+        f"{arrow} <b>{signal.pair}</b>\n"
+        f"\n"
+        f"📊 Сигнал: <b>{dir_label}</b>\n"
+        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})\n"
+        f"\n"
+        f"<i>Результат придет после закрытия сделки.</i>"
+    )
 
 
 def format_result_caption(
