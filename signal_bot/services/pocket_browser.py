@@ -921,7 +921,7 @@ async def take_trade_result_screenshot(
 
             // Closed trades always show a HH:MM timestamp; open trades do not.
             // This prevents matching an open trade card showing $0.
-            const hasCloseTime = (t) => /\b\d{{2}}:\d{{2}}\b/.test(t);
+            const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t);
 
             // Walk elements: must contain our pair + profit/loss + HH:MM + be card-sized
             const candidates = [];
@@ -1030,7 +1030,7 @@ async def take_trade_result_screenshot(
                 // (PocketOption renders newest trades at the top of the list).
                 const closeTimes   = {close_times_js};
                 const hasTime      = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
-                const hasCloseTime = (t) => /\b\d{{2}}:\d{{2}}\b/.test(t); // HH:MM means closed trade
+                const hasCloseTime = (t) => /\\d{{2}}:\\d{{2}}/.test(t); // HH:MM means closed trade
                 const candidates = [];
                 for (const el of document.querySelectorAll('*')) {{
                     if (el.children.length > 8) continue;
