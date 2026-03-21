@@ -927,19 +927,68 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
         except Exception as e:
             logger.warning("Could not detect outcome: %s", e)
 
-        # Try to screenshot just the result popup/modal
+        # ── Priority 1: Screenshot the specific closed-trade card for our pair ──
+        # Find the element that contains the pair label and scroll it into view,
+        # then clip the screenshot to just that card (+ generous padding).
+        PADDING = 12
+        clipped = False
+        try:
+            clip_box = await page.evaluate(f"""() => {{
+                const label = {repr(pair_label_js)};
+                const hasProfit = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
+                const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+
+                // Walk all elements; pick the smallest one that contains our pair
+                // and a profit/loss value, but is not the entire sidebar
+                let best = null;
+                let bestArea = Infinity;
+                for (const el of document.querySelectorAll('*')) {{
+                    if (!el.innerText) continue;
+                    const t = el.innerText.trim();
+                    if (!t.includes(label)) continue;
+                    if (!hasProfit(t) && !hasZero(t)) continue;
+                    const r = el.getBoundingClientRect();
+                    const area = r.width * r.height;
+                    // Must be visible, reasonable size (not the whole page)
+                    if (r.width < 50 || r.height < 20) continue;
+                    if (area > 150000) continue;   // skip huge containers
+                    if (area < bestArea) {{
+                        best = r;
+                        bestArea = area;
+                    }}
+                }}
+                if (!best) return null;
+                return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
+            }}""")
+
+            if clip_box and clip_box['width'] > 0 and clip_box['height'] > 0:
+                pad = PADDING
+                vw = page.viewport_size['width']  if page.viewport_size else 1440
+                vh = page.viewport_size['height'] if page.viewport_size else 900
+                clip = {
+                    "x":      max(0, clip_box['x'] - pad),
+                    "y":      max(0, clip_box['y'] - pad),
+                    "width":  min(vw, clip_box['width']  + pad * 2),
+                    "height": min(vh, clip_box['height'] + pad * 2),
+                }
+                await page.screenshot(path=path, clip=clip)
+                logger.info(
+                    "Clipped screenshot of closed trade card (%dx%d px)",
+                    clip['width'], clip['height']
+                )
+                clipped = True
+        except Exception as e:
+            logger.warning("Clipped screenshot failed: %s", e)
+
+        if clipped:
+            return path, outcome
+
+        # ── Priority 2: popup/notification elements (win/loss overlay) ──
         result_popup_selectors = [
-            '.deal-popup',
-            '.trade-popup',
-            '.popup-result',
-            '.deal-result',
-            '.popup.active',
-            '.modal--deal',
-            '.result-popup',
-            '.notification--profit',
-            '.notification--loss',
-            '.notification.active',
-            '.alert--result',
+            '.notification--profit', '.notification--loss', '.notification.active',
+            '.deal-popup', '.trade-popup', '.popup-result',
+            '.deal-result', '.popup.active', '.modal--deal',
+            '.result-popup', '.alert--result',
         ]
         for sel in result_popup_selectors:
             try:
@@ -952,7 +1001,35 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
             except Exception:
                 continue
 
-        # Final fallback — screenshot the full viewport
+        # ── Priority 3: screenshot just the right trades sidebar ──
+        try:
+            sidebar_box = await page.evaluate("""() => {
+                const sels = ['.trades', '[class*="sidebar-right"]', '[class*="trades-panel"]'];
+                for (const s of sels) {
+                    const el = document.querySelector(s);
+                    if (el) {
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 0) return {x: r.x, y: r.y, width: r.width, height: r.height};
+                    }
+                }
+                return null;
+            }""")
+            if sidebar_box and sidebar_box['width'] > 0:
+                vw = page.viewport_size['width']  if page.viewport_size else 1440
+                vh = page.viewport_size['height'] if page.viewport_size else 900
+                clip = {
+                    "x": max(0, sidebar_box['x']),
+                    "y": 0,
+                    "width":  min(vw - sidebar_box['x'], sidebar_box['width']),
+                    "height": vh,
+                }
+                await page.screenshot(path=path, clip=clip)
+                logger.info("Sidebar screenshotted (%dx%d px)", clip['width'], clip['height'])
+                return path, outcome
+        except Exception as e:
+            logger.warning("Sidebar screenshot failed: %s", e)
+
+        # ── Final fallback: full viewport ──
         await page.screenshot(path=path, full_page=False)
         logger.info("Result screenshot saved (full page fallback): %s", path)
         return path, outcome
