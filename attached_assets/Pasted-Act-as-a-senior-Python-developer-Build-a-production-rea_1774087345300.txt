@@ -1,0 +1,95 @@
+Act as a senior Python developer.
+Build a production-ready Telegram bot in Python for Replit.
+
+Goal:
+Create a Telegram bot that logs into Pocket Partners via login/password using Playwright, opens the dashboard, selects a date range, scrapes the required dashboard stats, and sends them back to the user in Telegram.
+
+Target website:
+https://pocketpartners.com/ru/dashboard
+
+There is no suitable API, so the solution must use browser automation with Playwright.
+
+Main requirements:
+- Python
+- aiogram
+- Playwright
+- .env config
+- modular architecture
+- error handling
+- logging
+- clean and runnable code
+- ready for Replit deployment
+
+Bot features:
+- /start
+- inline keyboard with:
+  - Сегодня
+  - Вчера
+  - Последние 7 дней
+  - Последние 30 дней
+  - Свободный период
+- for custom period, user enters:
+  DD.MM.YYYY - DD.MM.YYYY
+
+The bot must return these stats from the dashboard:
+- CTR
+- RTD
+- FTD #
+- Депозиты #
+- FTD $
+- Депозиты $
+- Реги #
+- Выводы $
+- Сделки #
+- Клиенты #
+
+Expected output example:
+Период: 21.03.2026 - 21.03.2026
+
+CTR: 7.47%
+RTD: 3.85%
+FTD #: 1
+Депозиты #: 6
+FTD $: $9
+Депозиты $: $518
+Реги #: 26
+Выводы $: $11
+Сделки #: 2,395
+Клиенты #: 107
+
+Environment variables:
+- TELEGRAM_BOT_TOKEN
+- PP_LOGIN
+- PP_PASSWORD
+- ALLOWED_USER_IDS
+- HEADLESS=true
+
+Project structure:
+- main.py
+- config.py
+- bot/handlers.py
+- bot/keyboards.py
+- parser/pocket_parser.py
+- utils/date_parser.py
+- requirements.txt
+- README.md
+
+Implementation details:
+- use Playwright to open login page
+- log into Pocket Partners
+- go to dashboard
+- open date picker
+- choose one of predefined ranges or custom range
+- click search/apply if needed
+- wait for stats to refresh
+- extract required values from the right-side stats block
+- return dict from parse_dashboard_stats(date_from, date_to)
+
+Need:
+- caching for 1-2 minutes for identical requests
+- access restriction by Telegram user id
+- graceful error messages
+- clear installation steps for Replit
+- include Playwright browser installation steps
+
+Output full code for all files, not just explanations.
