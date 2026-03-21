@@ -39,9 +39,9 @@ async def watch_and_report(
     await asyncio.sleep(expiration_sec + 5)
 
     try:
-        screenshot_path = await take_trade_result_screenshot(symbol, direction)
+        screenshot_path, outcome = await take_trade_result_screenshot(symbol, direction)
 
-        caption = format_result_caption(pair_label, direction, expiration_sec, details)
+        caption = format_result_caption(pair_label, direction, expiration_sec, details, outcome)
 
         photo = FSInputFile(screenshot_path)
         await bot.send_photo(chat_id=chat_id, photo=photo, caption=caption, parse_mode="HTML")

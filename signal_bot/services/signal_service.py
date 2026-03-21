@@ -19,15 +19,9 @@ class SignalResponse:
 
 
 async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> SignalResponse:
-    """
-    Full orchestration: fetch candles → run strategy → return signal.
-    """
     logger.info("Fetching signal for %s (exp=%ds)", symbol, expiration_sec)
-
     candles = await get_candles(symbol, count=60)
-
     result: SignalResult = calculate_signal(candles)
-
     return SignalResponse(
         direction=result.direction,
         confidence=result.confidence,
@@ -63,11 +57,8 @@ def format_result_caption(
     direction: str,
     expiration_sec: int,
     details: dict,
+    outcome: str = "unknown",
 ) -> str:
-    """
-    Caption sent with the result screenshot.
-    Explains why the signal was issued and what to look for in the result.
-    """
     arrow = "🟢" if direction == "BUY" else "🔴"
     d = details
 
@@ -77,11 +68,6 @@ def format_result_caption(
     momentum = d.get("Momentum", {})
     candle = d.get("Candle", {})
 
-    def reason(label: str, sig: str, extra: str = "") -> str | None:
-        if sig == direction:
-            return f"• {label}{extra}"
-        return None
-
     reasons = []
 
     rsi_val = rsi.get("value", "?")
@@ -89,8 +75,7 @@ def format_result_caption(
         hint = " — перепроданность" if direction == "BUY" else " — перекупленность"
         reasons.append(f"• RSI ({rsi_val}){hint}")
 
-    ema_sig = ema.get("signal", "")
-    if ema_sig == direction:
+    if ema.get("signal") == direction:
         hint = " — восходящий кросс" if direction == "BUY" else " — нисходящий кросс"
         reasons.append(f"• EMA 9/21{hint}")
 
@@ -109,10 +94,18 @@ def format_result_caption(
 
     reasons_text = "\n".join(reasons) if reasons else "• Большинство индикаторов совпали"
 
+    if outcome == "win":
+        outcome_line = "✅ <b>+  Сделка выиграна!</b>"
+    elif outcome == "loss":
+        outcome_line = "❌ <b>−  Сделка проиграна</b>"
+    else:
+        outcome_line = "📊 Результат — смотри скриншот"
+
     lines = [
-        f"{arrow} <b>{pair_label}</b> — результат сделки",
+        f"{arrow} <b>{pair_label}</b>",
         f"Сигнал: <b>{direction}</b> | Экспирация: {expiration_sec} сек\n",
-        f"<b>Почему вошли в {direction}:</b>",
+        outcome_line,
+        f"\n<b>Почему вошли в {direction}:</b>",
         reasons_text,
     ]
     return "\n".join(lines)

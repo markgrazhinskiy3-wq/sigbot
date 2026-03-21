@@ -596,6 +596,41 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
             except Exception:
                 continue
 
+        # Detect win/loss from DOM before screenshotting
+        outcome = "unknown"
+        try:
+            outcome = await page.evaluate("""() => {
+                const text = document.body.innerText.toLowerCase();
+                const allClasses = Array.from(document.querySelectorAll('[class]'))
+                    .map(el => el.className).join(' ');
+
+                const winSelectors = [
+                    '.notification--profit', '.result--win', '.deal--win',
+                    '.trade--profit', '.win', '.profit'
+                ];
+                const lossSelectors = [
+                    '.notification--loss', '.result--lose', '.deal--lose',
+                    '.trade--loss', '.lose', '.loss'
+                ];
+
+                for (const sel of winSelectors) {
+                    if (document.querySelector(sel)) return 'win';
+                }
+                for (const sel of lossSelectors) {
+                    if (document.querySelector(sel)) return 'loss';
+                }
+
+                if (text.includes('выиграли') || text.includes('win') || text.includes('profit'))
+                    return 'win';
+                if (text.includes('проиграли') || text.includes('lose') || text.includes('loss'))
+                    return 'loss';
+
+                return 'unknown';
+            }""")
+            logger.info("Detected trade outcome: %s", outcome)
+        except Exception as e:
+            logger.warning("Could not detect outcome: %s", e)
+
         # Try to screenshot just the result popup/modal
         result_popup_selectors = [
             '.deal-popup',
@@ -617,14 +652,14 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                     await el.wait_for(state="visible", timeout=3000)
                     await el.screenshot(path=path)
                     logger.info("Result popup screenshotted via: %s", sel)
-                    return path
+                    return path, outcome
             except Exception:
                 continue
 
         # Final fallback — screenshot the full viewport
         await page.screenshot(path=path, full_page=False)
         logger.info("Result screenshot saved (full page fallback): %s", path)
-        return path
+        return path, outcome
 
     except Exception as e:
         logger.exception("take_trade_result_screenshot failed: %s", e)
@@ -632,13 +667,13 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
     finally:
         if owns_page:
             await page.close()
-        # Always clear the trade page reference after we're done
         _trade_page = None
 
 
 async def take_screenshot(symbol: str) -> str:
-    """Legacy screenshot — kept for compatibility. Delegates to trade result screenshot."""
-    return await take_trade_result_screenshot(symbol, direction="BUY")
+    """Legacy screenshot — kept for compatibility."""
+    path, _ = await take_trade_result_screenshot(symbol, direction="BUY")
+    return path
 
 
 async def close_browser() -> None:
