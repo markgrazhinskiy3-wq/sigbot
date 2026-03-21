@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import sys
 import os
 
@@ -24,7 +25,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _kill_stale_instances() -> None:
+    """Kill any other running instances of this script to avoid token conflicts."""
+    import subprocess
+    my_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "signal_bot/main.py"],
+            capture_output=True, text=True
+        )
+        for pid_str in result.stdout.strip().splitlines():
+            pid = int(pid_str.strip())
+            if pid != my_pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info("Terminated stale instance PID %d", pid)
+                except ProcessLookupError:
+                    pass
+    except Exception as e:
+        logger.warning("Could not check for stale instances: %s", e)
+
+
 async def main() -> None:
+    _kill_stale_instances()
+
     logger.info("Initializing Signal Bot database...")
     await init_db()
 
