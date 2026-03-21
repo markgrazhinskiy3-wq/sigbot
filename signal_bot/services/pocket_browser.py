@@ -268,9 +268,9 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
             }
             return '';
         }""")
-        if current and slash_name.replace("/", "").lower() in current.replace("/", "").lower():
+        if current and slash_name.replace("/", "").replace(" ", "").lower() in current.replace("/", "").replace(" ", "").lower():
             logger.info("Asset already correct: %s", current)
-            return True
+            return False  # No switch needed — callers must NOT reload
         logger.info("Current asset: '%s', need: '%s' — switching", current, slash_name)
     except Exception:
         pass
@@ -875,37 +875,54 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
             except Exception:
                 continue
 
-        # Detect win/loss from DOM before screenshotting
+        # Detect win/loss by looking for the most recent closed trade entry.
+        # PocketOption shows "+$X.XX" for wins and "$0" for losses in Closed panel.
+        # We pass the pair label (e.g. "GBP/USD OTC") to find OUR trade specifically.
+        is_otc = "_otc" in symbol_clean.lower()
+        base = symbol_clean.replace("_otc", "").replace("_OTC", "").upper()
+        slash_base = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
+        pair_label_js = f"{slash_base} OTC" if is_otc else slash_base
+
         outcome = "unknown"
         try:
-            outcome = await page.evaluate("""() => {
-                const text = document.body.innerText.toLowerCase();
-                const allClasses = Array.from(document.querySelectorAll('[class]'))
-                    .map(el => el.className).join(' ');
+            outcome = await page.evaluate(f"""() => {{
+                const pairLabel = {repr(pair_label_js)};
+                const hasProfit = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
+                const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
 
-                const winSelectors = [
-                    '.notification--profit', '.result--win', '.deal--win',
-                    '.trade--profit', '.win', '.profit'
-                ];
-                const lossSelectors = [
-                    '.notification--loss', '.result--lose', '.deal--lose',
-                    '.trade--loss', '.lose', '.loss'
-                ];
+                // 1. Specific popup CSS classes (most reliable if they exist)
+                const strictWin  = ['.notification--profit', '.result--win', '.deal--win', '.trade--profit'];
+                const strictLoss = ['.notification--loss',  '.result--lose', '.deal--lose', '.trade--loss'];
+                for (const s of strictWin)  {{ if (document.querySelector(s)) return 'win';  }}
+                for (const s of strictLoss) {{ if (document.querySelector(s)) return 'loss'; }}
 
-                for (const sel of winSelectors) {
-                    if (document.querySelector(sel)) return 'win';
-                }
-                for (const sel of lossSelectors) {
-                    if (document.querySelector(sel)) return 'loss';
-                }
+                // 2. Find the element that mentions OUR pair AND has a profit value.
+                //    Walk all leaf-ish elements; skip elements too big (containing the whole page).
+                const all = Array.from(document.querySelectorAll('*'));
+                for (const el of all) {{
+                    if (el.children.length > 10) continue;  // skip containers
+                    const t = (el.innerText || '').trim();
+                    if (!t.includes(pairLabel)) continue;
+                    if (hasProfit(t)) return 'win';
+                    if (hasZero(t))   return 'loss';
+                }}
 
-                if (text.includes('выиграли') || text.includes('win') || text.includes('profit'))
-                    return 'win';
-                if (text.includes('проиграли') || text.includes('lose') || text.includes('loss'))
-                    return 'loss';
+                // 3. Fallback: look in the trades sidebar (right panel)
+                //    but exclude the payout widget (which always shows "+$X.XX")
+                const allEls = Array.from(document.querySelectorAll('[class*="trade"], [class*="deal"], [class*="history"], [class*="closed"]'));
+                for (const el of allEls) {{
+                    const t = (el.innerText || '');
+                    // The payout widget says "Payout" — skip it
+                    if (t.includes('Payout') || t.includes('payout')) continue;
+                    if (hasProfit(t)) return 'win';
+                    if (hasZero(t))   return 'loss';
+                }}
+
+                // 4. Explicit loss text (very narrow to avoid false positives)
+                if (/проиграли|you lose|trade lost/i.test(document.body.innerText)) return 'loss';
 
                 return 'unknown';
-            }""")
+            }}""")
             logger.info("Detected trade outcome: %s", outcome)
         except Exception as e:
             logger.warning("Could not detect outcome: %s", e)
