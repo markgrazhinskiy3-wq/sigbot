@@ -16,6 +16,7 @@ from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
 from services.result_watcher import schedule_result_watcher
 from services.pocket_browser import close_browser
+import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard, back_to_menu_keyboard,
 )
@@ -231,16 +232,66 @@ async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+def _label_for_symbol(symbol: str) -> str:
+    """
+    Return the clean pair name (without payout %) for use in analysis messages.
+    Checks live cache first, then falls back to config.OTC_PAIRS.
+    """
+    cached = pairs_cache.get_cached()
+    for p in cached:
+        if p["symbol"] == symbol:
+            return p.get("name") or p["label"].split("|")[0].strip()
+    for p in config.OTC_PAIRS:
+        if p["symbol"] == symbol:
+            return p["label"]
+    return symbol
+
+
+async def _show_pairs_keyboard(callback: CallbackQuery, *, force_refresh: bool = False) -> None:
+    """Fetch live pairs and show the pair selection keyboard."""
+    if force_refresh or not pairs_cache.is_fresh():
+        await callback.message.edit_text(
+            "🔄 <b>Загружаю актуальные пары с PocketOption...</b>\n\n"
+            "<i>Это занимает ~20 секунд.</i>",
+            parse_mode="HTML",
+        )
+        await pairs_cache.refresh(force=force_refresh)
+
+    pairs = pairs_cache.get_cached()
+    has_live = any(p.get("payout", 0) > 0 for p in pairs)
+
+    if has_live:
+        header = (
+            f"📊 <b>Доступные OTC-пары</b>\n"
+            f"<i>Только с выплатой ≥80% · Обновлено сейчас</i>"
+        )
+    else:
+        header = (
+            "📊 <b>Выберите OTC-пару:</b>\n"
+            "<i>⚠️ Не удалось загрузить актуальные данные — показан стандартный список</i>"
+        )
+
+    await callback.message.edit_text(
+        header,
+        parse_mode="HTML",
+        reply_markup=pairs_keyboard(pairs),
+    )
+
+
 @router.callback_query(F.data == "action:get_signal")
 async def cb_get_signal(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
-
-    await callback.message.edit_text(
-        "📊 Выберите OTC-пару:",
-        reply_markup=pairs_keyboard(),
-    )
     await callback.answer()
+    await _show_pairs_keyboard(callback)
+
+
+@router.callback_query(F.data == "action:refresh_pairs")
+async def cb_refresh_pairs(callback: CallbackQuery) -> None:
+    if not await _check_user_access(callback):
+        return
+    await callback.answer("🔄 Обновляю список пар...")
+    await _show_pairs_keyboard(callback, force_refresh=True)
 
 
 @router.callback_query(F.data.startswith("pair:"))
@@ -249,10 +300,7 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
         return
 
     symbol = callback.data.split(":", 1)[1]
-    pair_label = next(
-        (p["label"] for p in config.OTC_PAIRS if p["symbol"] == symbol),
-        symbol,
-    )
+    pair_label = _label_for_symbol(symbol)
 
     await callback.message.edit_text(
         f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации:",
@@ -269,10 +317,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 
     _, symbol, sec_str = callback.data.split(":", 2)
     expiration_sec = int(sec_str)
-    pair_label = next(
-        (p["label"] for p in config.OTC_PAIRS if p["symbol"] == symbol),
-        symbol,
-    )
+    pair_label = _label_for_symbol(symbol)
 
     await callback.answer("⏳ Анализирую рынок...")
     await callback.message.edit_text(

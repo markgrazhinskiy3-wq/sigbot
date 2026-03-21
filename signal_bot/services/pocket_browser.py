@@ -455,6 +455,209 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
     return False
 
 
+async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
+    """
+    Scrape available OTC pairs and their payout percentages from Pocket Option.
+    Returns list of {"label": "EUR/USD OTC | 82%", "symbol": "#EURUSD_otc", "payout": 82}
+    filtered to payout >= min_payout.
+    Falls back to an empty list on any error.
+    """
+    context = await _get_context()
+    page = await context.new_page()
+    try:
+        await _ensure_logged_in(context, page)
+        await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+        await page.wait_for_timeout(2500)
+
+        # Open the asset selector panel via mouse click on the asset name
+        opened = False
+        try:
+            box = await page.evaluate("""() => {
+                const sels = ['.currencies-block', '.block-active-asset-name', '.asset-name',
+                               '[class*="active-asset"]', '.header-main__asset'];
+                for (const s of sels) {
+                    const el = document.querySelector(s);
+                    if (el && el.offsetWidth > 0) {
+                        const r = el.getBoundingClientRect();
+                        if (r.top >= 0 && r.top < 150)
+                            return {x: r.left + r.width/2, y: r.top + r.height/2};
+                    }
+                }
+                return null;
+            }""")
+            if box:
+                await page.mouse.click(box['x'], box['y'])
+                await page.wait_for_timeout(1500)
+                opened = True
+        except Exception as e:
+            logger.warning("Could not open asset panel via mouse: %s", e)
+
+        if not opened:
+            for sel in ['.block-active-asset-name', '.currencies-block', '.assets-toggle',
+                        '[data-action="open-assets"]']:
+                try:
+                    el = page.locator(sel).first
+                    if await el.count() > 0:
+                        await el.click(timeout=3000)
+                        await page.wait_for_timeout(1500)
+                        opened = True
+                        break
+                except Exception:
+                    continue
+
+        if not opened:
+            logger.warning("get_available_otc_pairs: could not open asset panel")
+            return []
+
+        # Try to click an "OTC" category tab inside the panel
+        otc_tab_clicked = False
+        for tab_text in ["OTC", "ОТС", "otc"]:
+            for sel in [
+                f'button:has-text("{tab_text}")',
+                f'a:has-text("{tab_text}")',
+                f'span:has-text("{tab_text}")',
+                f'li:has-text("{tab_text}")',
+                f'[class*="tab"]:has-text("{tab_text}")',
+                f'[class*="category"]:has-text("{tab_text}")',
+                f'[class*="section"]:has-text("{tab_text}")',
+            ]:
+                try:
+                    el = page.locator(sel).first
+                    if await el.count() > 0:
+                        await el.click(timeout=2000)
+                        await page.wait_for_timeout(1000)
+                        otc_tab_clicked = True
+                        logger.info("Clicked OTC category tab via: %s", sel)
+                        break
+                except Exception:
+                    continue
+            if otc_tab_clicked:
+                break
+
+        if not otc_tab_clicked:
+            # Fallback: search for "OTC" in the search box to filter OTC assets
+            try:
+                search_box = await page.evaluate("""() => {
+                    const sel = 'input[placeholder*="earch" i], input[placeholder*="оиск" i]';
+                    const el = document.querySelector(sel);
+                    if (el) {
+                        const r = el.getBoundingClientRect();
+                        return {x: r.left + r.width/2, y: r.top + r.height/2};
+                    }
+                    return null;
+                }""")
+                if search_box:
+                    await page.mouse.click(search_box['x'], search_box['y'])
+                    await page.wait_for_timeout(200)
+                    await page.keyboard.type("OTC")
+                    await page.wait_for_timeout(800)
+                    logger.info("Searched for OTC assets via search box")
+            except Exception as e:
+                logger.warning("OTC search fallback failed: %s", e)
+
+        # Extract all visible asset items with their payout percentages
+        pairs_raw = await page.evaluate("""() => {
+            const results = [];
+
+            // Strategy 1: look for elements with data-id / data-asset / data-symbol containing 'otc'
+            const dataSelectors = [
+                '[data-id*="otc" i]', '[data-id*="_otc"]',
+                '[data-asset*="otc" i]', '[data-symbol*="otc" i]',
+                '[data-id*="OTC"]',
+            ];
+            for (const dsel of dataSelectors) {
+                const items = document.querySelectorAll(dsel);
+                if (items.length > 0) {
+                    items.forEach(item => {
+                        // Extract name
+                        const nameEl = item.querySelector('[class*="name"], [class*="title"], [class*="label"]');
+                        const name = nameEl ? nameEl.textContent.trim() : item.textContent.replace(/\\d+%/, '').trim().split('\\n')[0].trim();
+                        // Extract payout %
+                        const pctMatch = item.textContent.match(/(\\d{2,3})\\s*%/);
+                        const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
+                        // Extract symbol from data attribute
+                        const rawSym = item.dataset.id || item.dataset.asset || item.dataset.symbol || '';
+                        results.push({name, pct, rawSym});
+                    });
+                    if (results.length > 0) return results;
+                }
+            }
+
+            // Strategy 2: scan all list items / divs for "OTC" text + a % number nearby
+            const candidates = document.querySelectorAll(
+                'li, .asset-item, .assets-item, .asset, [class*="asset"], [class*="pair"]'
+            );
+            candidates.forEach(item => {
+                const text = item.textContent;
+                if (!text.toLowerCase().includes('otc')) return;
+                // Must have a payout percentage
+                const pctMatch = text.match(/(\\d{2,3})\\s*%/);
+                if (!pctMatch) return;
+                const pct = parseInt(pctMatch[1]);
+                // Extract name: first line / first text that isn't a number
+                const nameEl = item.querySelector('[class*="name"], [class*="title"], [class*="label"], span, b');
+                let name = nameEl ? nameEl.textContent.trim() : '';
+                if (!name) {
+                    name = text.replace(/\\d+%/, '').trim().split('\\n')[0].trim().substring(0, 30);
+                }
+                const rawSym = item.dataset.id || item.dataset.asset || item.dataset.symbol || '';
+                results.push({name, pct, rawSym});
+            });
+
+            return results;
+        }""")
+
+        if not pairs_raw:
+            logger.warning("get_available_otc_pairs: no OTC pairs found in DOM")
+            return []
+
+        # Normalise and deduplicate
+        seen: set[str] = set()
+        pairs: list[dict] = []
+
+        for raw in pairs_raw:
+            name: str = (raw.get("name") or "").strip()
+            pct: int = raw.get("pct", 0)
+            raw_sym: str = (raw.get("rawSym") or "").strip()
+
+            if pct < min_payout:
+                continue
+            if not name or len(name) < 3:
+                continue
+            if "otc" not in name.lower():
+                continue
+
+            # Build symbol from data attribute if available, otherwise derive from name
+            if raw_sym:
+                sym = "#" + raw_sym.lstrip("#").lower()
+                if not sym.endswith("_otc"):
+                    sym += "_otc"
+            else:
+                # Derive symbol from name: "EUR/USD OTC" → "#EURUSD_otc"
+                base = name.replace(" OTC", "").replace(" otc", "").strip()
+                base = base.replace("/", "").replace("-", "").replace(" ", "").upper()
+                sym = f"#{base}_otc"
+
+            key = sym.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+
+            label = f"{name} | {pct}%"
+            pairs.append({"label": label, "symbol": sym, "payout": pct, "name": name})
+            logger.info("OTC pair found: %s → %s (%d%%)", name, sym, pct)
+
+        pairs.sort(key=lambda p: -p["payout"])
+        logger.info("get_available_otc_pairs: %d pairs with payout ≥%d%%", len(pairs), min_payout)
+        return pairs
+
+    except Exception as e:
+        logger.exception("get_available_otc_pairs failed: %s", e)
+        return []
+    finally:
+        await page.close()
+
+
 async def get_candles(symbol: str, count: int = 60) -> list[dict]:
     """
     Navigate to trading page for the given symbol and collect OHLC candle data.
