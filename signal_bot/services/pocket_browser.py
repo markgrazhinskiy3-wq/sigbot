@@ -496,18 +496,44 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         # Switch to the correct asset via UI if the platform defaulted to another pair
         switched = await _switch_to_asset(page, symbol)
         if switched:
-            # Clear stale data from the previous asset so we only use fresh data
+            # After UI switch PocketOption remembers the selected asset.
+            # Reload the page so the WS re-subscribes to the new asset from scratch.
             binary_frames.clear()
-            logger.info("Asset switched — cleared WS buffer, waiting for fresh %s data", symbol)
+            logger.info("Asset switched — reloading page so WS subscribes to %s", symbol)
+            await page.goto(trade_url, wait_until="domcontentloaded", timeout=30_000)
+            await page.wait_for_timeout(3000)
+        
+        # Verify we're on the correct asset now
+        try:
+            current_asset = await page.evaluate("""() => {
+                const el = document.querySelector('.currencies-block');
+                return el ? el.textContent.trim() : null;
+            }""")
+            logger.info("Asset after load: '%s'", current_asset)
+        except Exception:
+            pass
 
-        # After potential asset switch, wait for fresh history data (up to 25s)
-        deadline = 25
+        # Wait for fresh history data (up to 35s)
+        deadline = 35
         for _ in range(deadline * 2):
             await page.wait_for_timeout(500)
             if any(ev == "updateHistoryNewFast" for ev, _ in binary_frames):
                 break
+        
+        # Log what WS data arrived (all assets) for debugging
+        seen_assets = list({
+            json.loads(d.decode("utf-8")).get("asset", "?")
+            for ev, d in binary_frames if ev == "updateHistoryNewFast"
+            if _safe_json_asset(d)
+        })
+        logger.info("WS assets received: %s", seen_assets)
 
         candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=30)
+        
+        # Fallback: if 0 candles for target symbol, try any symbol (in case asset name format differs)
+        if len(candles) == 0 and binary_frames:
+            logger.warning("No candles for %s — falling back to any received WS data", symbol)
+            candles = _candles_from_binary_frames(binary_frames, count, symbol="", period=30)
         logger.info("Binary frames gave %d candles for %s", len(candles), symbol)
 
         if len(candles) < 14:
@@ -546,6 +572,14 @@ def _ticks_to_candles(ticks: list, period: int = 60) -> list[dict]:
                 "close": prices[-1],
             })
     return candles
+
+
+def _safe_json_asset(data: bytes) -> str | None:
+    """Safely decode a binary WS frame and return its 'asset' field, or None."""
+    try:
+        return json.loads(data.decode("utf-8")).get("asset")
+    except Exception:
+        return None
 
 
 def _candles_from_binary_frames(
@@ -696,8 +730,14 @@ async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> 
         await _trade_page.wait_for_timeout(2000)
 
         # Switch to the correct asset via UI if the platform defaulted to another pair
-        await _switch_to_asset(_trade_page, symbol)
-        await _trade_page.wait_for_timeout(1000)
+        trade_switched = await _switch_to_asset(_trade_page, symbol)
+        if trade_switched:
+            # Reload so the platform starts fresh on the newly selected asset
+            logger.info("Trade page: asset switched, reloading to confirm %s", symbol)
+            await _trade_page.goto(trade_url, wait_until="domcontentloaded", timeout=30_000)
+            await _trade_page.wait_for_timeout(2000)
+        else:
+            await _trade_page.wait_for_timeout(1000)
 
         # Set amount to $1
         amount_selectors = [
