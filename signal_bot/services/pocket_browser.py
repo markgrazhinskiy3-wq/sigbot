@@ -278,32 +278,34 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
         box = await page.evaluate(f"""() => {{
             const text = {repr(current)};
             const all = Array.from(document.querySelectorAll('*'));
-            // Find element containing exactly this text, walking up to find button parent
-            for (const el of all.reverse()) {{
-                if (el.textContent.trim() === text && el.offsetWidth > 0) {{
-                    // Walk up to the first element with cursor:pointer or is a button
+            // Find element near top of page (y < 120px) — the asset HEADER button,
+            // not the trade history entries which are further down the page
+            for (const el of all) {{
+                const r = el.getBoundingClientRect();
+                if (el.textContent.trim() === text &&
+                    el.offsetWidth > 0 && el.offsetHeight > 0 &&
+                    r.top < 120 && r.top >= 0) {{
+                    // Walk up to the first element with cursor:pointer or button
                     let target = el;
-                    for (let i = 0; i < 6; i++) {{
+                    for (let i = 0; i < 8; i++) {{
                         const s = window.getComputedStyle(target);
                         if (target.tagName === 'BUTTON' || target.tagName === 'A' ||
                             target.getAttribute('role') === 'button' ||
                             s.cursor === 'pointer') {{
-                            const r = target.getBoundingClientRect();
-                            return {{x: r.left + r.width/2, y: r.top + r.height/2}};
+                            const r2 = target.getBoundingClientRect();
+                            return {{x: r2.left + r2.width/2, y: r2.top + r2.height/2, sel: target.className}};
                         }}
                         if (!target.parentElement) break;
                         target = target.parentElement;
                     }}
-                    // Fallback: return bounding box of innermost element
-                    const r = el.getBoundingClientRect();
-                    return {{x: r.left + r.width/2, y: r.top + r.height/2}};
+                    return {{x: r.left + r.width/2, y: r.top + r.height/2, sel: el.className}};
                 }}
             }}
             return null;
         }}""")
 
         if box:
-            logger.info("Asset element found at (%.0f, %.0f) — mouse clicking", box['x'], box['y'])
+            logger.info("Asset element found at (%.0f, %.0f) class='%s' — mouse clicking", box['x'], box['y'], box.get('sel', ''))
             await page.mouse.click(box['x'], box['y'])
             await page.wait_for_timeout(1500)
         else:
