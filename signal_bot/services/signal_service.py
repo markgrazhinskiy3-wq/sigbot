@@ -64,11 +64,11 @@ def format_result_caption(
     dir_label = "BUY ⬆️" if direction == "BUY" else "SELL ⬇️"
     d = details
 
-    rsi = d.get("RSI", {})
-    ema = d.get("EMA", {})
-    stoch = d.get("Stoch", {})
+    rsi      = d.get("RSI", {})
+    ema      = d.get("EMA", {})
+    stoch    = d.get("Stoch", {})
     momentum = d.get("Momentum", {})
-    candle = d.get("Candle", {})
+    bb       = d.get("BB", {})
 
     reasons = []
 
@@ -90,9 +90,9 @@ def format_result_caption(
         hint = " — положительный импульс" if direction == "BUY" else " — отрицательный импульс"
         reasons.append(f"• Momentum{hint}")
 
-    if candle.get("signal") == direction:
-        hint = " — бычья свеча" if direction == "BUY" else " — медвежья свеча"
-        reasons.append(f"• Свеча{hint}")
+    if bb.get("signal") == direction:
+        hint = " — цена у нижней полосы" if direction == "BUY" else " — цена у верхней полосы"
+        reasons.append(f"• Bollinger Bands{hint}")
 
     reasons_text = "\n".join(reasons) if reasons else "• Большинство индикаторов совпали"
 

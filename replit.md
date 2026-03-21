@@ -117,7 +117,7 @@ Separate standalone Python bot for OTC trading signals on Pocket Option.
 - Services:
   - `services/access_service.py` — user registration + admin notification
   - `services/pocket_browser.py` — Playwright login to pocketoption.com, candle collection via WS intercept, screenshots
-  - `services/strategy_engine.py` — RSI(14), EMA(9/21), Stochastic(5,3,3), Momentum, candle direction → BUY/SELL/NO_SIGNAL
+  - `services/strategy_engine.py` — RSI(14), EMA(9/21) с мёртвой зоной ±0.05%, Stochastic(5,3,3), Momentum с мёртвой зоной ±0.05%, Bollinger Bands(20,2) → BUY/SELL/NO_SIGNAL; порог conf≥4/5
   - `services/signal_service.py` — orchestrates browser + engine, formats signal message
   - `services/result_watcher.py` — asyncio task, waits N seconds then sends screenshot
 - Bot: `signal_bot/bot/handlers.py` + `keyboards.py` — FSM flow, admin commands (/approve, /deny, /users, /pending, /broadcast)

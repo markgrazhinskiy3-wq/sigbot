@@ -20,7 +20,7 @@ PO_BASE_URL: str = "https://pocketoption.com"
 PO_TRADE_URL: str = f"{PO_BASE_URL}/en/cabinet/demo-quick-high-low/"
 PO_LOGIN_URL: str = f"{PO_BASE_URL}/en/login"
 
-SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", "3"))
+SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", "4"))
 
 OTC_PAIRS: list[dict] = [
     {"label": "EUR/USD OTC", "symbol": "#EURUSD_otc"},
