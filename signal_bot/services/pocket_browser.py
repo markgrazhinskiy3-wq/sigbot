@@ -244,13 +244,16 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
     Returns True if the asset was confirmed/switched successfully.
     """
     symbol_clean = symbol.lstrip("#")
-    base = symbol_clean.replace("_otc", "").upper()
-    slash_name = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
+    is_otc = "_otc" in symbol_clean.lower()
+    base = symbol_clean.replace("_otc", "").replace("_OTC", "").upper()
+    slash_base = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
+    slash_name = f"{slash_base} OTC" if is_otc else slash_base  # e.g. "EUR/USD OTC"
 
     # Check if asset is already correct
     try:
         current = await page.evaluate("""() => {
             const sels = [
+                '.currencies-block',
                 '.block-active-asset-name',
                 '.header-main__asset .name',
                 '.asset-name',
@@ -506,8 +509,12 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         # Verify we're on the correct asset now
         try:
             current_asset = await page.evaluate("""() => {
-                const el = document.querySelector('.currencies-block');
-                return el ? el.textContent.trim() : null;
+                const sels = ['.currencies-block', '.block-active-asset-name', '.asset-name', '[class*="active-asset"]'];
+                for (const s of sels) {
+                    const el = document.querySelector(s);
+                    if (el && el.textContent.trim()) return el.textContent.trim();
+                }
+                return null;
             }""")
             logger.info("Asset after load: '%s'", current_asset)
         except Exception:
