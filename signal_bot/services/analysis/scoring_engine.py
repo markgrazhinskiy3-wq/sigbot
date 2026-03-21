@@ -81,9 +81,10 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         best_score = raw[best_name]
         full_match    = best_score >= FULL_MATCH_MIN
         partial_match = best_score >= PARTIAL_MATCH_MIN
-        # Blended: best 70% + average 30%
+        # Blended: best 80% + average 20%
+        # Gives strong weight to the one good pattern rather than averaging into zero
         avg     = (imp_s + bnc_s + fb_s) / 3
-        blended = best_score * 0.70 + avg * 0.30
+        blended = best_score * 0.80 + avg * 0.20
         return blended, best_name, best_score, full_match, partial_match
 
     pa_buy,  pa_buy_name,  pa_buy_raw,  buy_full,  buy_partial  = _assess(
@@ -267,12 +268,15 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         )
 
     # ── 11. Confidence base ────────────────────────────────────────────────────
+    # PA carries 60%: one strong pattern should dominate the result.
+    # Secondary factors (candles, levels, regime, indicators) fill the remaining 40%.
+    regime_s = regime.buy_score if is_buy else regime.sell_score
     confidence = (
-        pa_score   * 0.50
-        + candle_s * 0.20
-        + level_ok * 0.10
-        + (regime.buy_score if is_buy else regime.sell_score) * 0.10
-        + ind_s    * 0.10
+        pa_score   * 0.60
+        + candle_s * 0.15
+        + level_ok * 0.08
+        + regime_s * 0.10
+        + ind_s    * 0.07
     )
     debug["confidence_base"] = round(confidence, 1)
 
@@ -418,9 +422,13 @@ def _no_signal(
 
 
 def _to_5(score: float) -> int:
-    """Map 58–100 confidence onto 1–5 display stars."""
+    """
+    Map confidence → 1–5 display scale.
+    Any signal that passes the moderate threshold (≥58) shows at least 2/5.
+    1/5 is reserved for signals that didn't pass (shouldn't appear in user messages).
+    """
     if score >= 85: return 5
     if score >= 75: return 4
     if score >= 67: return 3
-    if score >= 60: return 2
-    return 1
+    if score >= 58: return 2   # moderate signal — valid, but not strong
+    return 1                   # below threshold — no signal
