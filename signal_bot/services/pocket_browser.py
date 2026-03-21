@@ -896,26 +896,53 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                 for (const s of strictWin)  {{ if (document.querySelector(s)) return 'win';  }}
                 for (const s of strictLoss) {{ if (document.querySelector(s)) return 'loss'; }}
 
-                // 2. Find the element that mentions OUR pair AND has a profit value.
-                //    Walk all leaf-ish elements; skip elements too big (containing the whole page).
-                const all = Array.from(document.querySelectorAll('*'));
-                for (const el of all) {{
+                // 2. Collect ALL elements that mention OUR pair AND have profit/loss value.
+                //    Then pick the TOPMOST one (smallest Y) — that's the most recently
+                //    closed trade in the list (Closed panel shows newest first, top to bottom).
+                const candidates = [];
+                for (const el of document.querySelectorAll('*')) {{
                     if (el.children.length > 10) continue;  // skip containers
                     const t = (el.innerText || '').trim();
                     if (!t.includes(pairLabel)) continue;
-                    if (hasProfit(t)) return 'win';
-                    if (hasZero(t))   return 'loss';
+                    if (t.includes('Payout') || t.includes('payout')) continue;
+                    if (!hasProfit(t) && !hasZero(t)) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 50 || r.height < 5) continue;
+                    candidates.push({{ el, t, y: r.top }});
+                }}
+
+                if (candidates.length > 0) {{
+                    // Sort ascending by Y — topmost element = most recent closed trade
+                    candidates.sort((a, b) => a.y - b.y);
+                    const top = candidates[0];
+                    // Return result + debug info as JSON so Python can log it
+                    const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
+                    if (outcome) return JSON.stringify({{
+                        outcome,
+                        total: candidates.length,
+                        topY: Math.round(top.y),
+                        text: top.t.replace(/\\s+/g, ' ').slice(0, 80),
+                    }});
                 }}
 
                 // 3. Fallback: look in the trades sidebar (right panel)
                 //    but exclude the payout widget (which always shows "+$X.XX")
                 const allEls = Array.from(document.querySelectorAll('[class*="trade"], [class*="deal"], [class*="history"], [class*="closed"]'));
+                // Sort by Y as well — take topmost
+                const sidebarCandidates = [];
                 for (const el of allEls) {{
                     const t = (el.innerText || '');
-                    // The payout widget says "Payout" — skip it
                     if (t.includes('Payout') || t.includes('payout')) continue;
-                    if (hasProfit(t)) return 'win';
-                    if (hasZero(t))   return 'loss';
+                    if (!hasProfit(t) && !hasZero(t)) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 50 || r.height < 5) continue;
+                    sidebarCandidates.push({{ t, y: r.top }});
+                }}
+                if (sidebarCandidates.length > 0) {{
+                    sidebarCandidates.sort((a, b) => a.y - b.y);
+                    const top = sidebarCandidates[0];
+                    if (hasProfit(top.t)) return 'win';
+                    if (hasZero(top.t))   return 'loss';
                 }}
 
                 // 4. Explicit loss text (very narrow to avoid false positives)
@@ -923,7 +950,17 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
 
                 return 'unknown';
             }}""")
-            logger.info("Detected trade outcome: %s", outcome)
+            # Step 2 returns a JSON string with debug info; other steps return plain string
+            if isinstance(outcome, str) and outcome.startswith('{'):
+                import json as _json
+                info = _json.loads(outcome)
+                logger.info(
+                    "Detected trade outcome: %s | candidates=%d topY=%d text=%r",
+                    info.get("outcome"), info.get("total"), info.get("topY"), info.get("text"),
+                )
+                outcome = info.get("outcome", "unknown")
+            else:
+                logger.info("Detected trade outcome: %s", outcome)
         except Exception as e:
             logger.warning("Could not detect outcome: %s", e)
 
@@ -938,26 +975,27 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                 const hasProfit = (t) => /[+-]\\s*\\$[\\d.]+/.test(t);
                 const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
 
-                // Walk all elements; pick the smallest one that contains our pair
-                // and a profit/loss value, but is not the entire sidebar
-                let best = null;
-                let bestArea = Infinity;
+                // Collect all candidate elements that contain our pair label
+                // and a profit/loss value. Pick the TOPMOST one (smallest Y) —
+                // that is the most recently closed trade in the Closed panel
+                // (PocketOption renders newest trades at the top of the list).
+                const candidates = [];
                 for (const el of document.querySelectorAll('*')) {{
                     if (!el.innerText) continue;
                     const t = el.innerText.trim();
                     if (!t.includes(label)) continue;
+                    if (t.includes('Payout') || t.includes('payout')) continue;
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
                     const area = r.width * r.height;
-                    // Must be visible, reasonable size (not the whole page)
                     if (r.width < 50 || r.height < 20) continue;
                     if (area > 150000) continue;   // skip huge containers
-                    if (area < bestArea) {{
-                        best = r;
-                        bestArea = area;
-                    }}
+                    candidates.push({{ r, area, y: r.top }});
                 }}
-                if (!best) return null;
+                if (candidates.length === 0) return null;
+                // Sort by Y ascending — topmost = most recent trade
+                candidates.sort((a, b) => a.y - b.y);
+                const best = candidates[0].r;
                 return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
             }}""")
 
