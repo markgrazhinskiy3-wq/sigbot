@@ -56,25 +56,21 @@ def format_signal_message(signal: SignalResponse) -> str:
         )
 
     if signal.direction == "BUY":
-        header = f"📈 <b>{signal.pair} — ВВЕРХ</b>"
-        forecast = "Анализ показывает: высокая вероятность <b>роста цены</b>."
+        arrow     = "⬆️"
+        dir_label = "BUY ⬆️ (ВВЕРХ)"
     else:
-        header = f"📉 <b>{signal.pair} — ВНИЗ</b>"
-        forecast = "Анализ показывает: высокая вероятность <b>падения цены</b>."
+        arrow     = "⬇️"
+        dir_label = "SELL ⬇️ (ВНИЗ)"
 
     bar   = _conf_bar(signal.confidence)
     label = _conf_label(signal.confidence)
-    exp   = signal.expiration_sec
 
     lines = [
-        header,
-        "",
-        forecast,
-        "",
+        f"{arrow} <b>{signal.pair}</b>",
+        f"📊 Сигнал: <b>{dir_label}</b>",
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
-        f"⏱ Время сделки: {exp} сек",
         "",
-        "<i>Сделка поставлена автоматически. Результат пришлём сразу после закрытия.</i>",
+        "<i>Результат придет после закрытия сделки.</i>",
     ]
     return "\n".join(lines)
 
