@@ -31,24 +31,50 @@ async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> Signa
     )
 
 
+def _conf_bar(confidence: int, total: int = 5) -> str:
+    filled = min(confidence, total)
+    return "█" * filled + "░" * (total - filled)
+
+
+def _conf_label(confidence: int) -> str:
+    if confidence >= 5:
+        return "максимальная"
+    if confidence >= 4:
+        return "высокая"
+    if confidence >= 3:
+        return "средняя"
+    return "низкая"
+
+
 def format_signal_message(signal: SignalResponse) -> str:
     if signal.direction == "NO_SIGNAL":
         return (
             f"🔍 <b>{signal.pair}</b>\n\n"
-            f"⚠️ <b>Сигнал слабый</b>\n"
-            f"Рынок не даёт чёткого направления. Воздержитесь от сделки.\n\n"
-            f"<i>Попробуйте другую пару или подождите.</i>"
+            f"⚠️ <b>Рынок сейчас в неопределённости</b>\n"
+            f"Нет чёткого направления — входить рискованно.\n\n"
+            f"<i>Попробуйте другую пару или подождите немного.</i>"
         )
 
-    arrow = "🟢 ⬆️" if signal.direction == "BUY" else "🔴 ⬇️"
-    dir_label = "BUY ⬆️" if signal.direction == "BUY" else "SELL ⬇️"
+    if signal.direction == "BUY":
+        header = f"📈 <b>{signal.pair} — ВВЕРХ</b>"
+        forecast = "Анализ показывает: высокая вероятность <b>роста цены</b>."
+    else:
+        header = f"📉 <b>{signal.pair} — ВНИЗ</b>"
+        forecast = "Анализ показывает: высокая вероятность <b>падения цены</b>."
+
+    bar   = _conf_bar(signal.confidence)
+    label = _conf_label(signal.confidence)
+    exp   = signal.expiration_sec
 
     lines = [
-        f"{arrow} <b>{signal.pair}</b>\n",
-        f"📊 Сигнал: <b>{dir_label}</b>",
-        f"💪 Сила: {signal.confidence}/5",
-        f"⏱ Экспирация: {signal.expiration_sec} сек",
-        f"\n<i>Анализ и результат придут по истечении сделки.</i>",
+        header,
+        "",
+        forecast,
+        "",
+        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
+        f"⏱ Время сделки: {exp} сек",
+        "",
+        "<i>Сделка поставлена автоматически. Результат пришлём сразу после закрытия.</i>",
     ]
     return "\n".join(lines)
 
@@ -60,8 +86,12 @@ def format_result_caption(
     details: dict,
     outcome: str = "unknown",
 ) -> str:
-    arrow = "🟢 ⬆️" if direction == "BUY" else "🔴 ⬇️"
-    dir_label = "BUY ⬆️" if direction == "BUY" else "SELL ⬇️"
+    is_buy = direction == "BUY"
+    header = (
+        f"📈 <b>{pair_label} — ВВЕРХ</b>"
+        if is_buy else
+        f"📉 <b>{pair_label} — ВНИЗ</b>"
+    )
     d = details
 
     rsi      = d.get("RSI", {})
@@ -72,42 +102,59 @@ def format_result_caption(
 
     reasons = []
 
-    rsi_val = rsi.get("value", "?")
+    # RSI — объясняем человеческим языком
+    rsi_val = rsi.get("value", 50)
     if rsi.get("signal") == direction:
-        hint = " — перепроданность" if direction == "BUY" else " — перекупленность"
-        reasons.append(f"• RSI ({rsi_val}){hint}")
+        if is_buy:
+            reasons.append(f"📊 Рынок слишком сильно упал и готов к отскоку вверх (RSI {round(rsi_val)})")
+        else:
+            reasons.append(f"📊 Рынок слишком сильно вырос и готов к откату вниз (RSI {round(rsi_val)})")
 
+    # EMA
     if ema.get("signal") == direction:
-        hint = " — восходящий кросс" if direction == "BUY" else " — нисходящий кросс"
-        reasons.append(f"• EMA 9/21{hint}")
+        if is_buy:
+            reasons.append("📈 Краткосрочный тренд переломился и пошёл вверх")
+        else:
+            reasons.append("📉 Краткосрочный тренд переломился и пошёл вниз")
 
-    stoch_k = stoch.get("k", "?")
+    # Stochastic
+    stoch_k = stoch.get("k", 50)
     if stoch.get("signal") == direction:
-        hint = " — зона перепроданности" if direction == "BUY" else " — зона перекупленности"
-        reasons.append(f"• Stoch K ({stoch_k}){hint}")
+        if is_buy:
+            reasons.append(f"🔻 Цена на дне диапазона — продавцы выдохлись (Stoch {round(stoch_k)})")
+        else:
+            reasons.append(f"🔺 Цена на пике диапазона — покупатели выдохлись (Stoch {round(stoch_k)})")
 
+    # Momentum
     if momentum.get("signal") == direction:
-        hint = " — положительный импульс" if direction == "BUY" else " — отрицательный импульс"
-        reasons.append(f"• Momentum{hint}")
+        if is_buy:
+            reasons.append("⚡ Движение вверх набирает силу")
+        else:
+            reasons.append("⚡ Движение вниз набирает силу")
 
+    # Bollinger Bands
     if bb.get("signal") == direction:
-        hint = " — цена у нижней полосы" if direction == "BUY" else " — цена у верхней полосы"
-        reasons.append(f"• Bollinger Bands{hint}")
+        if is_buy:
+            reasons.append("📐 Цена вышла за нижнюю границу нормального диапазона — ожидаем возврат вверх")
+        else:
+            reasons.append("📐 Цена вышла за верхнюю границу нормального диапазона — ожидаем возврат вниз")
 
-    reasons_text = "\n".join(reasons) if reasons else "• Большинство индикаторов совпали"
+    reasons_text = "\n".join(reasons) if reasons else "• Большинство факторов сошлись в одном направлении"
 
     if outcome == "win":
-        outcome_line = "✅ <b>+  Сделка выиграна!</b>"
+        outcome_line = "✅ <b>Сделка закрыта в плюс!</b>"
     elif outcome == "loss":
-        outcome_line = "❌ <b>−  Сделка проиграна</b>"
+        outcome_line = "❌ <b>Сделка закрыта в минус</b>"
     else:
-        outcome_line = "📊 Результат — смотри скриншот"
+        outcome_line = "📋 Результат — смотри скриншот выше"
 
     lines = [
-        f"{arrow} <b>{pair_label}</b>",
-        f"Сигнал: <b>{dir_label}</b> | Экспирация: {expiration_sec} сек\n",
+        header,
+        f"<i>Время сделки: {expiration_sec} сек</i>",
+        "",
         outcome_line,
-        f"\n<b>Почему вошли в {dir_label}:</b>",
+        "",
+        "<b>Почему был дан именно этот сигнал:</b>",
         reasons_text,
     ]
     return "\n".join(lines)
