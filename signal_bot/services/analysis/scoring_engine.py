@@ -169,9 +169,27 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         )
 
     # ── 6. Choose direction ───────────────────────────────────────────────────
-    # Both partial → pick higher; only one partial → take it
-    if buy_partial and (not sell_partial or pa_buy >= pa_sell):
-        direction    = "BUY"
+    # RULE: prefer trend-aligned direction first.
+    # Only fall back to score comparison in range/weak_trend.
+    # This prevents the engine from picking a counter-trend direction just because
+    # it scored slightly higher, then blocking it, and returning NO_SIGNAL
+    # despite the trend-aligned direction being perfectly valid.
+    def _pick_direction() -> str:
+        if regime.regime == "uptrend":
+            if buy_partial: return "BUY"       # trend-aligned first
+            if sell_partial: return "SELL"
+        elif regime.regime == "downtrend":
+            if sell_partial: return "SELL"      # trend-aligned first
+            if buy_partial: return "BUY"
+        else:
+            # range / weak_trend → pick by highest score
+            if buy_partial and (not sell_partial or pa_buy >= pa_sell):
+                return "BUY"
+        return "SELL"
+
+    direction = _pick_direction()
+
+    if direction == "BUY":
         pa_score     = pa_buy
         pa_name      = pa_buy_name
         pa_raw       = pa_buy_raw
@@ -184,11 +202,9 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         opp_fb       = fbreak.sell_score
         opp_pa_raw   = pa_sell_raw
         opp_pa_name  = pa_sell_name
-        # Bounce/breakout scores for counter-trend check
         ct_bounce    = bounce.buy_score
         ct_breakout  = fbreak.buy_score
     else:
-        direction    = "SELL"
         pa_score     = pa_sell
         pa_name      = pa_sell_name
         pa_raw       = pa_sell_raw
@@ -250,8 +266,15 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         )
 
     # ── 10. BUY/SELL parity — directional confusion ───────────────────────────
+    # Skip parity check when the chosen direction is trend-aligned:
+    # a SELL in downtrend or BUY in uptrend is valid even if the opposite
+    # direction scored slightly higher (we already preferred trend in step 6).
+    trend_aligned = (
+        (is_buy and regime.regime == "uptrend") or
+        (not is_buy and regime.regime == "downtrend")
+    )
     gap = abs(pa_buy_raw - pa_sell_raw)
-    if gap < 8 and buy_partial and sell_partial:
+    if gap < 8 and buy_partial and sell_partial and not trend_aligned:
         hard_conflicts.append(
             f"BUY/SELL в паритете ({pa_buy_raw:.0f} vs {pa_sell_raw:.0f})"
         )
