@@ -1,0 +1,212 @@
+[
+  {
+    "name": "t",
+    "value": "0",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "po_uuid",
+    "value": "db920da6-a0df-4688-b186-36d5753dd2db",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1808673766,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "utm_medium",
+    "value": "sr",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "utm_campaign",
+    "value": "834644",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "no-login-captcha",
+    "value": "1",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1808673906,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "ci_session",
+    "value": "a%3A4%3A%7Bs%3A10%3A%22session_id%22%3Bs%3A32%3A%2246a53a3739268ee3f313971484fb7e93%22%3Bs%3A10%3A%22ip_address%22%3Bs%3A14%3A%2237.120.152.186%22%3Bs%3A10%3A%22user_agent%22%3Bs%3A117%3A%22Mozilla%2F5.0%20%28Macintosh%3B%20Intel%20Mac%20OS%20X%2010_15_7%29%20AppleWebKit%2F537.36%20%28KHTML%2C%20like%20Gecko%29%20Chrome%2F144.0.0.0%20Safari%2F537.36%22%3Bs%3A13%3A%22last_activity%22%3Bi%3A1774113905%3B%7D21acbe374e386ac4e3d41898358e3f55",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718706,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "af_message",
+    "value": "affiliate",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "hutlm9",
+    "value": "1",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774915199,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "cl_id",
+    "value": "432127261",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "a",
+    "value": "NnIww7SDiC3SIF",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "utm_source",
+    "value": "affiliate",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "_twpid",
+    "value": "tw.1774113769349.293988334455702761",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1807809769,
+    "sameSite": "Strict",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "ac",
+    "value": "coz",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "gclid",
+    "value": "CjwKCAjwg_nNBhAGEiwAiYPYA0qttJJqG_ESkvdoL9dgdfDS-fX_7LFGtMZtLgXbvFy4b35ocRi01BoCb34QAvD_BwE",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "lang",
+    "value": "ru",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1808673907,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "link_id",
+    "value": "1720611",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "loggedIn",
+    "value": "1",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1805649906,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "pageview_id",
+    "value": "1774113906970503",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1805649907,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "referer",
+    "value": "https%3A%2F%2Fwww.google.com%2F",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "reg_url",
+    "value": "utm_campaign%3D834644%26utm_source%3Daffiliate%26utm_medium%3Dsr%26a%3DNnIww7SDiC3SIF%26ac%3Dcoz%26gad_source%3D1%26gad_campaignid%3D23664056068%26gbraid%3D0AAAABC8lBCkF-pm1c-P8lJMVv2EOgeDKU%26gclid%3DCjwKCAjwg_nNBhAGEiwAiYPYA0qttJJqG_ESkvdoL9dgdfDS-fX_7LFGtMZtLgXbvFy4b35ocRi01BoCb34QAvD_BwE",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1774718566,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  },
+  {
+    "name": "uuid",
+    "value": "fbabb124-3c0c-47ba-8bf2-2ae04887d586",
+    "domain": ".pocketoption.com",
+    "path": "/",
+    "expires": 1800265959,
+    "sameSite": "None",
+    "httpOnly": false,
+    "secure": true
+  }
+]
