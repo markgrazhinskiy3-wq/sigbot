@@ -18,7 +18,8 @@ from services.result_watcher import schedule_result_watcher
 from services.pocket_browser import close_browser
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
-    main_menu_keyboard, pairs_keyboard, expiration_keyboard, back_to_menu_keyboard,
+    main_menu_keyboard, pairs_keyboard, expiration_keyboard,
+    back_to_menu_keyboard, no_signal_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -334,11 +335,12 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         signal = await get_signal(symbol, pair_label, expiration_sec)
         text = format_signal_message(signal)
 
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
+        kb = (
+            no_signal_keyboard(symbol, expiration_sec)
+            if signal.direction == "NO_SIGNAL"
+            else back_to_menu_keyboard()
         )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
         if signal.direction != "NO_SIGNAL":
             schedule_result_watcher(

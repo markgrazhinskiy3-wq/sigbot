@@ -56,6 +56,24 @@ def expiration_keyboard(symbol: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup:
+    """Keyboard shown when no signal could be generated."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Попробовать снова",
+            callback_data=f"exp:{symbol}:{expiration_sec}",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="📊 Выбрать другую пару", callback_data="action:get_signal"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
