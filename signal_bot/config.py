@@ -36,7 +36,6 @@ OTC_PAIRS: list[dict] = [
 ]
 
 EXPIRATIONS: list[dict] = [
-    {"label": "30 сек", "seconds": 30},
     {"label": "1 мин", "seconds": 60},
     {"label": "2 мин", "seconds": 120},
 ]

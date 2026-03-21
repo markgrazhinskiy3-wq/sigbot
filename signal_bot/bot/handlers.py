@@ -455,7 +455,10 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
     pair_label = _label_for_symbol(symbol)
 
     await callback.message.edit_text(
-        f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации:",
+        f"⏱ <b>{pair_label}</b>\n\n"
+        f"Выберите время экспирации сделки:\n\n"
+        f"<i>1 мин — отбой от уровня, ложный пробой\n"
+        f"2 мин — движение по тренду, импульс</i>",
         parse_mode="HTML",
         reply_markup=expiration_keyboard(symbol),
     )
