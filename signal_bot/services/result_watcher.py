@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time as _time
 
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -31,8 +32,10 @@ async def watch_and_report(
         symbol, expiration_sec, chat_id, direction,
     )
 
+    placed_at: float = 0
     try:
         await place_demo_trade(symbol, direction, expiration_sec)
+        placed_at = _time.time()   # record AFTER successful placement
         logger.info("Demo trade placed for %s %s", direction, symbol)
     except Exception as e:
         logger.exception("Failed to place demo trade: %s", e)
@@ -40,7 +43,11 @@ async def watch_and_report(
     await asyncio.sleep(expiration_sec + 5)
 
     try:
-        screenshot_path, outcome = await take_trade_result_screenshot(symbol, direction)
+        screenshot_path, outcome = await take_trade_result_screenshot(
+            symbol, direction,
+            placed_at=placed_at,
+            expiration_sec=expiration_sec,
+        )
 
         caption = format_result_caption(pair_label, direction, expiration_sec, details, outcome)
 

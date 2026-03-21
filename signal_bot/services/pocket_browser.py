@@ -810,17 +810,37 @@ async def place_demo_trade(symbol: str, direction: str, expiration_sec: int) -> 
         # Keep _trade_page open so we can still take a fallback screenshot
 
 
-async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
+async def take_trade_result_screenshot(
+    symbol: str,
+    direction: str,
+    placed_at: float = 0,
+    expiration_sec: int = 0,
+) -> str:
     """
     Take a screenshot of the closed trade result popup/notification.
     Uses the _trade_page kept open by place_demo_trade.
     Falls back to a new page screenshot if the trade page was lost.
+
+    placed_at      — unix timestamp when the trade was placed (for time matching)
+    expiration_sec — trade duration, so we can compute expected close HH:MM
     """
     global _trade_page
 
     symbol_clean = symbol.lstrip("#")
     fname = f"result_{symbol_clean}_{int(time.time())}.png"
     path = str(SCREENSHOTS_DIR / fname)
+
+    # Build a list of HH:MM strings the closed trade might show (try UTC+0..+5)
+    # The platform uses UTC+3 based on observed screenshots, but we try a range
+    # so the code stays correct if the user's account is in a different timezone.
+    import datetime as _dt
+    close_time_candidates: list[str] = []
+    if placed_at and expiration_sec:
+        close_ts = int(placed_at) + expiration_sec
+        for offset_h in range(0, 6):  # UTC+0 … UTC+5
+            d = _dt.datetime.utcfromtimestamp(close_ts + offset_h * 3600)
+            close_time_candidates.append(f"{d.hour:02d}:{d.minute:02d}")
+        logger.info("Expected close time candidates: %s", close_time_candidates)
 
     page = _trade_page
     owns_page = False
@@ -883,12 +903,15 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
         slash_base = f"{base[:3]}/{base[3:]}" if len(base) == 6 else base
         pair_label_js = f"{slash_base} OTC" if is_otc else slash_base
 
+        close_times_js = repr(close_time_candidates)  # e.g. ['22:17', '21:17', ...]
         outcome = "unknown"
         try:
             outcome = await page.evaluate(f"""() => {{
-                const pairLabel = {repr(pair_label_js)};
+                const pairLabel   = {repr(pair_label_js)};
+                const closeTimes  = {close_times_js};   // expected close HH:MM candidates
                 const hasProfit = (t) => /\\+\\s*\\$[\\d.]+/.test(t);
                 const hasZero   = (t) => /\\$\\s*0(\\.00?)?\\b/.test(t);
+                const hasTime   = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
 
                 // 1. Specific popup CSS classes (most reliable if they exist)
                 const strictWin  = ['.notification--profit', '.result--win', '.deal--win', '.trade--profit'];
@@ -896,46 +919,52 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                 for (const s of strictWin)  {{ if (document.querySelector(s)) return 'win';  }}
                 for (const s of strictLoss) {{ if (document.querySelector(s)) return 'loss'; }}
 
-                // 2. Collect ALL elements that mention OUR pair AND have profit/loss value.
-                //    Then pick the TOPMOST one (smallest Y) — that's the most recently
-                //    closed trade in the list (Closed panel shows newest first, top to bottom).
+                // 2. Collect candidate trade-card elements:
+                //    - contains our pair label
+                //    - contains profit or zero amount
+                //    - not a payout widget
+                //    - reasonable height (single card ≤ 120px; whole panel >> 120px)
+                //    - not an enormous container (area ≤ 120 000 px²)
                 const candidates = [];
                 for (const el of document.querySelectorAll('*')) {{
-                    if (el.children.length > 10) continue;  // skip containers
+                    if (el.children.length > 8) continue;
                     const t = (el.innerText || '').trim();
                     if (!t.includes(pairLabel)) continue;
                     if (t.includes('Payout') || t.includes('payout')) continue;
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
-                    if (r.width < 50 || r.height < 5) continue;
-                    candidates.push({{ el, t, y: r.top }});
+                    if (r.width < 80 || r.height < 20) continue;
+                    if (r.height > 120) continue;          // ← skip multi-row containers
+                    if (r.width * r.height > 120000) continue;
+                    candidates.push({{ t, y: r.top, hasOurTime: hasTime(t) }});
                 }}
 
                 if (candidates.length > 0) {{
-                    // Sort ascending by Y — topmost element = most recent closed trade
-                    candidates.sort((a, b) => a.y - b.y);
-                    const top = candidates[0];
-                    // Return result + debug info as JSON so Python can log it
+                    // Prefer a card that shows our expected close time (most precise match).
+                    // Among those, or among all if none match by time, take the topmost (newest).
+                    const withTime    = candidates.filter(c => c.hasOurTime);
+                    const pool        = withTime.length > 0 ? withTime : candidates;
+                    pool.sort((a, b) => a.y - b.y);
+                    const top = pool[0];
                     const outcome = hasProfit(top.t) ? 'win' : hasZero(top.t) ? 'loss' : null;
                     if (outcome) return JSON.stringify({{
                         outcome,
                         total: candidates.length,
+                        timeMatched: withTime.length > 0,
                         topY: Math.round(top.y),
-                        text: top.t.replace(/\\s+/g, ' ').slice(0, 80),
+                        text: top.t.replace(/\\s+/g, ' ').slice(0, 100),
                     }});
                 }}
 
-                // 3. Fallback: look in the trades sidebar (right panel)
-                //    but exclude the payout widget (which always shows "+$X.XX")
+                // 3. Fallback: any trade/deal element sorted by Y
                 const allEls = Array.from(document.querySelectorAll('[class*="trade"], [class*="deal"], [class*="history"], [class*="closed"]'));
-                // Sort by Y as well — take topmost
                 const sidebarCandidates = [];
                 for (const el of allEls) {{
                     const t = (el.innerText || '');
                     if (t.includes('Payout') || t.includes('payout')) continue;
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
-                    if (r.width < 50 || r.height < 5) continue;
+                    if (r.width < 80 || r.height < 20 || r.height > 120) continue;
                     sidebarCandidates.push({{ t, y: r.top }});
                 }}
                 if (sidebarCandidates.length > 0) {{
@@ -979,8 +1008,11 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                 // and a profit/loss value. Pick the TOPMOST one (smallest Y) —
                 // that is the most recently closed trade in the Closed panel
                 // (PocketOption renders newest trades at the top of the list).
+                const closeTimes = {close_times_js};
+                const hasTime = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
                 const candidates = [];
                 for (const el of document.querySelectorAll('*')) {{
+                    if (el.children.length > 8) continue;
                     if (!el.innerText) continue;
                     const t = el.innerText.trim();
                     if (!t.includes(label)) continue;
@@ -988,14 +1020,17 @@ async def take_trade_result_screenshot(symbol: str, direction: str) -> str:
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
                     const area = r.width * r.height;
-                    if (r.width < 50 || r.height < 20) continue;
-                    if (area > 150000) continue;   // skip huge containers
-                    candidates.push({{ r, area, y: r.top }});
+                    if (r.width < 80 || r.height < 20) continue;
+                    if (r.height > 120) continue;        // ← skip multi-row containers
+                    if (area > 120000) continue;
+                    candidates.push({{ r, y: r.top, hasOurTime: hasTime(t) }});
                 }}
                 if (candidates.length === 0) return null;
-                // Sort by Y ascending — topmost = most recent trade
-                candidates.sort((a, b) => a.y - b.y);
-                const best = candidates[0].r;
+                // Prefer element matching expected close time, then topmost
+                const withTime = candidates.filter(c => c.hasOurTime);
+                const pool = withTime.length > 0 ? withTime : candidates;
+                pool.sort((a, b) => a.y - b.y);
+                const best = pool[0].r;
                 return {{ x: best.x, y: best.y, width: best.width, height: best.height }};
             }}""")
 
