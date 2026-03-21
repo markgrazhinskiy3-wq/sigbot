@@ -919,12 +919,17 @@ async def take_trade_result_screenshot(
             for (const s of strictWin)  {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'win',  step:1}}); }}
             for (const s of strictLoss) {{ if (document.querySelector(s)) return JSON.stringify({{outcome:'loss', step:1}}); }}
 
-            // Walk elements: must contain our pair + profit/loss + be card-sized
+            // Closed trades always show a HH:MM timestamp; open trades do not.
+            // This prevents matching an open trade card showing $0.
+            const hasCloseTime = (t) => /\b\d{{2}}:\d{{2}}\b/.test(t);
+
+            // Walk elements: must contain our pair + profit/loss + HH:MM + be card-sized
             const candidates = [];
             for (const el of document.querySelectorAll('*')) {{
                 if (el.children.length > 8) continue;
                 const t = (el.innerText || '').trim();
                 if (!t.includes(pairLabel)) continue;
+                if (!hasCloseTime(t)) continue;           // ← skip open trades (no HH:MM)
                 if (t.includes('Payout') || t.includes('payout')) continue;
                 if (!hasProfit(t) && !hasZero(t)) continue;
                 const r = el.getBoundingClientRect();
@@ -1023,14 +1028,16 @@ async def take_trade_result_screenshot(
                 // and a profit/loss value. Pick the TOPMOST one (smallest Y) —
                 // that is the most recently closed trade in the Closed panel
                 // (PocketOption renders newest trades at the top of the list).
-                const closeTimes = {close_times_js};
-                const hasTime = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+                const closeTimes   = {close_times_js};
+                const hasTime      = (t) => closeTimes.length > 0 && closeTimes.some(hm => t.includes(hm));
+                const hasCloseTime = (t) => /\b\d{{2}}:\d{{2}}\b/.test(t); // HH:MM means closed trade
                 const candidates = [];
                 for (const el of document.querySelectorAll('*')) {{
                     if (el.children.length > 8) continue;
                     if (!el.innerText) continue;
                     const t = el.innerText.trim();
                     if (!t.includes(label)) continue;
+                    if (!hasCloseTime(t)) continue;      // ← skip open trades (no HH:MM yet)
                     if (t.includes('Payout') || t.includes('payout')) continue;
                     if (!hasProfit(t) && !hasZero(t)) continue;
                     const r = el.getBoundingClientRect();
