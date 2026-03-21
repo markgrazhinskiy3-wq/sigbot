@@ -241,46 +241,57 @@ async def _ensure_logged_in(context: BrowserContext, page: Page) -> None:
 async def get_candles(symbol: str, count: int = 60) -> list[dict]:
     """
     Navigate to trading page for the given symbol and collect OHLC candle data.
-    Uses WebSocket interception as primary method, DOM/JS scanning as fallback.
+    Uses WebSocket binary-frame interception (Socket.IO protocol).
+    Pocket Option sends ticks as [[timestamp, price], ...] in binary frames.
+    Ticks are aggregated into 60-second OHLC candles.
     Returns empty list if no real market data can be extracted — caller must
     treat this as NO_SIGNAL, never substitute synthetic data.
     """
     context = await _get_context()
     page = await context.new_page()
-    ws_messages: list[str] = []
 
-    async def handle_ws(ws):
-        async def on_msg(msg):
-            ws_messages.append(msg)
+    # Socket.IO binary event tracking:
+    # text frames  "451-["eventName",{placeholder}]" announce the event name
+    # the next binary frame is the actual payload (JSON bytes)
+    binary_frames: list[tuple[str, bytes]] = []
+    last_event: list[str | None] = [None]
+
+    def handle_ws(ws):
+        if "po.market" not in ws.url:
+            return
+        def on_msg(msg):
+            if isinstance(msg, str) and msg.startswith("451-"):
+                try:
+                    last_event[0] = json.loads(msg[4:])[0]
+                except Exception:
+                    pass
+            elif isinstance(msg, bytes) and last_event[0]:
+                binary_frames.append((last_event[0], msg))
         ws.on("framereceived", on_msg)
 
     page.on("websocket", handle_ws)
 
     try:
         await _ensure_logged_in(context, page)
-        await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
-        await page.wait_for_timeout(2000)
 
         symbol_clean = symbol.lstrip("#")
-        trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset={symbol_clean}"
-        await page.goto(trade_url, wait_until="networkidle", timeout=30_000)
-        await page.wait_for_timeout(5000)
+        # Pocket Option internal assets use "#" prefix; encode it in the URL
+        trade_url = f"{config.PO_BASE_URL}/en/cabinet/demo-quick-high-low/?asset=%23{symbol_clean}"
+        await page.goto(trade_url, wait_until="domcontentloaded", timeout=30_000)
 
-        candles = _extract_candles_from_ws(ws_messages, count)
+        # Wait for history data to arrive (up to 20s)
+        deadline = 20
+        for _ in range(deadline * 2):
+            await page.wait_for_timeout(500)
+            if any(ev == "updateHistoryNewFast" for ev, _ in binary_frames):
+                break
 
-        if len(candles) < 22:
-            logger.info("WS gave %d candles, trying DOM/JS", len(candles))
-            dom_candles = await _extract_candles_from_dom(page, count)
-            if len(dom_candles) > len(candles):
-                candles = dom_candles
+        candles = _candles_from_binary_frames(binary_frames, count, period=30)
+        logger.info("Binary frames gave %d candles for %s", len(candles), symbol)
 
-        if len(candles) < 22:
-            logger.warning(
-                "Only %d real candles collected for %s — not enough for analysis",
-                len(candles), symbol,
-            )
+        if len(candles) < 14:
+            logger.warning("Only %d candles for %s — insufficient for analysis", len(candles), symbol)
 
-        logger.info("Returning %d candles for %s", len(candles), symbol)
         return candles
 
     except Exception as e:
@@ -290,71 +301,64 @@ async def get_candles(symbol: str, count: int = 60) -> list[dict]:
         await page.close()
 
 
-def _extract_candles_from_ws(messages: list[str], count: int) -> list[dict]:
-    candles = []
-    for msg in messages:
-        try:
-            data = json.loads(msg)
-        except Exception:
-            start = msg.find("{")
-            if start == -1:
-                continue
+def _ticks_to_candles(ticks: list, period: int = 60) -> list[dict]:
+    """Aggregate raw ticks [[timestamp, price], ...] into OHLC candles."""
+    from collections import defaultdict
+    buckets: dict[int, list[float]] = defaultdict(list)
+    for tick in ticks:
+        if isinstance(tick, (list, tuple)) and len(tick) >= 2:
             try:
-                data = json.loads(msg[start:])
-            except Exception:
+                ts = float(tick[0])
+                price = float(tick[1])
+                bucket = int(ts // period) * period
+                buckets[bucket].append(price)
+            except (ValueError, TypeError):
                 continue
-
-        extracted = _parse_candle_message(data)
-        candles.extend(extracted)
-
-    seen: set[tuple] = set()
-    unique: list[dict] = []
-    for c in candles:
-        key = (c.get("open"), c.get("close"), c.get("high"), c.get("low"))
-        if key not in seen:
-            seen.add(key)
-            unique.append(c)
-
-    return unique[-count:] if len(unique) > count else unique
-
-
-def _parse_candle_message(data: Any) -> list[dict]:
-    candles: list[dict] = []
-
-    if isinstance(data, dict):
-        for key in ("candles", "history", "data", "items", "bars"):
-            if key in data and isinstance(data[key], list):
-                for item in data[key]:
-                    c = _try_parse_candle(item)
-                    if c:
-                        candles.append(c)
-                if candles:
-                    return candles
-        c = _try_parse_candle(data)
-        if c:
-            candles.append(c)
-
-    elif isinstance(data, list):
-        for item in data:
-            c = _try_parse_candle(item)
-            if c:
-                candles.append(c)
-
+    candles = []
+    for bucket in sorted(buckets.keys()):
+        prices = buckets[bucket]
+        if prices:
+            candles.append({
+                "open": prices[0],
+                "high": max(prices),
+                "low": min(prices),
+                "close": prices[-1],
+            })
     return candles
 
 
-def _try_parse_candle(item: Any) -> dict | None:
-    if isinstance(item, list) and len(item) >= 5:
+def _candles_from_binary_frames(
+    binary_frames: list[tuple[str, bytes]],
+    count: int,
+    period: int = 60,
+) -> list[dict]:
+    """
+    Extract candles from Socket.IO binary frames.
+    Primary: 'updateHistoryNewFast' → ticks aggregated into OHLC.
+    """
+    best: list[dict] = []
+    for event_name, data in binary_frames:
+        if event_name != "updateHistoryNewFast":
+            continue
         try:
-            return {
-                "open": float(item[1]),
-                "high": float(item[2]),
-                "low": float(item[3]),
-                "close": float(item[4]),
-            }
-        except Exception:
-            return None
+            parsed = json.loads(data.decode("utf-8"))
+        except Exception as e:
+            logger.warning("Binary frame decode error: %s", e)
+            continue
+        history = parsed.get("history")
+        asset = parsed.get("asset", "unknown")
+        if not isinstance(history, list) or not history:
+            continue
+        candles = _ticks_to_candles(history, period=period)
+        logger.info("Parsed %d candles from %s history (%s)", len(candles), asset, event_name)
+        if len(candles) > len(best):
+            best = candles
+    result = best[-count:] if len(best) > count else best
+    return result
 
+
+# Legacy helpers kept for _extract_candles_from_dom (unused by get_candles but used in fallback)
+def _try_parse_candle(item: Any) -> dict | None:
     if isinstance(item, dict):
         mapping = [
             ("open",  ["open", "o", "Open"]),
