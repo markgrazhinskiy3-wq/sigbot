@@ -66,6 +66,12 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
+            text="🔄 Попробовать снова",
+            callback_data=f"exp:{symbol}:{expiration_sec}",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
             text="📊 Рекомендуемые пары",
             callback_data="action:recommended_pairs",
         )
