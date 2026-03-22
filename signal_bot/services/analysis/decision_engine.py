@@ -112,26 +112,50 @@ def run_decision_engine(
     df5m: pd.DataFrame | None = None,
     df1m_ctx: pd.DataFrame | None = None,   # 1-min resampled from 15s — middle-tier context
     raised_threshold: bool = False,          # True = after 2 losses, min conf=70
+    n_bars_15s: int = 0,
+    n_bars_1m:  int = 0,
+    n_bars_5m:  int = 0,
 ) -> EngineResult:
     """
     Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
 
     Args:
-        df1m:       15-sec OHLC DataFrame (entry timing), oldest→newest, min 20 rows
-        df5m:       5-min resampled OHLC (macro context, optional)
-        df1m_ctx:   1-min resampled OHLC (intermediate context, optional)
+        df1m:        15-sec OHLC DataFrame (entry timing), oldest→newest, min 20 rows
+        df5m:        5-min resampled OHLC (macro context, optional)
+        df1m_ctx:    1-min resampled OHLC (intermediate context, optional)
         raised_threshold: if True, minimum confidence is raised to 70
+        n_bars_15s:  number of raw 15-sec bars (informational, for debug)
+        n_bars_1m:   number of 1-min bars after resampling
+        n_bars_5m:   number of 5-min bars after resampling
     """
     n = len(df1m)
+    _bar_debug = {"n_bars_15s": n_bars_15s or n, "n_bars_1m": n_bars_1m, "n_bars_5m": n_bars_5m}
+
     if n < 15:
-        return _no_signal("Недостаточно данных (нужно ≥15 свечей)", {})
+        return _no_signal("Недостаточно данных (нужно ≥15 свечей)", {**_bar_debug})
 
     # ── Layer 1: Indicators ───────────────────────────────────────────────────
     try:
         ind = calculate_indicators(df1m)
     except Exception as e:
         logger.exception("Indicator calculation failed")
-        return _no_signal(f"Ошибка расчёта индикаторов: {e}", {})
+        return _no_signal(f"Ошибка расчёта индикаторов: {e}", {**_bar_debug})
+
+    # snapshot of indicator values for NO_SIGNAL debug (computed once, reused)
+    _ind_dbg: dict = {
+        "indicators": {
+            "atr":       round(ind.atr, 6),
+            "atr_ratio": round(ind.atr_ratio, 3),
+            "rsi":       round(ind.rsi, 1),
+            "stoch_k":   round(ind.stoch_k, 1),
+            "stoch_d":   round(ind.stoch_d, 1),
+            "ema5":      round(ind.ema5, 6),
+            "ema13":     round(ind.ema13, 6),
+            "ema21":     round(ind.ema21, 6),
+            "bb_bw":     round(ind.bb_bw, 5),
+            "momentum":  round(ind.momentum, 6),
+        }
+    }
 
     # ── Layer 2: Market Mode ──────────────────────────────────────────────────
     try:
@@ -146,6 +170,17 @@ def run_decision_engine(
     except Exception as e:
         logger.exception("Level detection failed")
         levels = LevelSet([], [], [], [], 0.0, 0.0, 0.0, 0.0)
+
+    _lvl_dbg: dict = {
+        "levels": {
+            "nearest_sup":   round(levels.nearest_sup, 6),
+            "nearest_res":   round(levels.nearest_res, 6),
+            "dist_sup_pct":  levels.dist_to_sup_pct,
+            "dist_res_pct":  levels.dist_to_res_pct,
+            "n_supports":    len(levels.supports),
+            "n_resistances": len(levels.resistances),
+        }
+    }
 
     # ── Layer 3: Strategies ───────────────────────────────────────────────────
     routing = _MODE_STRATEGIES.get(mode_obj.mode, _MODE_STRATEGIES["RANGE"])
@@ -243,11 +278,16 @@ def run_decision_engine(
     if not candidates:
         return _no_signal(
             f"Ни одна стратегия не выполнила условия (режим={mode_obj.mode})",
-            {"mode": mode_obj.mode, "strategies": debug_strategies,
-             "used_tier": used_tier,
-             "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
-             "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
-             "ctx_macro_note": ctx_macro_note}
+            {
+                "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                "mode_debug": mode_obj.debug, "mode_explanation": mode_obj.explanation,
+                "strategies": debug_strategies,
+                "used_tier": used_tier,
+                "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
+                "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
+                "ctx_macro_note": ctx_macro_note,
+                **_bar_debug, **_ind_dbg, **_lvl_dbg,
+            }
         )
 
     # ── Pick best candidate ────────────────────────────────────────────────────
@@ -264,8 +304,14 @@ def run_decision_engine(
             # Too close — skip
             return _no_signal(
                 "Противоречие стратегий — сигнал пропущен",
-                {"mode": mode_obj.mode, "strategies": debug_strategies,
-                 "buy_conf": round(best_buy.confidence, 1), "sell_conf": round(best_sell.confidence, 1)}
+                {
+                    "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                    "mode_debug": mode_obj.debug,
+                    "strategies": debug_strategies,
+                    "buy_conf": round(best_buy.confidence, 1),
+                    "sell_conf": round(best_sell.confidence, 1),
+                    **_bar_debug, **_ind_dbg, **_lvl_dbg,
+                }
             )
         best = best_buy if best_buy.confidence > best_sell.confidence else best_sell
 
@@ -319,9 +365,18 @@ def run_decision_engine(
     if conf_raw < min_threshold:
         return _no_signal(
             f"Уверенность {conf_raw:.0f} < порог {min_threshold} (tier={used_tier})",
-            {"mode": mode_obj.mode, "conf_raw": round(conf_raw, 1),
-             "strategy": best.strategy_name, "strategies": debug_strategies,
-             "used_tier": used_tier, "min_threshold": min_threshold}
+            {
+                "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                "mode_debug": mode_obj.debug,
+                "conf_raw": round(conf_raw, 1),
+                "strategy": best.strategy_name,
+                "strategies": debug_strategies,
+                "used_tier": used_tier,
+                "min_threshold": min_threshold,
+                "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
+                "ctx_macro_note": ctx_macro_note,
+                **_bar_debug, **_ind_dbg, **_lvl_dbg,
+            }
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────

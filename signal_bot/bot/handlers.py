@@ -435,61 +435,163 @@ async def cmd_debug(message: Message) -> None:
         await message.answer("Нет данных debug (не удалось получить свечи).")
         return
 
-    # ── Format debug output ───────────────────────────────────────────────────
+    direction = details.get("direction", "NO_SIGNAL")
+    last_close = debug.get("last_close", "?")
+
+    # ── Bar counts ──────────────────────────────────────────────────────────
+    n15  = debug.get("n_bars_15s") or debug.get("candles_raw", "?")
+    n1m  = debug.get("n_bars_1m", 0)
+    n5m  = debug.get("n_bars_5m", 0)
+    nc   = debug.get("candles_clean", "?")
+    abp  = debug.get("avg_body_pct", 0)
+
     lines = [
-        f"🔬 <b>DEBUG: {symbol}</b>",
-        f"Свечей: {debug.get('candles_count', '?')} raw → {debug.get('candles_clean', '?')} clean",
-        f"Порядок: {debug.get('order', '?')} | avg_body: {float(debug.get('avg_body_pct', 0)):.5f}%",
-        f"Режим рынка: {debug.get('regime', '?')}",
-        f"Цена: {debug.get('last_close', '?')}",
+        f"🔬 <b>DEBUG {symbol}</b>",
+        f"Цена: <code>{last_close}</code> | Направление: <b>{direction}</b>",
         "",
-        "<b>Модули:</b>",
+        f"📊 <b>Свечи</b>",
+        f"  15s bars: <b>{n15}</b> raw → <b>{nc}</b> clean",
+        f"  1m bars:  <b>{n1m}</b> | 5m bars: <b>{n5m}</b>",
+        f"  avg_body: {float(abp):.5f}%",
     ]
 
-    modules = debug.get("modules", {})
-    module_labels = {
-        "impulse_pullback": "Импульс/откат",
-        "level_bounce":     "Отбой уровня",
-        "false_breakout":   "Ложный пробой",
-        "candle_strength":  "Сила свечей",
-        "level_analysis":   "Анализ уровней",
-        "market_regime":    "Режим рынка",
-        "indicators":       "Индикаторы",
-    }
-    for key, label in module_labels.items():
-        m = modules.get(key, {})
-        b = m.get("buy", 0)
-        s = m.get("sell", 0)
-        reason = m.get("reason", "")
-        lines.append(f"  {label}: BUY={b:.0f} / SELL={s:.0f}")
-        if reason:
-            short = reason[:80] + "…" if len(reason) > 80 else reason
-            lines.append(f"    └ {short}")
+    # ── Market mode ─────────────────────────────────────────────────────────
+    mode     = debug.get("mode") or details.get("market_mode", "?")
+    mode_str = debug.get("mode_strength", "?")
+    mode_exp = debug.get("mode_explanation", "")
+    mode_dbg = debug.get("mode_debug") or debug.get("mode_debug", {})
+    lines += [
+        "",
+        f"🧭 <b>Режим рынка: {mode}</b> (сила={mode_str})",
+    ]
+    if mode_exp:
+        lines.append(f"  {mode_exp}")
+    if isinstance(mode_dbg, dict) and mode_dbg:
+        parts = [f"{k}={v}" for k, v in mode_dbg.items()]
+        lines.append(f"  {' | '.join(parts)}")
 
+    # ── Indicators ──────────────────────────────────────────────────────────
+    ind = debug.get("indicators", {})
+    if ind:
+        atr       = ind.get("atr",       "?")
+        atr_ratio = ind.get("atr_ratio", "?")
+        rsi       = ind.get("rsi",       "?")
+        sk        = ind.get("stoch_k",   "?")
+        sd        = ind.get("stoch_d",   "?")
+        e5        = ind.get("ema5",      "?")
+        e13       = ind.get("ema13",     "?")
+        e21       = ind.get("ema21",     "?")
+        bw        = ind.get("bb_bw",     "?")
+        mom       = ind.get("momentum",  "?")
+        # EMA spread vs price
+        if isinstance(e5, float) and isinstance(e21, float) and isinstance(last_close, float) and last_close:
+            spread_pct = (e5 - e21) / last_close * 100
+            spread_str = f"{spread_pct:+.4f}%"
+        else:
+            spread_str = "?"
+        lines += [
+            "",
+            "📉 <b>Индикаторы (15s bars)</b>",
+            f"  ATR:      {atr}  (×{atr_ratio} avg)",
+            f"  RSI(7):   {rsi}",
+            f"  Stoch:    K={sk}  D={sd}",
+            f"  EMA5:     {e5}",
+            f"  EMA13:    {e13}",
+            f"  EMA21:    {e21}",
+            f"  EMA5-21:  {spread_str}",
+            f"  BB_bw:    {bw}",
+            f"  Momentum: {mom}",
+        ]
+
+    # ── Levels ──────────────────────────────────────────────────────────────
+    lvl = debug.get("levels", {})
+    if lvl:
+        lines += [
+            "",
+            "📌 <b>Уровни</b>",
+            f"  Ближ. суп: {lvl.get('nearest_sup','?')}  ({lvl.get('dist_sup_pct','?')}% от цены)",
+            f"  Ближ. рез: {lvl.get('nearest_res','?')}  ({lvl.get('dist_res_pct','?')}% от цены)",
+            f"  Кол-во:    {lvl.get('n_supports',0)} суп  /  {lvl.get('n_resistances',0)} рез",
+        ]
+
+    # ── Context ─────────────────────────────────────────────────────────────
+    cup  = debug.get("ctx_up_1m",    debug.get("ctx_up",   False))
+    cdn  = debug.get("ctx_dn_1m",    debug.get("ctx_down", False))
+    mnot = debug.get("ctx_macro_note", "—")
+    lines += [
+        "",
+        "🔗 <b>Контекст MTF</b>",
+        f"  1m EMA:   {'↑' if cup else '↓' if cdn else '—'}",
+        f"  Macro:    {mnot}",
+    ]
+
+    # ── Per-strategy breakdown ───────────────────────────────────────────────
+    strategies = debug.get("strategies", {})
+    used_tier  = debug.get("used_tier", "?")
+    if strategies:
+        lines += ["", f"🎯 <b>Стратегии</b> (tier запущен: {used_tier})"]
+        _TIER_ICONS = {"primary": "①", "secondary": "②"}
+        for sname, sd in strategies.items():
+            if sd.get("skipped"):
+                lines.append(f"  {sname}: ⛔ DISABLED")
+                continue
+            sdir  = sd.get("direction", "NO_SIGNAL")
+            sconf = sd.get("confidence", 0)
+            scm   = sd.get("conditions_met", 0)
+            stot  = sd.get("total", 0)
+            spct  = sd.get("pct", 0)
+            stier = sd.get("tier", "?")
+            icon  = _TIER_ICONS.get(stier, "?")
+            fired = "✅" if sdir in ("BUY", "SELL") else "❌"
+            mult  = sd.get("adaptation_multiplier", 1.0)
+            mult_str = f" ×{mult:.2f}" if mult != 1.0 else ""
+            lines.append(
+                f"  {icon} {sname}: {fired} {sdir} | {scm}/{stot} ({spct}%) | conf={sconf}{mult_str}"
+            )
+
+    # ── Final decision ───────────────────────────────────────────────────────
     lines.append("")
-    lines.append(f"PA raw buy={debug.get('pa_buy_raw','?')} sell={debug.get('pa_sell_raw','?')}")
-    lines.append(f"PA blended buy={debug.get('pa_buy','?')} sell={debug.get('pa_sell','?')}")
-    lines.append(f"Match: buy={'full' if debug.get('buy_full') else 'partial' if debug.get('buy_partial') else 'none'} / sell={'full' if debug.get('sell_full') else 'partial' if debug.get('sell_partial') else 'none'}")
-    lines.append(f"Уверенность: {debug.get('confidence_base','?')} → {debug.get('confidence_final','?')}")
-    lines.append(f"Качество: {debug.get('signal_quality', '?')}")
-    lines.append(f"Экспирация: {debug.get('recommended_expiration', '?')}")
-    lines.append(f"Жёсткие конфликты: {', '.join(debug.get('hard_conflicts', [])) or 'нет'}")
-    lines.append(f"Мягкие штрафы: {', '.join(debug.get('soft_penalties', [])) or 'нет'}")
-
-    final = debug.get("final_decision") or details.get("direction", "—")
-    reject = debug.get("reject_reason")
-    if reject:
-        lines.append(f"\n❌ Отклонён: {reject}")
-        if debug.get("reject_detail"):
-            lines.append(f"  {debug['reject_detail']}")
+    if direction in ("BUY", "SELL"):
+        conf_raw  = details.get("confidence_raw", debug.get("conf_after_multipliers", "?"))
+        conf_5    = details.get("confidence_5", signal_resp.confidence)
+        quality   = details.get("signal_quality", "?")
+        expiry    = details.get("expiry_hint", "?")
+        strat     = details.get("primary_strategy", "?")
+        tier_used = debug.get("used_tier", "?")
+        lines += [
+            f"✅ <b>Сигнал: {direction}</b>",
+            f"  Стратегия: {strat} [{tier_used}]",
+            f"  conf_raw={conf_raw}  ⭐{conf_5}  ({quality})",
+            f"  Экспирация: {expiry}",
+        ]
+        reasoning = details.get("reasoning", "")
+        if reasoning:
+            lines.append(f"  Причина: {reasoning[:120]}")
     else:
-        lines.append(f"\n✅ Решение: <b>{final}</b>")
+        reject = details.get("reject_reason") or details.get("reasoning", "—")
+        conf_r = debug.get("conf_raw")
+        thresh = debug.get("min_threshold")
+        lines.append(f"❌ <b>NO_SIGNAL</b>")
+        lines.append(f"  Причина: {reject}")
+        if conf_r is not None and thresh is not None:
+            lines.append(f"  conf={conf_r} < порог={thresh}")
 
     text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:3997] + "…"
-
-    await message.answer(text, parse_mode="HTML")
+    # Telegram limit: split if needed
+    LIMIT = 4000
+    if len(text) <= LIMIT:
+        await message.answer(text, parse_mode="HTML")
+    else:
+        chunk, length = [], 0
+        for line in lines:
+            length += len(line) + 1
+            if length > LIMIT:
+                await message.answer("\n".join(chunk), parse_mode="HTML")
+                chunk, length = [line], len(line) + 1
+            else:
+                chunk.append(line)
+        if chunk:
+            await message.answer("\n".join(chunk), parse_mode="HTML")
 
 
 # ─── Callback handlers ───────────────────────────────────────────────────────

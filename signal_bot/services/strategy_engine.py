@@ -103,6 +103,9 @@ async def calculate_signal(
         df5m=df5m,
         df1m_ctx=df1m_ctx,
         raised_threshold=raised_threshold,
+        n_bars_15s=len(df),
+        n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,
+        n_bars_5m=len(df5m)     if df5m     is not None else 0,
     )
 
     logger.info(
