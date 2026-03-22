@@ -13,7 +13,6 @@ Flow:
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -477,13 +476,8 @@ def scan_all_pairs(pairs_map: dict[str, str]) -> list[TradabilityResult]:
 
 def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0) -> str:
     """Format tradability scan results for Telegram HTML."""
-    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
-
     lines = [
         "📋 <b>Пары с благоприятными условиями</b>",
-        f"⏰ {now_str}",
-        "",
-        "<i>Это не готовые сигналы — бот оценил рыночные условия. После выбора пары запустится мониторинг: бот пришлёт уведомление когда появится конкретный сигнал.</i>",
         "",
     ]
 
