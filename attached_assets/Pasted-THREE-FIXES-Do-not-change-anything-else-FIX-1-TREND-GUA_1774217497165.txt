@@ -1,0 +1,82 @@
+THREE FIXES. Do not change anything else.
+
+═══════════════════════════════════════
+FIX 1: TREND GUARD — #1 cause of losses
+═══════════════════════════════════════
+
+Bot gives BUY in strong downtrend → always loses.
+Proof from live data: 4 out of 9 losses were 
+BUY in TRENDING_DOWN (including BUY with conf=82).
+
+In decision_engine.py, AFTER strategy returns 
+a signal, BEFORE sending it:
+
+  # Determine strong trend
+  strong_down = (dn_pts >= 30 and ema5 < ema13 < ema21)
+  strong_up = (up_pts >= 30 and ema5 > ema13 > ema21)
+
+  # Penalize signals against trend
+  if signal == "BUY" and strong_down:
+      confidence *= 0.50
+
+  if signal == "SELL" and strong_up:
+      confidence *= 0.50
+
+This makes BUY conf=82 in downtrend → 41 → 
+below threshold → NO SIGNAL. Correct behavior.
+
+SELL in downtrend = no penalty (trading WITH trend).
+BUY in uptrend = no penalty (trading WITH trend).
+
+═══════════════════════════════════════
+FIX 2: reversal_pattern "none" bug
+═══════════════════════════════════════
+
+In level_bounce.py log shows:
+  ✅ reversal_pattern
+  ℹ️ pattern_type: none
+
+A pattern of type "none" is not a pattern.
+This inflates conditions_met count.
+
+Find where reversal_pattern is set to True.
+Add check:
+
+  if pattern_type in (None, "none", ""):
+      reversal_found = False
+      
+Make sure pattern_type "none" counts as 
+NO pattern found. Condition should be ❌ not ✅.
+
+═══════════════════════════════════════
+FIX 3: ema_bounce early return bug
+═══════════════════════════════════════
+
+Log shows ema_bounce has 4 conditions passed:
+  ✅ ema_aligned_down
+  ✅ price_near_ema13
+  ✅ rsi_ok
+  ✅ stoch_turning_down
+But result: 0/8, conf=0.0
+
+Something returns NONE with met=0 BEFORE 
+counting all conditions. This has been reported 
+3 times and is still not fixed.
+
+Open ema_bounce.py. Find ANY place where the 
+function returns early with met=0 or conf=0 
+AFTER some conditions have already been checked.
+
+Remove that early return. Let ALL conditions 
+be evaluated. Return actual count of passed 
+conditions.
+
+Expected after fix: 4/8, conf=some_value > 0
+
+═══════════════════════════════════════
+VERIFICATION after fixes:
+═══════════════════════════════════════
+
+Show me the exact code changes for each fix.
+Do NOT change thresholds, weights, or other 
+strategies. Only these 3 fixes.

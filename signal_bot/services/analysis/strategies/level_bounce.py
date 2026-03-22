@@ -155,18 +155,17 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
                 fallback_rev = True
             elif bull_count >= 2:                                        # (c) two small bullish candles
                 fallback_rev = True
-        conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
+        reversal_found = pat.pattern not in (None, "none", "")
+        conds["reversal_pattern"] = reversal_found
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
-        # Score reversal condition — do NOT skip remaining conditions if absent
+        # Score reversal condition — only named patterns count
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
         elif pat.pattern == "engulfing":
             met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
-        elif fallback_rev:
-            met += 1; parts.append("Разворотный признак ↑")
-        # No reversal → condition 3 = False, but conditions 4-7 still checked below
+        # pattern="none" → condition 3 = False, conditions 4-7 still checked below
 
         # 4. Current candle closed ABOVE support
         c4 = float(close[-1]) > zone_lo
@@ -256,18 +255,17 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
                 fallback_rev = True
             elif bear_count >= 2:                                        # (c) two small bearish candles
                 fallback_rev = True
-        conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
+        reversal_found = pat.pattern not in (None, "none", "")
+        conds["reversal_pattern"] = reversal_found
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
-        # Score reversal condition — do NOT skip remaining conditions if absent
+        # Score reversal condition — only named patterns count
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
         elif pat.pattern == "engulfing":
             met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
-        elif fallback_rev:
-            met += 1; parts.append("Разворотный признак ↓")
-        # No reversal → condition 3 = False, but conditions 4-7 still checked below
+        # pattern="none" → condition 3 = False, conditions 4-7 still checked below
 
         c4 = float(close[-1]) < zone_hi
         conds["close_below_resistance"] = c4

@@ -63,9 +63,6 @@ def ema_bounce_strategy(
     buy_score, buy_met, buy_parts, buy_conds   = _check_buy(close, open_, high, low, n, price, avg_body, ind)
     sell_score, sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, price, avg_body, ind)
 
-    buy_reject  = _hard_reject_buy(ind, levels, price)
-    sell_reject = _hard_reject_sell(ind, levels, price)
-
     direction      = "NONE"
     conditions_met = 0
     base_conf      = 0.0
@@ -75,7 +72,7 @@ def ema_bounce_strategy(
     buy_wins  = (buy_met > sell_met) or (buy_met == sell_met and ctx_trend_up  and not ctx_trend_down)
     sell_wins = (sell_met > buy_met) or (sell_met == buy_met and ctx_trend_down and not ctx_trend_up)
 
-    if buy_wins and buy_met >= _MIN_MET and not buy_reject:
+    if buy_wins and buy_met >= _MIN_MET:
         direction      = "BUY"
         conditions_met = buy_met
         # Anchored curve: 3→45, 4→53, 5→61, 6→69, 7→77, 8→85
@@ -92,7 +89,7 @@ def ema_bounce_strategy(
         if 45 <= ind.rsi <= 60:
             base_conf += 3
 
-    elif sell_wins and sell_met >= _MIN_MET and not sell_reject:
+    elif sell_wins and sell_met >= _MIN_MET:
         direction      = "SELL"
         conditions_met = sell_met
         # Same anchored curve as buy side
@@ -114,7 +111,6 @@ def ema_bounce_strategy(
         reasoning=reason,
         debug={
             "buy_met": buy_met, "sell_met": sell_met,
-            "buy_reject": buy_reject, "sell_reject": sell_reject,
             "buy_conditions": buy_conds,
             "sell_conditions": sell_conds,
         }
@@ -261,25 +257,6 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
         met += 1; parts.append("Свеча закрылась в нижней зоне диапазона")
 
     return met, met, parts, conds
-
-
-def _hard_reject_buy(ind: Indicators, levels: LevelSet, price: float) -> bool:
-    """True = do NOT generate BUY signal."""
-    if ind.rsi > 78:
-        return True
-    # Tightened: was 0.05%, now 0.08% — more room required before resistance
-    if levels.dist_to_res_pct < 0.08:
-        return True
-    return False
-
-
-def _hard_reject_sell(ind: Indicators, levels: LevelSet, price: float) -> bool:
-    """True = do NOT generate SELL signal."""
-    if ind.rsi < 22:
-        return True
-    if levels.dist_to_sup_pct < 0.08:
-        return True
-    return False
 
 
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:

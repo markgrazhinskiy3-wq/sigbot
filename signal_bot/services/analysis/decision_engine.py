@@ -380,6 +380,16 @@ def run_decision_engine(
 
     conf_raw = min(100.0, conf_raw)
 
+    # 4d. Trend guard: penalise signals strongly against confirmed trend
+    # Strong trend = market mode is TRENDING + EMA stack is fully aligned
+    strong_down = (mode_obj.mode == "TRENDING_DOWN" and ind.ema5 < ind.ema13 < ind.ema21)
+    strong_up   = (mode_obj.mode == "TRENDING_UP"   and ind.ema5 > ind.ema13 > ind.ema21)
+
+    if direction == "BUY" and strong_down:
+        conf_raw *= 0.50   # BUY against downtrend: conf halved → likely below threshold
+    if direction == "SELL" and strong_up:
+        conf_raw *= 0.50   # SELL against uptrend: conf halved → likely below threshold
+
     # ── Threshold check ────────────────────────────────────────────────────────
     # Primary strategies: lower bar (52) — these are well-fitted to the mode.
     # Secondary strategies: higher bar (58) — they're fallbacks; raise the bar
