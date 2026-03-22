@@ -141,12 +141,24 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if c2:
             met += 1; parts.append("Касание зоны")
 
-        # 3. Reversal pattern — required, no pattern → skip this level
+        # 3. Reversal pattern — textbook OR simple fallback (opposite candle / wick rejection / 2 small candles)
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
-        conds["reversal_pattern"] = pat.pattern != "none"
-        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
+        fallback_rev = False
         if pat.pattern == "none":
-            # Record partial conds even though we skip this level
+            last_bull  = float(close[-1]) > float(open_[-1])
+            tot_range  = float(high[-1]) - float(low[-1])
+            lower_wick = min(float(close[-1]), float(open_[-1])) - float(low[-1])
+            bull_count = sum(1 for i in range(1, min(3, n)) if float(close[-i]) > float(open_[-i]))
+            if last_bull:                                                # (a) simple bullish candle
+                fallback_rev = True
+            elif tot_range > 0 and lower_wick / tot_range > 0.55:       # (b) long lower wick rejection
+                fallback_rev = True
+            elif bull_count >= 2:                                        # (c) two small bullish candles
+                fallback_rev = True
+        conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
+        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
+        if pat.pattern == "none" and not fallback_rev:
+            # No reversal signal at all — skip this level
             if met > best[1]:
                 best_conds = conds
             continue
@@ -156,6 +168,8 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
             met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
+        elif fallback_rev:
+            met += 1; parts.append("Разворотный признак ↑")
 
         # 4. Current candle closed ABOVE support
         c4 = float(close[-1]) > zone_lo
@@ -233,9 +247,21 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
             met += 1; parts.append("Касание зоны")
 
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
-        conds["reversal_pattern"] = pat.pattern != "none"
-        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
+        fallback_rev = False
         if pat.pattern == "none":
+            last_bear  = float(close[-1]) < float(open_[-1])
+            tot_range  = float(high[-1]) - float(low[-1])
+            upper_wick = float(high[-1]) - max(float(close[-1]), float(open_[-1]))
+            bear_count = sum(1 for i in range(1, min(3, n)) if float(close[-i]) < float(open_[-i]))
+            if last_bear:                                                # (a) simple bearish candle
+                fallback_rev = True
+            elif tot_range > 0 and upper_wick / tot_range > 0.55:       # (b) long upper wick rejection
+                fallback_rev = True
+            elif bear_count >= 2:                                        # (c) two small bearish candles
+                fallback_rev = True
+        conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
+        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
+        if pat.pattern == "none" and not fallback_rev:
             if met > best[1]:
                 best_conds = conds
             continue
@@ -245,6 +271,8 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
             met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
+        elif fallback_rev:
+            met += 1; parts.append("Разворотный признак ↓")
 
         c4 = float(close[-1]) < zone_hi
         conds["close_below_resistance"] = c4

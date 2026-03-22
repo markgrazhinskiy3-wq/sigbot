@@ -120,11 +120,13 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     conds: dict[str, bool] = {}
     check = min(5, n)
 
-    # 1. EMA(5) > EMA(13) > EMA(21) for last 5 candles — uptrend alignment
+    # 1. EMA aligned up — relaxed: EMA5 > EMA13 in 3+ of 5 bars, OR EMA5 trending up + 2+ bars
     ema5_arr  = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
-    c1 = int(np.sum((ema5_arr > ema13_arr) & (ema13_arr > ema21_arr))) >= 4
+    ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
+    c1 = (int(np.sum(ema5_arr > ema13_arr)) >= 3) or \
+         (ema5_slope > 0 and int(np.sum(ema5_arr > ema13_arr)) >= 2)
     conds["ema_aligned_up"] = c1
     if c1:
         met += 1; parts.append("EMA выровнены вверх")
@@ -189,11 +191,13 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
     conds: dict[str, bool] = {}
     check = min(5, n)
 
-    # 1. EMA(5) < EMA(13) < EMA(21) — downtrend alignment
+    # 1. EMA aligned down — relaxed: EMA5 < EMA13 in 3+ of 5 bars, OR EMA5 trending down + 2+ bars
     ema5_arr  = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
-    c1 = int(np.sum((ema5_arr < ema13_arr) & (ema13_arr < ema21_arr))) >= 4
+    ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
+    c1 = (int(np.sum(ema5_arr < ema13_arr)) >= 3) or \
+         (ema5_slope < 0 and int(np.sum(ema5_arr < ema13_arr)) >= 2)
     conds["ema_aligned_down"] = c1
     if c1:
         met += 1; parts.append("EMA выровнены вниз")

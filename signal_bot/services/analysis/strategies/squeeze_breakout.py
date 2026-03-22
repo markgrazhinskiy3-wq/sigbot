@@ -106,15 +106,15 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     parts = []
     conds: dict[str, bool] = {}
 
-    # 1. ATR(10) recent < avg_30 × 0.7 — compressed volatility
-    c1 = ind.atr_ratio < 0.7
+    # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
+    c1 = ind.atr_ratio < 0.85
     conds["atr_compressed"] = c1
     if c1:
         met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
-    # 2. Last 5-8 bodies < 60% of avg_30
-    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-    c2 = small_recent >= 5
+    # 2. Small candles — relaxed: 4+ of 8 bodies < 75% of avg_30 (was 5+, threshold 60%)
+    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75)
+    c2 = small_recent >= 4
     conds["small_candles_compressed"] = c2
     if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent} из последних 8)")
@@ -169,13 +169,15 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
     parts = []
     conds: dict[str, bool] = {}
 
-    c1 = ind.atr_ratio < 0.7
+    # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
+    c1 = ind.atr_ratio < 0.85
     conds["atr_compressed"] = c1
     if c1:
         met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
-    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-    c2 = small_recent >= 5
+    # 2. Small candles — relaxed: 4+ of 8 bodies < 75% of avg_30 (was 5+, threshold 60%)
+    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75)
+    c2 = small_recent >= 4
     conds["small_candles_compressed"] = c2
     if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent})")
