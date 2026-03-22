@@ -293,6 +293,129 @@ async def _fetch_symbol(
     return _parse_frames(binary_frames, asset)
 
 
+# ── Real-time streaming monitor ───────────────────────────────────────────────
+
+async def stream_pair(
+    symbol: str,
+    on_candles,          # async (candles: list[dict]) -> bool  (True = stop)
+    max_duration: float = 300.0,
+    check_interval: float = 15.0,
+) -> None:
+    """
+    Open one persistent WS connection and call on_candles(candles) every
+    check_interval seconds until on_candles returns True or max_duration elapsed.
+
+    Uses the same connect→auth→changeSymbol→ps flow as fetch_all_pairs, but
+    keeps the connection alive and re-sends 'ps' each interval instead of
+    opening a new connection per check.
+
+    symbol format: '#EURUSD_otc'  (with leading #, same as candle_cache keys)
+    """
+    auth_data = load_auth()
+    if not auth_data:
+        logger.warning("stream_pair: WS auth not available")
+        return
+
+    asset = symbol.lstrip("#")
+    ws_url = auth_data["ws_url"]
+    auth_payload = auth_data["auth"]
+
+    headers = {
+        "Origin":  "https://pocketoption.com",
+        "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        ),
+    }
+
+    start_time = time.monotonic()
+
+    try:
+        async with aiohttp.ClientSession() as http:
+            async with http.ws_connect(
+                ws_url,
+                headers=headers,
+                heartbeat=None,
+                receive_timeout=None,
+                autoclose=False,
+                autoping=False,
+            ) as ws:
+                queue: asyncio.Queue = asyncio.Queue()
+                reader_task = asyncio.create_task(_reader(ws, queue))
+                ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
+
+                try:
+                    ping_interval = await _handshake(ws, auth_payload, queue)
+                    ping_task.cancel()
+                    ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
+
+                    logger.info("stream_pair: connected for %s", asset)
+
+                    # Initial subscribe
+                    sub_msg = json.dumps(["changeSymbol", {"asset": asset, "period": 60}])
+                    await ws.send_str("42" + sub_msg)
+                    await ws.send_str('42["ps"]')
+
+                    while True:
+                        elapsed = time.monotonic() - start_time
+                        if elapsed >= max_duration:
+                            logger.info("stream_pair: timeout reached for %s", asset)
+                            break
+
+                        # Collect binary frames for up to check_interval seconds
+                        collect_deadline = time.monotonic() + check_interval
+                        binary_frames: list[tuple[str, bytes]] = []
+
+                        while time.monotonic() < collect_deadline:
+                            remaining = collect_deadline - time.monotonic()
+                            try:
+                                item = await asyncio.wait_for(
+                                    queue.get(), timeout=min(remaining, 2.0)
+                                )
+                            except asyncio.TimeoutError:
+                                continue
+
+                            if item is None:
+                                logger.warning("stream_pair: WS closed for %s", asset)
+                                return
+
+                            if item[0] == "binary":
+                                _, event_name, raw = item
+                                binary_frames.append((event_name, raw))
+
+                        # Parse whatever we collected
+                        candles = _parse_frames(binary_frames, asset) if binary_frames else None
+
+                        if not candles:
+                            # No new data in this window — re-pull
+                            await ws.send_str('42["ps"]')
+                            logger.debug("stream_pair: no frames for %s, re-pulling", asset)
+                            continue
+
+                        logger.debug(
+                            "stream_pair: %s got %d candles, running signal check",
+                            asset, len(candles),
+                        )
+
+                        should_stop = await on_candles(candles)
+                        if should_stop:
+                            logger.info("stream_pair: signal found for %s, stopping", asset)
+                            break
+
+                        # Pull next batch
+                        await ws.send_str('42["ps"]')
+
+                finally:
+                    reader_task.cancel()
+                    ping_task.cancel()
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error("stream_pair failed for %s: %s", asset, e)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_frames(binary_frames: list[tuple[str, bytes]], asset: str) -> list[dict]:

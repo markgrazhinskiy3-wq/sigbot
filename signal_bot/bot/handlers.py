@@ -56,63 +56,96 @@ async def _monitor_pair(
     expiration_sec: int,
 ) -> None:
     """
-    Background task: recheck pair every 25s until a signal fires or conditions worsen.
-    Warns user if tradability drops below 40.
+    Background task: persistent WS connection to PocketOption, checks for a
+    signal on every new candle (~15 sec interval). One connection, no reconnects.
+    Stops when signal fires, conditions worsen, or 5 minutes elapsed.
     """
     from services.analysis.asset_scanner import calculate_tradability
-    from services.candle_cache import get_cached
+    from services.strategy_engine import calculate_signal, SignalResult
+    from services.signal_service import SignalResponse, format_signal_message as _fmt
+    from services.po_ws_client import stream_pair
     from bot.keyboards import signal_result_keyboard, back_to_menu_keyboard
 
-    checks     = 0
-    max_checks = 12   # ~5 minutes max
+    checks = 0
+
+    async def on_candles(candles: list) -> bool:
+        nonlocal checks
+        checks += 1
+
+        if len(candles) < 20:
+            return False
+
+        # Check if conditions have worsened
+        tr = calculate_tradability(symbol, pair_label, candles)
+        if tr and tr.score < 40:
+            await bot.send_message(
+                chat_id,
+                f"⚠️ <b>Условия на {pair_label} ухудшились</b>\n\n"
+                f"Скор торгуемости упал до {tr.score}/100.\n"
+                f"Рекомендуем выбрать другую пару.",
+                parse_mode="HTML",
+                reply_markup=back_to_menu_keyboard(),
+            )
+            return True  # stop streaming
+
+        # Run signal engine directly on fresh candles (no extra WS connection)
+        try:
+            result: SignalResult = calculate_signal(candles)
+        except Exception as exc:
+            logger.debug("Monitor signal calc failed (check %d): %s", checks, exc)
+            return False
+
+        if result.direction not in ("BUY", "SELL"):
+            logger.debug(
+                "Monitor check %d for %s: NO_SIGNAL (confidence=%s)",
+                checks, symbol, result.confidence,
+            )
+            return False
+
+        # Build a synthetic SignalResponse for formatting
+        from services.signal_service import _expiry_seconds
+        exp = _expiry_seconds(result.details) if expiration_sec == 0 else expiration_sec
+        signal = SignalResponse(
+            direction=result.direction,
+            confidence=result.confidence,
+            details=result.details,
+            pair=pair_label,
+            expiration_sec=exp,
+            symbol=symbol,
+        )
+
+        text = _fmt(signal)
+        await bot.send_message(
+            chat_id, text, parse_mode="HTML",
+            reply_markup=signal_result_keyboard(symbol, exp),
+        )
+
+        d            = result.details if isinstance(result.details, dict) else {}
+        signal_price = d.get("debug", {}).get("last_close")
+        strategy     = d.get("primary_strategy")
+        if signal_price:
+            outcome_id = await save_signal_outcome(
+                user_id=chat_id, symbol=symbol, pair_label=pair_label,
+                direction=signal.direction, confidence=signal.confidence,
+                strategy=strategy, expiration_sec=exp,
+                signal_price=signal_price,
+            )
+            asyncio.create_task(track_outcome(
+                bot=bot, chat_id=chat_id, outcome_id=outcome_id,
+                symbol=symbol, pair_label=pair_label,
+                direction=signal.direction, strategy=strategy,
+                expiration_sec=exp, signal_price=signal_price,
+            ))
+
+        return True  # stop streaming
 
     try:
-        while checks < max_checks:
-            await asyncio.sleep(25)
-            checks += 1
-
-            candles = get_cached(symbol)
-            if candles and len(candles) >= 30:
-                tr = calculate_tradability(symbol, pair_label, candles)
-                if tr and tr.score < 40:
-                    await bot.send_message(
-                        chat_id,
-                        f"⚠️ <b>Условия на {pair_label} ухудшились</b>\n\n"
-                        f"Скор торгуемости упал до {tr.score}/100.\n"
-                        f"Рекомендуем выбрать другую пару.",
-                        parse_mode="HTML",
-                        reply_markup=back_to_menu_keyboard(),
-                    )
-                    break
-
-            try:
-                signal = await get_signal(symbol, pair_label, expiration_sec)
-                if signal.direction in ("BUY", "SELL"):
-                    text = format_signal_message(signal)
-                    await bot.send_message(
-                        chat_id, text, parse_mode="HTML",
-                        reply_markup=signal_result_keyboard(symbol, expiration_sec),
-                    )
-                    d            = signal.details if isinstance(signal.details, dict) else {}
-                    signal_price = d.get("debug", {}).get("last_close")
-                    strategy     = d.get("primary_strategy")
-                    if signal_price:
-                        outcome_id = await save_signal_outcome(
-                            user_id=chat_id, symbol=symbol, pair_label=pair_label,
-                            direction=signal.direction, confidence=signal.confidence,
-                            strategy=strategy, expiration_sec=expiration_sec,
-                            signal_price=signal_price,
-                        )
-                        asyncio.create_task(track_outcome(
-                            bot=bot, chat_id=chat_id, outcome_id=outcome_id,
-                            symbol=symbol, pair_label=pair_label,
-                            direction=signal.direction, strategy=strategy,
-                            expiration_sec=expiration_sec, signal_price=signal_price,
-                        ))
-                    break
-            except Exception as exc:
-                logger.debug("Monitor signal check failed: %s", exc)
-
+        await stream_pair(
+            symbol=symbol,
+            on_candles=on_candles,
+            max_duration=300.0,
+            check_interval=15.0,
+        )
     except asyncio.CancelledError:
         pass
     except Exception as exc:
