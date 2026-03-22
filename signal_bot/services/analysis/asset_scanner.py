@@ -485,5 +485,5 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
         lines.append(f"{i}. <b>{r.pair}</b>")
 
     lines.append("")
-    lines.append("👇 <b>Выберите пару для запуска мониторинга:</b>")
+    lines.append("Выберите пару для анализа")
     return "\n".join(lines)
