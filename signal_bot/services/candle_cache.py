@@ -277,6 +277,34 @@ async def refresh_pair_now(symbol: str) -> list[dict]:
     return []
 
 
+def resample_to_5m(candles_1m: list[dict]) -> list[dict]:
+    """
+    Resample 1-minute candles into 5-minute candles.
+    Groups by 5-minute bucket (time // 300 * 300).
+    Returns list sorted oldest → newest.
+    """
+    from collections import defaultdict
+    groups: dict[int, list[dict]] = defaultdict(list)
+    for c in candles_1m:
+        t = c.get("time", 0)
+        if t <= 0:
+            continue
+        bucket = (t // 300) * 300
+        groups[bucket].append(c)
+
+    result = []
+    for bucket in sorted(groups.keys()):
+        g = groups[bucket]
+        result.append({
+            "time":  bucket,
+            "open":  g[0]["open"],
+            "high":  max(c["high"] for c in g),
+            "low":   min(c["low"]  for c in g),
+            "close": g[-1]["close"],
+        })
+    return result
+
+
 async def get_candles_cached(symbol: str, count: int = 80) -> list[dict]:
     """
     Primary API for getting candles.

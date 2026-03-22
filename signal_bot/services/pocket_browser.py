@@ -904,8 +904,8 @@ async def _get_candles_impl(symbol: str, count: int = 60) -> list[dict]:
         })
         logger.info("WS assets received: %s", seen_assets)
 
-        # Use 15-second candles (instead of 30s) — same tick data → ~2x more data points
-        # This gives the scoring engine more candles to work with for pattern detection
+        # Use 15-second candles — Pocket Option OTC only provides ~12 min of history,
+        # so period=15 gives ~48-60 candles vs only 12 with period=60.
         candles = _candles_from_binary_frames(binary_frames, count, symbol=symbol, period=15)
 
         if len(candles) == 0:

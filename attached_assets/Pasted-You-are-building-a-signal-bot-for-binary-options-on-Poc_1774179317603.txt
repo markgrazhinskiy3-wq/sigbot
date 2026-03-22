@@ -1,0 +1,459 @@
+You are building a signal bot for binary options on Pocket Option.
+Expiry: 1-2 minutes. The bot outputs BUY / SELL / NO_SIGNAL with confidence.
+
+═══════════════════════════════════════════════════════════
+CRITICAL CHANGES FROM PREVIOUS VERSION:
+
+1. PRIMARY TIMEFRAME: 1-minute candles (NOT 15-second)
+   - Fetch last 50 candles of 1-min TF
+   - Fetch last 20 candles of 5-min TF for context
+   - 15-second candles are TOO NOISY for pattern analysis
+   - All indicators and patterns must use 1-min candles
+
+2. STRATEGY-FIRST APPROACH:
+   - Do NOT run all modules in parallel and blend scores
+   - First detect market mode → then run ONLY relevant strategies
+   - Each strategy has specific entry conditions that must be met
+   - A strategy either triggers or it doesn't — no partial blending
+
+3. NO SCORE AVERAGING:
+   - Do NOT blend best×0.7 + average×0.3
+   - Take the best strategy signal
+   - If a second strategy confirms same direction → bonus +10
+   - If strategies conflict → reduce confidence ×0.7
+
+4. PENALTIES AS MULTIPLIERS NOT SUBTRACTION:
+   - Old: -15, -8, -10 cumulative (could reach -55)
+   - New: ×0.85, ×0.9 etc, with a floor — never below ×0.6 total
+
+5. FASTER INDICATOR PERIODS for 1-min candles:
+   - EMA(5), EMA(13), EMA(21) — not EMA(9), EMA(21)
+   - RSI(7) — not RSI(14)
+   - Stochastic(5, 3, 3) — same
+   - Momentum(5) — not Momentum(10)
+   - ATR(10) — same
+   - Bollinger Bands(15, 2.0)
+
+6. DIRECTION COMES FROM STRATEGY, NOT FROM REGIME:
+   - Old: uptrend → always BUY unless override
+   - New: regime selects which strategies to run,
+     strategy determines direction based on what it sees
+═══════════════════════════════════════════════════════════
+
+════════════════════════════════
+ARCHITECTURE — 4 LAYERS
+════════════════════════════════
+
+LAYER 1 — DATA COLLECTION
+─────────────────────────
+- 50 candles × 1-min timeframe (OHLC) — primary analysis
+- 20 candles × 5-min timeframe (OHLC) — trend context
+- Cache refresh every 20-30 seconds
+- Calculate indicators on 1-min data:
+  • EMA(5), EMA(13), EMA(21)
+  • RSI(7)
+  • Stochastic(5, 3, 3)
+  • Momentum(5)
+  • ATR(10)
+  • Bollinger Bands(15, 2.0)
+- Calculate on 5-min data:
+  • EMA(21), EMA(50) — for trend context only
+- Detect support/resistance levels:
+  • Swing highs and lows with window of 3 bars on 1-min
+  • Cluster within 0.15% tolerance
+  • Also detect levels on 5-min (stronger levels)
+  • A level needs 2+ touches to be significant
+- Candle analysis:
+  • Body size, shadow sizes, body/range ratio
+  • Average body over last 10 candles for comparison
+
+LAYER 2 — MARKET MODE DETECTION
+────────────────────────────────
+Determine current market state BEFORE running strategies.
+This decides WHICH strategies to activate.
+
+Modes:
+
+TRENDING_UP:
+  - EMA(5) > EMA(13) > EMA(21) on 1-min for last 5+ candles
+  - EMA(21) > EMA(50) on 5-min
+  - Last 5-7 candles predominantly bullish (60%+)
+  - ATR stable or rising
+  - Swing structure: higher highs + higher lows
+
+TRENDING_DOWN:
+  - EMA(5) < EMA(13) < EMA(21) on 1-min
+  - EMA(21) < EMA(50) on 5-min
+  - Last 5-7 candles predominantly bearish
+  - Lower highs + lower lows
+
+RANGE:
+  - EMAs intertwined (spread between EMA5 and EMA21 < 0.03%)
+  - Price oscillating between identifiable support and resistance
+  - ATR low or medium
+  - No consistent swing direction
+
+VOLATILE:
+  - ATR(10) > average ATR over 30 candles × 1.5
+  - Large candle bodies AND large shadows
+  - No clear directional structure
+  - Frequent direction changes
+
+SQUEEZE:
+  - ATR(10) < average ATR over 30 candles × 0.6
+  - Bollinger Bands narrowing (bandwidth decreasing)
+  - Small candle bodies (< 50% of average)
+  - Market storing energy before breakout
+
+Strategy activation by mode:
+  TRENDING_UP/DOWN → Strategy 1 (EMA Bounce) + Strategy 2 (Squeeze Breakout)
+  RANGE → Strategy 3 (Level Bounce) + Strategy 4 (RSI Reversal)
+  VOLATILE → Strategy 5 (Micro Breakout) + Strategy 6 (Divergence)
+  SQUEEZE → Strategy 2 (Squeeze Breakout) — wait for breakout candle
+
+IMPORTANT: In any mode, if a non-primary strategy has a very strong
+signal (confidence > 80 with all conditions met), it can still trigger.
+Mode filtering is a preference, not a hard block.
+
+LAYER 3 — STRATEGIES (CORE ENGINE)
+═══════════════════════════════════
+
+Each strategy is a COMPLETE MARKET SCENARIO.
+It describes what must happen on the chart for entry.
+Indicators inside each strategy are measurement tools, not decision makers.
+
+Each strategy returns:
+  - direction: BUY / SELL / NONE
+  - confidence: 0-100
+  - conditions_met: X out of Y
+  - reasoning: text explanation
+
+A strategy returns NONE if fewer than 60% of its conditions are met.
+
+──────────────────────────────────────────
+STRATEGY 1 — EMA BOUNCE IN MICRO-TREND
+──────────────────────────────────────────
+Scenario: Price is trending. It pulls back to EMA(13) or EMA(21)
+and bounces, continuing the trend. We catch the bounce for 1-2 candles.
+
+What must happen on the chart:
+  1. Clear micro-trend visible (3-5 impulse candles in one direction)
+  2. Pullback of 2-3 smaller candles toward EMA
+  3. Price touches or gets very close to EMA(13) or EMA(21)
+  4. Bounce candle appears — closes in trend direction
+
+Conditions for BUY (7 total):
+  □ EMA(5) > EMA(13) > EMA(21) for last 5 candles — trend is aligned
+  □ Price low touched EMA(13) zone — low <= EMA(13) × 1.0005
+  □ Candle closed ABOVE EMA(13) — bounce confirmed
+  □ Bounce candle is bullish with body > 50% of avg body
+  □ Previous 2-3 candles were pullback (small or bearish)
+  □ RSI(7) between 40 and 70
+  □ Stochastic %K crossed above %D or %K > %D
+
+Conditions for SELL: mirror all conditions
+
+Confidence calculation:
+  Base: conditions_met / total_conditions × 85
+  Bonuses:
+    +7 if 5-min trend confirms direction
+    +5 if pullback touched EMA(13) precisely (within 0.02%)
+    +3 if bounce candle has small shadow against trend (<20% of body)
+    +3 if RSI in sweet spot (45-60 for BUY, 40-55 for SELL)
+
+  Rejection (return NONE):
+    - Pullback broke below EMA(21) and closed there — trend broken
+    - RSI > 78 for BUY or RSI < 22 for SELL — exhausted
+    - Price within 0.08% of strong opposite level — no room
+
+──────────────────────────────────────────
+STRATEGY 2 — SQUEEZE BREAKOUT
+──────────────────────────────────────────
+Scenario: Market compressed (small candles, low ATR, narrow Bollinger Bands).
+Then a large impulse candle breaks out. We enter in the breakout direction
+because momentum carries 1-3 more candles.
+
+What must happen on the chart:
+  1. Quiet period: 5-10 candles with small bodies
+  2. Volatility compressed (ATR below normal, BB narrow)
+  3. Breakout candle: body much larger than recent candles
+  4. Candle closes beyond Bollinger Band or recent range
+
+Conditions for BUY (7 total):
+  □ ATR(10) of last 5 candles < avg ATR over 30 candles × 0.7
+  □ Last 5-8 candle bodies < 60% of avg body over 30 candles
+  □ Current candle is bullish with body > 2× avg body of last 10
+  □ Close > upper Bollinger Band OR close > highest high of last 8 candles
+  □ Shadow against direction < 30% of total candle range
+  □ Momentum(5) > 0 and increasing
+  □ EMA(5) turning up or already above EMA(13)
+
+Conditions for SELL: mirror
+
+Confidence calculation:
+  Base: conditions_met / total_conditions × 80
+  Bonuses:
+    +7 if 5-min trend confirms direction
+    +5 if squeeze lasted 8+ candles
+    +5 if candle broke Bollinger Band decisively
+    +3 if Momentum surged (> 2× previous value)
+
+  Rejection (return NONE):
+    - Breakout candle has shadow > 50% of body against direction
+    - Breakout runs directly into a strong S/R level within 0.05%
+    - RSI already extreme before breakout (>82 for BUY, <18 for SELL)
+
+──────────────────────────────────────────
+STRATEGY 3 — LEVEL BOUNCE
+──────────────────────────────────────────
+Scenario: Price reaches a significant S/R level and forms a reversal
+candle pattern. Price bounces away from the level. Best in RANGE mode.
+
+What must happen on the chart:
+  1. Significant level identified (2+ previous touches)
+  2. Price approaches level (within 0.1%)
+  3. Reversal candle pattern appears AT the level
+  4. Price starts moving away from the level
+
+Reversal patterns to detect:
+
+  Pin Bar: shadow toward level > 2× body, small body on opposite side
+  Engulfing: small candle toward level → large candle away from level
+  Hammer: small body, shadow toward level > 2× body, minimal opposite shadow
+
+Conditions for BUY — bounce from support (7 total):
+  □ Support level identified with 2+ touches
+  □ Price low within 0.1% of support level in last 2 candles
+  □ Reversal pattern detected (pin bar OR engulfing OR hammer)
+  □ Current candle closed ABOVE support level
+  □ RSI(7) < 35 — oversold confirms bottom
+  □ Stochastic %K < 25 and turning up (%K > %D or %K rising)
+  □ Distance to nearest resistance > 0.15% — room to move
+
+Conditions for SELL: mirror from resistance
+
+Confidence calculation:
+  Base depends on pattern quality:
+    Pin bar with shadow > 3× body → start at 85
+    Engulfing with body > 1.5× previous → start at 80
+    Hammer → start at 75
+  Bonuses:
+    +7 if level confirmed on both 1-min and 5-min
+    +5 if level has 3+ touches
+    +5 if market mode is RANGE
+    +3 if RSI confirms extreme
+    +3 if Stochastic confirms turn
+
+  Rejection (return NONE):
+    - No recognizable reversal pattern at the level
+    - Level was broken previously and price returned (weakened)
+    - Strong trend against bounce on 5-min (EMA21 steeply against us)
+    - Distance to opposite level < 0.1% — nowhere to go
+
+──────────────────────────────────────────
+STRATEGY 4 — RSI EXTREME REVERSAL
+──────────────────────────────────────────
+Scenario: Price moved sharply, RSI hit extreme (<15 or >85).
+A snapback of 1-3 candles is likely. We catch that snapback.
+
+What must happen on the chart:
+  1. Strong one-directional move (3-5 candles same direction)
+  2. RSI(7) reached extreme territory
+  3. First reversal or slowdown candle appears
+  4. Stochastic confirms the turn
+
+Conditions for BUY — snapback from oversold (6 total):
+  □ RSI(7) was below 15 within last 3 candles
+  □ Current RSI(7) > previous candle's RSI (starting to recover)
+  □ Last 3-5 candles were bearish (the drop that caused oversold)
+  □ Current candle is bullish OR has lower shadow > 2× body
+  □ Stochastic %K < 20 and crossing %D upward
+  □ Momentum(5) starting to rise
+
+Conditions for SELL: mirror (RSI > 85)
+
+Confidence calculation:
+  RSI was below 10 → base = 85
+  RSI was below 15 → base = 75
+  RSI was below 20 → base = 65
+  Bonuses:
+    +7 if engulfing pattern on reversal candle
+    +5 if pin bar on reversal
+    +5 if support level nearby (for BUY)
+    +5 if 5-min trend supports the snapback direction
+
+  Rejection (return NONE):
+    - Strong trend against snapback on 5-min AND RSI only reached 20 (not extreme enough)
+    - No reversal candle — RSI extreme but price still pushing hard
+    - ATR is extremely high (> 2.5× normal) — could be news event, unpredictable
+
+──────────────────────────────────────────
+STRATEGY 5 — MICRO LEVEL BREAKOUT
+──────────────────────────────────────────
+Scenario: Price tested a level 2-3 times and finally breaks through
+with a strong candle. Breakout momentum carries 2-5 candles.
+
+What must happen on the chart:
+  1. Level with 2-3 touches in last 15-25 candles
+  2. Each touch was a rejection (price bounced back)
+  3. Breakout candle closes beyond the level with conviction
+  4. No immediate reversal (price holds beyond level)
+
+Conditions for BUY — breakout of resistance (7 total):
+  □ Resistance with 2+ touches identified
+  □ Current candle closed ABOVE resistance
+  □ Breakout candle body > 1.5× avg body of last 10 candles
+  □ Shadow against direction (upper for BUY) < 30% of body
+  □ Momentum(5) > 0 and rising
+  □ ATR(10) rising — energy behind the move
+  □ EMA(5) and EMA(13) pointing in breakout direction
+
+Conditions for SELL: mirror
+
+Confidence calculation:
+  Base: conditions_met / total_conditions × 80
+  Bonuses:
+    +7 if 5-min trend confirms breakout direction
+    +5 if level had 3+ touches before breaking
+    +3 if price closed 0.05%+ beyond level (strong hold)
+
+  Rejection (return NONE):
+    - Breakout against 5-min trend AND breakout candle body < 2× avg
+    - Shadow against direction > 50% of body (weak breakout)
+    - Another strong level within 0.05% beyond the broken one
+    - ATR dropping — no energy for continuation
+
+──────────────────────────────────────────
+STRATEGY 6 — MICRO DIVERGENCE
+──────────────────────────────────────────
+Scenario: Price makes a new low/high but RSI does not confirm.
+Movement is exhausting. Snapback of 1-3 candles expected.
+
+What must happen on the chart:
+  1. Two sequential price lows (or highs) within 10-20 candles
+  2. Second extreme is more extreme than first
+  3. RSI at second extreme is LESS extreme than at first (divergence)
+  4. Reversal candle appears after second extreme
+
+Conditions for BUY — bullish divergence (5 total):
+  □ Two price lows found, second lower than first
+  □ RSI(7) at second low > RSI at first low (bullish divergence)
+  □ RSI difference between two points > 5 (meaningful divergence)
+  □ Bullish candle appeared after second low
+  □ Stochastic turning up
+
+Conditions for SELL: mirror (bearish divergence)
+
+Confidence calculation:
+  Base = 75
+  Bonuses:
+    +10 if divergence aligns with a support/resistance level
+    +7 if divergence visible on both RSI and Momentum
+    +5 if market in RANGE mode
+    +5 if 5-min trend supports divergence direction
+
+  Rejection (return NONE):
+    - Very strong trend against divergence on 5-min
+    - No reversal candle — divergence present but no reaction yet
+    - RSI difference < 5 between two extremes — too weak
+
+════════════════════════════════════════
+LAYER 4 — SIGNAL DECISION ENGINE
+════════════════════════════════════════
+
+Step 1: Detect market mode
+
+Step 2: Select strategies for current mode
+  Primary strategies (run first, preferred):
+    TRENDING → Strategy 1, Strategy 2
+    RANGE → Strategy 3, Strategy 4
+    VOLATILE → Strategy 5, Strategy 6
+    SQUEEZE → Strategy 2
+
+  Secondary strategies (run if primary gives no signal):
+    All other strategies — but they need confidence > 80 to override
+
+Step 3: Run selected strategies, collect results
+
+Step 4: Select best signal
+  - Take strategy with highest confidence where conditions_met >= 60%
+  - If no strategy has conditions_met >= 60% → NO_SIGNAL
+
+Step 5: Check for confirmation from other strategies
+  - Another strategy agrees on direction → confidence + 10
+  - Another strategy disagrees (opposite direction with conf > 50) → confidence × 0.75
+  - No other strategy has an opinion → no change
+
+Step 6: Apply contextual multipliers (NOT subtraction)
+  All multipliers stack multiplicatively with a floor of ×0.60 total:
+
+  Signal aligns with 5-min trend → ×1.10 (bonus)
+  Signal against 5-min trend → ×0.82
+  Market mode is chaotic/unclear → ×0.85
+  Price within 0.1% of opposite level → ×0.85
+  ATR is extremely high (>2.5× normal) → ×0.85
+  ATR is compressed (<0.5× normal) AND strategy is not Squeeze Breakout → ×0.90
+
+  Total multiplier = product of all applicable, but never below 0.60
+  final_confidence = base_confidence × total_multiplier
+
+Step 7: Final decision
+
+  if final_confidence >= 70:
+      signal = STRONG (3-5 stars)
+      if final_confidence >= 88: stars = 5
+      elif final_confidence >= 80: stars = 4
+      else: stars = 3
+      expiry = 1 min for bounce/breakout, 2 min for trend strategies
+
+  elif final_confidence >= 52:
+      signal = MODERATE (2 stars)
+      expiry = 2 min
+
+  else:
+      signal = NO_SIGNAL
+
+Step 8: Hard blocks (even with high confidence):
+  - All strategies returned NONE → NO_SIGNAL
+  - Best strategy conditions_met < 50% → NO_SIGNAL
+  - Market mode SQUEEZE and no breakout candle detected → NO_SIGNAL
+
+════════════════════════════════════════
+ADDITIONAL RULES
+════════════════════════════════════════
+
+1. Max 3 consecutive signals in same direction without a pause
+2. After 2 losses in a row → raise threshold to 70 for next 5 minutes
+3. Minimum 90 seconds between signals
+4. Strategy with ALL conditions met always beats partial conditions
+5. At equal confidence → prefer strategy aligned with 5-min trend
+6. Log every signal and rejection with full reasoning
+
+════════════════════════════════════════
+IMPLEMENTATION
+════════════════════════════════════════
+
+Python project structure:
+
+/signals_bot
+  main.py               — main loop, analysis every 20-30 sec
+  market_data.py         — fetch and cache 1-min and 5-min candles
+  indicators.py          — EMA, RSI, Stochastic, ATR, BB, Momentum
+  levels.py              — S/R level detection and clustering
+  candle_patterns.py     — pin bar, engulfing, hammer detection
+  market_mode.py         — mode classification
+  strategies/
+    __init__.py
+    ema_bounce.py        — Strategy 1
+    squeeze_breakout.py  — Strategy 2
+    level_bounce.py      — Strategy 3
+    rsi_reversal.py      — Strategy 4
+    micro_breakout.py    — Strategy 5
+    divergence.py        — Strategy 6
+  decision_engine.py     — combines strategy outputs, applies multipliers
+  signal_output.py       — formats and sends signals
+  logger.py              — logs all decisions
+
+Use numpy for calculations. No ML libraries.
+Analysis must complete in under 2 seconds.
+Each strategy is independently testable and can be enabled/disabled.
