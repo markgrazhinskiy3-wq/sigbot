@@ -162,6 +162,18 @@ def monitoring_active_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboa
     return builder.as_markup()
 
 
+def monitor_timeout_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard shown after monitoring ends without a signal."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📋 Рекомендуемые пары", callback_data="action:recommended_pairs"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
 def after_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
     """Keyboard shown after a trade result arrives."""
     builder = InlineKeyboardBuilder()

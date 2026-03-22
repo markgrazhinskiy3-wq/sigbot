@@ -64,12 +64,14 @@ async def _monitor_pair(
     from services.strategy_engine import calculate_signal, SignalResult
     from services.signal_service import SignalResponse, format_signal_message as _fmt
     from services.po_ws_client import stream_pair
-    from bot.keyboards import signal_result_keyboard, back_to_menu_keyboard
+    from bot.keyboards import signal_result_keyboard, back_to_menu_keyboard, monitor_timeout_keyboard
 
     checks = 0
+    signal_found = False
+    conditions_worsened = False
 
     async def on_candles(candles: list) -> bool:
-        nonlocal checks
+        nonlocal checks, signal_found, conditions_worsened
         checks += 1
 
         if len(candles) < 20:
@@ -78,13 +80,14 @@ async def _monitor_pair(
         # Check if conditions have worsened
         tr = calculate_tradability(symbol, pair_label, candles)
         if tr and tr.score < 40:
+            conditions_worsened = True
             await bot.send_message(
                 chat_id,
                 f"⚠️ <b>Условия на {pair_label} ухудшились</b>\n\n"
                 f"Скор торгуемости упал до {tr.score}/100.\n"
                 f"Рекомендуем выбрать другую пару.",
                 parse_mode="HTML",
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=monitor_timeout_keyboard(),
             )
             return True  # stop streaming
 
@@ -137,8 +140,10 @@ async def _monitor_pair(
                 expiration_sec=exp, signal_price=signal_price,
             ))
 
+        signal_found = True
         return True  # stop streaming
 
+    cancelled = False
     try:
         await stream_pair(
             symbol=symbol,
@@ -147,11 +152,26 @@ async def _monitor_pair(
             check_interval=15.0,
         )
     except asyncio.CancelledError:
-        pass
+        cancelled = True
     except Exception as exc:
         logger.warning("Monitor task error for %s: %s", symbol, exc)
+        cancelled = True
     finally:
         _monitor_tasks.pop(chat_id, None)
+
+    # Notify user only on natural timeout (not cancelled by user, no signal, no bad conditions)
+    if not cancelled and not signal_found and not conditions_worsened:
+        try:
+            await bot.send_message(
+                chat_id,
+                f"⏱ <b>Мониторинг завершён — {pair_label}</b>\n\n"
+                f"За 5 минут сигнал не появился.\n"
+                f"Попробуйте другую пару или запустите мониторинг снова.",
+                parse_mode="HTML",
+                reply_markup=monitor_timeout_keyboard(),
+            )
+        except Exception as exc:
+            logger.debug("Timeout notification failed: %s", exc)
 
 
 # ─── /start ─────────────────────────────────────────────────────────────────
