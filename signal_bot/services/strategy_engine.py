@@ -117,6 +117,9 @@ async def calculate_signal(
         eng.reasoning if eng.direction == "NO_SIGNAL" else "ok",
     )
 
+    # ── Detailed condition log (one line per strategy) ────────────────────────
+    _log_conditions(eng)
+
     # ── Build details dict for signal_service ─────────────────────────────────
     details = {
         "direction":          eng.direction,
@@ -150,6 +153,87 @@ async def calculate_signal(
         confidence = eng.stars,
         details    = details,
     )
+
+
+def _log_conditions(eng: "EngineResult") -> None:
+    """Log per-strategy condition breakdown as searchable one-liners."""
+    strategies: dict = eng.debug.get("strategies", {})
+    if not strategies:
+        return
+
+    ctx_note = eng.debug.get("ctx_macro_note", "")
+    ctx_up_1m   = eng.debug.get("ctx_up_1m", False)
+    ctx_dn_1m   = eng.debug.get("ctx_dn_1m", False)
+    ctx_macro_up = eng.debug.get("ctx_macro_up", False)
+    ctx_macro_dn = eng.debug.get("ctx_macro_dn", False)
+    conf_before  = eng.debug.get("conf_before_multipliers", 0)
+    conf_after   = eng.debug.get("conf_after_multipliers", eng.confidence_raw)
+    threshold    = eng.debug.get("min_threshold", 46)
+    used_tier    = eng.debug.get("used_tier", "?")
+    ind          = eng.debug.get("indicators", {})
+    lvl          = eng.debug.get("levels", {})
+
+    logger.info(
+        "  ┌─ MODE=%s(%s%%) tier=%s | ctx_1m=%s%s macro=%s%s [%s]",
+        eng.market_mode,
+        round(eng.market_mode_strength),
+        used_tier,
+        "↑" if ctx_up_1m  else "·",
+        "↓" if ctx_dn_1m  else "·",
+        "↑" if ctx_macro_up else "·",
+        "↓" if ctx_macro_dn else "·",
+        ctx_note,
+    )
+    logger.info(
+        "  │  IND: EMA5=%.6f EMA13=%.6f RSI=%.1f Stoch=%.0f/%.0f ATR_ratio=%.3f BB_bw=%.5f",
+        ind.get("ema5", 0), ind.get("ema13", 0), ind.get("rsi", 0),
+        ind.get("stoch_k", 0), ind.get("stoch_d", 0),
+        ind.get("atr_ratio", 0), ind.get("bb_bw", 0),
+    )
+    logger.info(
+        "  │  LVL: sup=%.6f(%.3f%%) res=%.6f(%.3f%%) n_sup=%d n_res=%d",
+        lvl.get("nearest_sup", 0), lvl.get("dist_sup_pct", 0),
+        lvl.get("nearest_res", 0), lvl.get("dist_res_pct", 0),
+        lvl.get("n_supports", 0),  lvl.get("n_resistances", 0),
+    )
+
+    for sname, sd in strategies.items():
+        if sd.get("skipped"):
+            continue
+        direction  = sd.get("direction", "NONE")
+        conf       = sd.get("confidence", 0)
+        met        = sd.get("conditions_met", 0)
+        total      = sd.get("total", 0)
+        pct        = sd.get("pct", 0)
+        tier       = sd.get("tier", "?")
+        early_rej  = sd.get("early_reject")
+        conds: dict = sd.get("conditions", {})
+
+        if early_rej:
+            logger.info("  │  [%s/%s] SKIPPED early_reject=%s", sname, tier, early_rej)
+            continue
+
+        cond_parts = []
+        for k, v in conds.items():
+            if isinstance(v, bool):
+                cond_parts.append(f"{'✓' if v else '✗'}{k}")
+            elif k == "pattern_type":
+                cond_parts.append(f"pat={v}")
+
+        marker = "►" if sname == eng.strategy_name else "│"
+        logger.info(
+            "  %s [%s/%s] %s conf=%.0f met=%d/%d(%d%%) | %s",
+            marker, sname, tier, direction, conf, met, total, pct,
+            "  ".join(cond_parts) or "—",
+        )
+
+    if eng.direction != "NO_SIGNAL":
+        logger.info(
+            "  └─ RESULT %s conf %.0f→%.0f (thr=%d) expiry=%s",
+            eng.direction, conf_before, conf_after, threshold, eng.expiry_hint,
+        )
+    else:
+        logger.info("  └─ NO_SIGNAL: %s", eng.reasoning)
 
 
 def _mode_to_regime(mode: str) -> str:
