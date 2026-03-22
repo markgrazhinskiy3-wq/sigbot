@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "d-O7UVfLsMqw5ju_jWMN8"
+uri = "file://signal_bot/ANALYSIS_LOGIC.md"
+type = "text"
+title = "Логика анализа сигналов"
