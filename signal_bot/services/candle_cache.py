@@ -189,19 +189,30 @@ async def _refresher_loop(pairs: list[str]) -> None:
     #    — this provides the baseline data for quality signal analysis.
     # 2. Simultaneously, first browser load captures WS auth for future cycles.
     # WS is NOT used for initial warm-up (it only gives 13-14 candles).
-    logger.info("Initial cache warm-up (browser, %d pairs)...", len(pairs))
+    #
+    # _warm_up_done is set True after MIN_READY_PAIRS are loaded so users
+    # aren't blocked while the remaining pairs continue loading in background.
+    MIN_READY_PAIRS = min(10, len(pairs))
+    logger.info("Initial cache warm-up (browser, %d pairs, ready after %d)...", len(pairs), MIN_READY_PAIRS)
+    loaded = 0
+    global _warm_up_done
     for symbol in pairs:
         ok = await _refresh_one_browser(symbol)
         if ok:
+            loaded += 1
             entry = _cache.get(symbol)
             logger.info(
-                "Warm-up: %s cached (%d candles)",
+                "Warm-up: %s cached (%d candles) [%d/%d]",
                 symbol,
                 len(entry.candles) if entry else 0,
+                loaded, len(pairs),
             )
-    global _warm_up_done
-    _warm_up_done = True
-    logger.info("Cache warm-up complete. WS auth available: %s", ws_available())
+            if not _warm_up_done and loaded >= MIN_READY_PAIRS:
+                _warm_up_done = True
+                logger.info("Cache warm-up threshold reached (%d pairs). Bot is now ready.", loaded)
+    if not _warm_up_done:
+        _warm_up_done = True
+    logger.info("Cache warm-up complete (%d/%d pairs). WS auth available: %s", loaded, len(pairs), ws_available())
 
     while True:
         await asyncio.sleep(REFRESH_INTERVAL)
