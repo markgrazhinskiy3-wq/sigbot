@@ -136,7 +136,9 @@ def format_signal_message(signal: SignalResponse) -> str:
     mode     = d.get("market_mode", "")
     mode_lbl = _mode_label(mode)
     strategy = d.get("primary_strategy", "")
-    expiry   = d.get("expiry_hint", "1m")
+    # Always show the user-selected expiration, not the engine's hint
+    exp_sec  = signal.expiration_sec or 60
+    expiry   = f"{exp_sec // 60} мин" if exp_sec >= 60 else f"{exp_sec} сек"
     explanation_lines = _build_explanation(signal.direction, d)
 
     lines = [
