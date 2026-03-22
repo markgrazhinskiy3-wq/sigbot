@@ -77,7 +77,7 @@ async def track_outcome(
     Runs as asyncio.create_task(), all errors caught internally.
     """
     try:
-        await asyncio.sleep(expiration_sec + 3)
+        await asyncio.sleep(expiration_sec + 1)
 
         # Try WS first (fast, no browser), fall back to cache
         candles = []
