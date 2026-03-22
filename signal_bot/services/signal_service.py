@@ -56,7 +56,7 @@ async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> Signa
     candles = await refresh_pair_now(symbol)
     if not candles:
         candles = await get_candles(symbol, count=80)
-    result: SignalResult = calculate_signal(candles)
+    result: SignalResult = await calculate_signal(candles)
     return SignalResponse(
         direction=result.direction,
         confidence=result.confidence,
