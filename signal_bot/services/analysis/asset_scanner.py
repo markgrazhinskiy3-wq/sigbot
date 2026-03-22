@@ -473,39 +473,19 @@ def scan_all_pairs(pairs_map: dict[str, str]) -> list[TradabilityResult]:
     return filtered
 
 
-# ── Session awareness ─────────────────────────────────────────────────────────
-
-def _session_info() -> tuple[str, set[str]]:
-    hour = datetime.now(timezone.utc).hour
-    if   0  <= hour < 7:  return "🌏 Азиатская сессия",              {"JPY", "AUD"}
-    elif 7  <= hour < 12: return "🇪🇺 Лондонская сессия",            {"EUR", "GBP"}
-    elif 12 <= hour < 16: return "🌐 Лондон+Нью-Йорк (пик)",         {"EUR", "GBP", "USD"}
-    elif 16 <= hour < 21: return "🇺🇸 Нью-Йоркская сессия",          {"USD"}
-    else:                 return "🌙 Поздняя сессия",                  set()
-
-
-def _pair_matches_session(pair: str, currencies: set[str]) -> bool:
-    return any(c in pair for c in currencies)
-
-
 # ── format_scan_output ────────────────────────────────────────────────────────
 
 def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0) -> str:
     """Format tradability scan results for Telegram HTML."""
-    now_str        = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    session_label, session_currencies = _session_info()
+    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     lines = [
         "🔍 <b>Рекомендуемые пары</b>",
         f"⏰ {now_str}",
-        f"🕐 {session_label}",
         "",
     ]
 
     for i, r in enumerate(results, 1):
-        session_match = _pair_matches_session(r.pair, session_currencies)
-        star = " 🌟" if session_match else ""
-
         strategies_str = ", ".join(r.applicable_strategies) if r.applicable_strategies else "—"
         mode_str       = _mode_label_ru(r.mode)
 
@@ -516,7 +496,7 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
         if ress: level_parts.append(f"R: {ress[0]['price']:.5g}")
         level_str = ("📐 Уровни: " + " | ".join(level_parts)) if level_parts else ""
 
-        lines.append(f"<b>{i}. {r.pair}{star}</b> — ⭐ {r.score}/100")
+        lines.append(f"<b>{i}. {r.pair}</b> — ⭐ {r.score}/100")
         lines.append(f"📊 Рынок: {mode_str}")
         lines.append(f"🎯 Стратегии: {strategies_str}")
         if level_str:
