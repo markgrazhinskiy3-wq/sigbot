@@ -156,90 +156,86 @@ def format_signal_message(signal: SignalResponse) -> str:
 
 def _build_explanation(direction: str, details: dict) -> list[str]:
     """
-    Build 2-4 bullet points explaining the signal in plain Russian.
+    Build 2-4 bullet points explaining the signal in simple, plain Russian.
     """
     is_buy   = direction == "BUY"
     strategy = details.get("primary_strategy") or ""
     mode     = details.get("market_mode", "")
     quality  = details.get("signal_quality", "")
-    reasoning = details.get("reasoning", "")
     debug    = details.get("debug", {})
 
     items: list[str] = []
 
-    # 1. Strategy-specific main reason
+    # 1. Strategy-specific main reason (простой язык, без терминов)
     if strategy == "ema_bounce":
         if is_buy:
-            items.append("Цена откатилась к скользящей средней и оттолкнулась вверх — тренд продолжается.")
+            items.append("Цена кратко откатилась и снова пошла вверх — тренд продолжается.")
         else:
-            items.append("Цена откатилась к скользящей средней и оттолкнулась вниз — тренд продолжается.")
+            items.append("Цена кратко подросла и снова пошла вниз — тренд продолжается.")
 
     elif strategy == "squeeze_breakout":
         if is_buy:
-            items.append("После периода сжатия (маленьких свечей) рынок резко вырвался вверх — импульс нарастает.")
+            items.append("Рынок долго стоял на месте и резко двинулся вверх — хороший момент для входа.")
         else:
-            items.append("После периода сжатия (маленьких свечей) рынок резко вырвался вниз — импульс нарастает.")
+            items.append("Рынок долго стоял на месте и резко двинулся вниз — хороший момент для входа.")
 
     elif strategy == "level_bounce":
         if is_buy:
-            items.append("Цена опустилась до уровня поддержки (где раньше разворачивалась) и отскочила вверх.")
+            items.append("Цена опустилась до важной отметки, откуда уже несколько раз разворачивалась вверх.")
         else:
-            items.append("Цена поднялась до уровня сопротивления (где раньше разворачивалась) и отскочила вниз.")
+            items.append("Цена поднялась до важной отметки, откуда уже несколько раз разворачивалась вниз.")
 
     elif strategy == "rsi_reversal":
         if is_buy:
-            items.append("Рынок чрезмерно упал (RSI в экстремуме) — ожидаем краткосрочный отскок вверх.")
+            items.append("Цена слишком сильно упала и технически перегрета — ожидаем отскок вверх.")
         else:
-            items.append("Рынок чрезмерно вырос (RSI в экстремуме) — ожидаем краткосрочный откат вниз.")
+            items.append("Цена слишком сильно выросла и технически перегрета — ожидаем откат вниз.")
 
     elif strategy == "micro_breakout":
         if is_buy:
-            items.append("Цена пробила уровень сопротивления после нескольких проверок — прорыв вверх.")
+            items.append("Цена несколько раз пыталась пробить уровень вверх и наконец пробила.")
         else:
-            items.append("Цена пробила уровень поддержки после нескольких проверок — прорыв вниз.")
+            items.append("Цена несколько раз пыталась пробить уровень вниз и наконец пробила.")
 
     elif strategy == "divergence":
         if is_buy:
-            items.append("Цена сделала новый минимум, но индикаторы не подтвердили — бычья дивергенция.")
+            items.append("Цена упала ниже, но сила падения ослабла — разворот вверх вероятен.")
         else:
-            items.append("Цена сделала новый максимум, но индикаторы не подтвердили — медвежья дивергенция.")
+            items.append("Цена выросла выше, но сила роста ослабла — разворот вниз вероятен.")
 
     else:
         if is_buy:
-            items.append("Большинство факторов указывают на движение вверх.")
+            items.append("Большинство признаков указывают на движение вверх.")
         else:
-            items.append("Большинство факторов указывают на движение вниз.")
+            items.append("Большинство признаков указывают на движение вниз.")
 
-    # 2. Market mode context
+    # 2. Market mode context (простой язык)
     if mode == "TRENDING_UP" and is_buy:
-        items.append("Работаем в направлении восходящего тренда — вход по движению.")
+        items.append("Рынок сейчас растёт — входим по тренду.")
     elif mode == "TRENDING_DOWN" and not is_buy:
-        items.append("Работаем в направлении нисходящего тренда — вход по движению.")
+        items.append("Рынок сейчас падает — входим по тренду.")
     elif mode == "RANGE":
         if is_buy:
-            items.append("Рынок в боковике — торгуем от нижней границы диапазона.")
+            items.append("Цена у нижней границы коридора — обычно отсюда растёт.")
         else:
-            items.append("Рынок в боковике — торгуем от верхней границы диапазона.")
+            items.append("Цена у верхней границы коридора — обычно отсюда падает.")
     elif mode == "VOLATILE":
-        items.append("Высокая волатильность — быстрый вход, короткая экспирация.")
+        items.append("Рынок сейчас активный — быстрый вход, короткая сделка.")
     elif mode == "SQUEEZE":
-        items.append("После сжатия рынок обычно делает резкое движение — мы в начале него.")
+        items.append("Рынок только что «сжался» и готовится к резкому движению — мы в начале него.")
 
-    # 3. Indicator context from debug
+    # 3. Indicator confirmation (простой язык, без «RSI»)
     ind = debug.get("indicators", {})
     rsi_val = ind.get("rsi", 50)
     if is_buy and rsi_val < 35:
-        items.append(f"Индикатор RSI ({rsi_val:.0f}) подтверждает перепроданность.")
+        items.append("Индикаторы подтверждают: цена слишком упала и готова расти.")
     elif not is_buy and rsi_val > 65:
-        items.append(f"Индикатор RSI ({rsi_val:.0f}) подтверждает перекупленность.")
-    elif 40 < rsi_val < 60:
-        items.append(f"RSI в нейтральной зоне ({rsi_val:.0f}) — место для движения есть.")
+        items.append("Индикаторы подтверждают: цена слишком выросла и готова падать.")
 
     # 4. Quality note
     if quality == "strong":
-        items.append("Несколько условий совпали одновременно — сигнал уверенный.")
+        items.append("Сразу несколько признаков указывают в одну сторону — сигнал надёжный.")
 
-    # Limit to 4 items
     return items[:4]
 
 
