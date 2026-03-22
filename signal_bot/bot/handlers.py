@@ -16,6 +16,7 @@ from db.database import (
     save_signal_outcome, get_user_stats, get_strategy_stats, get_pair_stats,
     get_daily_admin_stats, get_performance_report,
     get_all_admin_ids, get_all_admins, add_admin, remove_admin,
+    get_condition_stats, reset_condition_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
@@ -1266,6 +1267,83 @@ async def cmd_report(message: Message) -> None:
             chunk.append(line)
     if chunk:
         await message.answer("\n".join(chunk), parse_mode="HTML")
+
+
+# ─── /condstats — condition frequency report ──────────────────────────────────
+
+@router.message(Command("condstats"))
+async def cmd_condstats(message: Message) -> None:
+    """Admin-only: show how often each condition passes per strategy."""
+    if not _is_admin(message.from_user.id):
+        return
+
+    # Support /condstats reset
+    args = (message.text or "").split()
+    if len(args) >= 2 and args[1].lower() == "reset":
+        await reset_condition_stats()
+        await message.answer("✅ Статистика условий сброшена.", parse_mode="HTML")
+        return
+
+    data = await get_condition_stats()
+    if not data:
+        await message.answer(
+            "📊 <b>Condition Stats</b>\n\nДанных пока нет — запусти /debug несколько раз.",
+            parse_mode="HTML",
+        )
+        return
+
+    _STRAT_LABELS = {
+        "ema_bounce":       "EMA Bounce",
+        "squeeze_breakout": "Squeeze BO",
+        "level_bounce":     "Level Bounce",
+        "divergence":       "Divergence",
+    }
+
+    # Total evaluations across all strategies (denominator for header)
+    total_evals = sum(v["evaluated"] for v in data.values())
+    lines = [f"📊 <b>Condition Stats</b>  (всего eval: {total_evals})\n"
+             f"<i>Условия отсортированы: худшие сверху</i>"]
+
+    for strat, info in sorted(data.items()):
+        n_eval = info["evaluated"]
+        label  = _STRAT_LABELS.get(strat, strat)
+        lines.append(f"\n<b>{label}</b> — eval: {n_eval}")
+
+        conds = info.get("conditions", {})
+        if not conds:
+            lines.append("  (нет данных об условиях)")
+            continue
+
+        for cname, cv in conds.items():
+            t    = cv["true"]
+            tot  = t + cv["false"]
+            rate = cv["rate"]
+            bar  = _mini_bar(rate)
+            # Flag worst conditions
+            flag = "🔴" if rate < 30 else ("🟡" if rate < 60 else "🟢")
+            lines.append(f"  {flag} {cname}: {t}/{tot} ({rate}%) {bar}")
+
+    lines.append(
+        f"\n<i>Сброс статистики: /condstats reset</i>"
+    )
+
+    LIMIT = 4000
+    chunk, length = [], 0
+    for line in lines:
+        length += len(line) + 1
+        if length > LIMIT:
+            await message.answer("\n".join(chunk), parse_mode="HTML")
+            chunk, length = [line], len(line) + 1
+        else:
+            chunk.append(line)
+    if chunk:
+        await message.answer("\n".join(chunk), parse_mode="HTML")
+
+
+def _mini_bar(rate: int) -> str:
+    """Tiny ASCII progress bar out of 5 blocks."""
+    filled = round(rate / 20)   # 0-5
+    return "█" * filled + "░" * (5 - filled)
 
 
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────

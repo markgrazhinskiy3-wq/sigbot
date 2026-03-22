@@ -69,6 +69,27 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists
 
+        # ── Condition frequency stats tables ────────────────────────────────
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_evals (
+                strategy TEXT PRIMARY KEY,
+                count    INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS condition_stats (
+                strategy    TEXT    NOT NULL,
+                condition   TEXT    NOT NULL,
+                true_count  INTEGER NOT NULL DEFAULT 0,
+                false_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (strategy, condition)
+            )
+            """
+        )
+
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -432,6 +453,93 @@ async def get_strategy_stats(user_id: int) -> list[dict]:
                     "winrate":  round(w / (w + l) * 100) if (w + l) > 0 else None,
                 })
             return result
+
+
+# ── Condition frequency stats ────────────────────────────────────────────────────
+
+async def record_condition_evals(evals: list[tuple[str, dict]]) -> None:
+    """
+    Record one round of strategy evaluations into condition_stats.
+
+    evals: list of (strategy_name, conditions_dict)
+           conditions_dict maps condition_name → bool  (non-bool values ignored)
+    """
+    if not evals:
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        for strategy, conds in evals:
+            # Increment strategy eval count
+            await db.execute(
+                """
+                INSERT INTO strategy_evals (strategy, count) VALUES (?, 1)
+                ON CONFLICT(strategy) DO UPDATE SET count = count + 1
+                """,
+                (strategy,),
+            )
+            # Increment per-condition true/false counts
+            for cname, cval in conds.items():
+                if not isinstance(cval, bool):
+                    continue
+                t_inc = 1 if cval else 0
+                f_inc = 0 if cval else 1
+                await db.execute(
+                    """
+                    INSERT INTO condition_stats (strategy, condition, true_count, false_count)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(strategy, condition) DO UPDATE SET
+                        true_count  = true_count  + excluded.true_count,
+                        false_count = false_count + excluded.false_count
+                    """,
+                    (strategy, cname, t_inc, f_inc),
+                )
+        await db.commit()
+
+
+async def get_condition_stats() -> dict:
+    """
+    Returns {strategy: {"evaluated": N, "conditions": {cname: {"true": T, "false": F, "rate": pct}}}}
+    ordered by strategy name, conditions ordered by pass rate ascending (worst first).
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute("SELECT strategy, count FROM strategy_evals ORDER BY strategy") as cur:
+            eval_rows = {r["strategy"]: r["count"] for r in await cur.fetchall()}
+
+        async with db.execute(
+            "SELECT strategy, condition, true_count, false_count FROM condition_stats ORDER BY strategy, condition"
+        ) as cur:
+            cond_rows = await cur.fetchall()
+
+    result: dict = {}
+    for strategy, count in eval_rows.items():
+        result[strategy] = {"evaluated": count, "conditions": {}}
+
+    for r in cond_rows:
+        s = r["strategy"]
+        if s not in result:
+            result[s] = {"evaluated": 0, "conditions": {}}
+        t = r["true_count"]
+        f = r["false_count"]
+        total = t + f
+        rate = round(t / total * 100) if total > 0 else 0
+        result[s]["conditions"][r["condition"]] = {"true": t, "false": f, "rate": rate}
+
+    # Sort each strategy's conditions by pass rate ascending (bottlenecks first)
+    for s in result:
+        result[s]["conditions"] = dict(
+            sorted(result[s]["conditions"].items(), key=lambda kv: kv[1]["rate"])
+        )
+
+    return result
+
+
+async def reset_condition_stats() -> None:
+    """Wipe all condition frequency data."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM strategy_evals")
+        await db.execute("DELETE FROM condition_stats")
+        await db.commit()
 
 
 # ── Admin management ────────────────────────────────────────────────────────────

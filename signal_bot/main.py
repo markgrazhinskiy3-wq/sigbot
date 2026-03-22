@@ -67,6 +67,7 @@ async def _setup_commands(bot: Bot) -> None:
         BotCommand(command="debug",     description="🔬 Debug анализа пары"),
         BotCommand(command="daystats",  description="📅 Статистика всех сигналов за сегодня"),
         BotCommand(command="report",    description="📋 Performance-отчёт по стратегиям (/report 7)"),
+        BotCommand(command="condstats", description="🔬 Частота условий стратегий (/condstats reset)"),
         BotCommand(command="addadmin",     description="➕ Назначить администратора"),
         BotCommand(command="removeadmin",  description="➖ Снять администратора"),
         BotCommand(command="admins",       description="👥 Список администраторов"),

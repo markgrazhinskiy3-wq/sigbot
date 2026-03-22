@@ -23,6 +23,8 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 
+import asyncio
+
 from .market_mode  import MarketMode, detect_market_mode
 from .indicators   import Indicators, calculate_indicators
 from .levels       import LevelSet, detect_levels
@@ -289,6 +291,19 @@ def run_decision_engine(
     if not candidates:
         candidates = _run_batch(routing["secondary"])
         used_tier = "secondary"
+
+    # ── Record condition frequencies (fire-and-forget, never blocks signal) ──
+    try:
+        from db.database import record_condition_evals as _rec_cond
+        _evals = [
+            (sname, {k: v for k, v in sd.get("conditions", {}).items() if isinstance(v, bool)})
+            for sname, sd in debug_strategies.items()
+            if not sd.get("skipped")
+        ]
+        if _evals:
+            asyncio.create_task(_rec_cond(_evals))
+    except Exception:
+        pass
 
     if not candidates:
         return _no_signal(
