@@ -477,7 +477,7 @@ async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
 async def cb_monitor_start(callback: CallbackQuery) -> None:
     """User manually pressed 'Enable monitoring' button."""
     from bot.keyboards import monitoring_active_keyboard
-    if not await _check_access(callback):
+    if not await check_access(callback):
         return
 
     parts = callback.data.split(":", 3)
@@ -513,7 +513,7 @@ async def cb_monitor_start(callback: CallbackQuery) -> None:
 async def cb_monitor_stop(callback: CallbackQuery) -> None:
     """User manually pressed 'Stop monitoring' button."""
     from bot.keyboards import no_signal_keyboard
-    if not await _check_access(callback):
+    if not await check_access(callback):
         return
 
     parts = callback.data.split(":", 3)
