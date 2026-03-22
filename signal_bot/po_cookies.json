@@ -44,17 +44,17 @@
     "value": "1",
     "domain": ".pocketoption.com",
     "path": "/",
-    "expires": 1808673906,
+    "expires": 1808750185,
     "sameSite": "None",
     "httpOnly": false,
     "secure": true
   },
   {
     "name": "ci_session",
-    "value": "a%3A4%3A%7Bs%3A10%3A%22session_id%22%3Bs%3A32%3A%2246a53a3739268ee3f313971484fb7e93%22%3Bs%3A10%3A%22ip_address%22%3Bs%3A14%3A%2237.120.152.186%22%3Bs%3A10%3A%22user_agent%22%3Bs%3A117%3A%22Mozilla%2F5.0%20%28Macintosh%3B%20Intel%20Mac%20OS%20X%2010_15_7%29%20AppleWebKit%2F537.36%20%28KHTML%2C%20like%20Gecko%29%20Chrome%2F144.0.0.0%20Safari%2F537.36%22%3Bs%3A13%3A%22last_activity%22%3Bi%3A1774113905%3B%7D21acbe374e386ac4e3d41898358e3f55",
+    "value": "a%3A4%3A%7Bs%3A10%3A%22session_id%22%3Bs%3A32%3A%2243a0785b490ec2d0d21d3cdd3ae927c5%22%3Bs%3A10%3A%22ip_address%22%3Bs%3A14%3A%2237.120.152.186%22%3Bs%3A10%3A%22user_agent%22%3Bs%3A117%3A%22Mozilla%2F5.0%20%28Macintosh%3B%20Intel%20Mac%20OS%20X%2010_15_7%29%20AppleWebKit%2F537.36%20%28KHTML%2C%20like%20Gecko%29%20Chrome%2F144.0.0.0%20Safari%2F537.36%22%3Bs%3A13%3A%22last_activity%22%3Bi%3A1774190185%3B%7D0fa79637c5f73a22f06c45fa6f145672",
     "domain": ".pocketoption.com",
     "path": "/",
-    "expires": 1774718706,
+    "expires": 1774794985,
     "sameSite": "None",
     "httpOnly": false,
     "secure": true
@@ -144,7 +144,7 @@
     "value": "ru",
     "domain": ".pocketoption.com",
     "path": "/",
-    "expires": 1808673907,
+    "expires": 1808750186,
     "sameSite": "None",
     "httpOnly": false,
     "secure": true
@@ -164,17 +164,17 @@
     "value": "1",
     "domain": ".pocketoption.com",
     "path": "/",
-    "expires": 1805649906,
+    "expires": 1805726185,
     "sameSite": "None",
     "httpOnly": false,
     "secure": true
   },
   {
     "name": "pageview_id",
-    "value": "1774113906970503",
+    "value": "1774190186774590",
     "domain": ".pocketoption.com",
     "path": "/",
-    "expires": 1805649907,
+    "expires": 1805726186,
     "sameSite": "None",
     "httpOnly": false,
     "secure": true

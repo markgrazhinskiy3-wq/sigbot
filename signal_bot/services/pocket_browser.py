@@ -636,6 +636,16 @@ async def init_monitor_ws_auth() -> bool:
     Returns True if successful, False if credentials not configured or login fails.
     Called once at bot startup; stream_pair() then uses this auth file.
     """
+    import time as _time
+    # If a fresh monitor auth file already exists (< 12 hours old), skip re-init
+    if WS_AUTH_PATH_MON.exists():
+        age_hours = (_time.time() - WS_AUTH_PATH_MON.stat().st_mtime) / 3600
+        if age_hours < 12:
+            logger.info(
+                "Monitor WS auth file is %.1fh old — skipping re-init (valid until next restart)", age_hours
+            )
+            return True
+
     if not config.PP_LOGIN or not config.PP_PASSWORD:
         logger.warning("init_monitor_ws_auth: PP_LOGIN/PP_PASSWORD not set — monitor will share main auth")
         return False
