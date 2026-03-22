@@ -86,6 +86,15 @@ def calculate_signal(
         raised_threshold=raised_threshold,
     )
 
+    logger.info(
+        "Signal result: %s | strategy=%s | conf_raw=%.0f | mode=%s | reason=%s",
+        eng.direction,
+        eng.strategy_name or "—",
+        eng.confidence_raw,
+        eng.market_mode,
+        eng.reasoning if eng.direction == "NO_SIGNAL" else "ok",
+    )
+
     # ── Build details dict for signal_service ─────────────────────────────────
     details = {
         "direction":          eng.direction,
