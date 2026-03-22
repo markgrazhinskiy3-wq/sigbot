@@ -136,9 +136,9 @@ def format_signal_message(signal: SignalResponse) -> str:
     explanation_lines = _build_explanation(signal.direction, d)
 
     lines = [
-        f"{arrow} <b>{html.escape(signal.pair)}</b>",
+        f"📊 <b>{html.escape(signal.pair)}</b>",
         "",
-        f"📊 Сигнал: <b>{dir_label}</b>",
+        f" {arrow} Сигнал: <b>{dir_label}</b>",
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
     ]
     lines.append(f"⏱ Экспирация: <b>{expiry}</b>")
