@@ -662,7 +662,7 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
     pair_label = _label_for_symbol(symbol)
 
     # Quick hint from cache (pure computation, no browser/network calls)
-    recommended_sec: int = 60  # default: always recommend 1 min for OTC short-term
+    recommended_sec: int | None = None
     try:
         from services.candle_cache import get_cached
         from services.strategy_engine import calculate_signal
