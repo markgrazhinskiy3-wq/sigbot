@@ -14,7 +14,7 @@ import config
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SEC = 15 * 60   # 15 minutes
-MIN_PAYOUT    = 80        # only show pairs with payout >= this
+MIN_PAYOUT    = 82        # only show pairs with payout >= this (recommended pairs threshold)
 
 _cache: list[dict] = []
 _cache_ts: float   = 0.0

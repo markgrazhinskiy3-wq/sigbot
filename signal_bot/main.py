@@ -101,10 +101,10 @@ async def main() -> None:
 
     logger.info("Starting Pocket Option Signal Bot")
 
-    # Fetch live OTC pairs from PocketOption (payout ≥ 80%).
+    # Fetch live OTC pairs from PocketOption (payout ≥ 82% for recommended, ≥ 85% for manual list).
     # This runs BEFORE candle warm-up so the refresher gets the real list.
     # Falls back to config.OTC_PAIRS automatically if browser fetch fails.
-    logger.info("Fetching live OTC pairs from PocketOption (payout ≥ 80%%)...")
+    logger.info("Fetching live OTC pairs from PocketOption (payout ≥ 82%%)...")
     try:
         live_pairs = await pairs_cache.refresh(force=True)
         logger.info("Live pairs loaded: %d pairs", len(live_pairs))
