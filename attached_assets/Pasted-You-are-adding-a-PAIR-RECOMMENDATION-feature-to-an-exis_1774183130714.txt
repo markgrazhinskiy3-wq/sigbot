@@ -1,0 +1,471 @@
+You are adding a PAIR RECOMMENDATION feature to an existing binary
+options signal bot for Pocket Option. This is triggered by a
+"Recommended Pairs" button.
+
+═══════════════════════════════════════
+WHAT THIS MODULE DOES
+═══════════════════════════════════════
+
+This module answers ONE question:
+"On which pairs will the bot be able to CONSISTENTLY find
+good signals in the NEXT 5-15 MINUTES?"
+
+It does NOT look for immediate signals.
+It does NOT run full strategy analysis.
+It evaluates whether the market CONDITIONS on each pair are
+favorable for the bot's 6 strategies to work.
+
+The user will then select a pair, and the main signal module
+will run full analysis and give BUY/SELL signals on that pair.
+
+FLOW:
+1. User presses "Recommended Pairs"
+2. Bot takes cached candle data for all 36 OTC pairs
+3. Bot evaluates TRADABILITY of each pair (conditions check)
+4. Bot returns ranked list: "These pairs are best for my strategies"
+5. User selects a pair and expiry time
+6. Bot fetches FRESH candles for that pair via WS
+7. Bot starts monitoring: runs full strategy analysis every 20-30 sec
+8. Bot sends BUY/SELL signal when a strategy triggers
+9. If no signal immediately: "Monitoring [PAIR]... Will alert
+   when setup appears." (keeps checking)
+
+═══════════════════════════════════════
+BACKGROUND CACHE (already exists)
+═══════════════════════════════════════
+
+Every 45 seconds the bot updates candle data for all 36 pairs
+via WebSocket. No browser needed. This data is used by the scanner.
+
+═══════════════════════════════════════
+PAIR LIST
+═══════════════════════════════════════
+
+All 36 OTC pairs available on Pocket Option.
+The scanner evaluates ALL of them from cache.
+
+═══════════════════════════════════════
+SCAN LOGIC — scan_all_pairs()
+═══════════════════════════════════════
+
+When button is pressed:
+
+Step 1 — QUICK REJECT
+  For each pair, check if data exists in cache.
+  Skip pair if:
+    - No cached data or cache older than 90 seconds
+    - Fewer than 30 candles available (not enough data)
+
+Step 2 — CALCULATE TRADABILITY SCORE
+  For each pair with valid cache, calculate 6 criteria.
+  Each criterion scores 0-100.
+  Combined into a weighted tradability score 0-100.
+
+Step 3 — FILTER AND SORT
+  Keep ONLY pairs with tradability >= 65
+  Sort by score descending
+  Show top 7 maximum
+
+  If zero pairs reach >= 65:
+    Lower threshold to 55 and try again
+    If still zero:
+      Show: "No suitable pairs found. Try again in 3-5 minutes."
+
+═══════════════════════════════════════
+6 TRADABILITY CRITERIA
+═══════════════════════════════════════
+
+For each pair, use the cached 1-minute candles (last 50).
+Calculate indicators: EMA(5), EMA(13), EMA(21), RSI(7),
+ATR(10), Bollinger Bands(15, 2.0).
+Find swing highs/lows for levels.
+
+────────────────────────────────────────
+CRITERION 1 — VOLATILITY FITNESS (weight 25%)
+────────────────────────────────────────
+
+Question: "Is price moving enough for 1-2 min expiry,
+but not so wildly that patterns break?"
+
+Why it matters:
+  Too low → candles tiny, expiry result is random coin flip
+  Too high → spikes, false patterns, levels blown through
+  Ideal → clean candles, strategies can read the market
+
+Calculation:
+  current_atr = ATR(10) on last 10 candles
+  historical_atr = average ATR(10) over candles 20-50
+  atr_ratio = current_atr / historical_atr
+
+Scoring:
+  atr_ratio < 0.3   →  5   (dead)
+  atr_ratio 0.3-0.5 → 20   (very sluggish)
+  atr_ratio 0.5-0.7 → 50   (below average)
+  atr_ratio 0.7-0.9 → 80   (good, slightly calm)
+  atr_ratio 0.9-1.3 → 100  (ideal, normal activity)
+  atr_ratio 1.3-1.8 → 80   (elevated, still fine)
+  atr_ratio 1.8-2.5 → 45   (high, risky)
+  atr_ratio 2.5-3.5 → 20   (very high, likely news)
+  atr_ratio > 3.5   →  5   (extreme, avoid)
+
+────────────────────────────────────────
+CRITERION 2 — STRUCTURE CLARITY (weight 20%)
+────────────────────────────────────────
+
+Question: "Can the bot read this chart? Is there a clear
+trend or range, or is it random noise?"
+
+Why it matters:
+  EMA Bounce needs a readable trend
+  Level Bounce needs a readable range
+  If chart is choppy noise → ALL strategies give false signals
+
+Calculation:
+  direction_changes = count how many times candle direction
+    flipped (bull→bear or bear→bull) in last 15 candles
+
+  body_ratio = average(candle_body / candle_range) over
+    last 15 candles. Higher = candles have conviction.
+    Lower = indecision, dojis, long shadows.
+
+  ema_aligned = are EMA(5), EMA(13), EMA(21) in order?
+    5>13>21 or 5<13<21 → True
+    otherwise → False
+
+Scoring:
+  direction_changes <= 4 AND body_ratio >= 0.50 → 95 (very clean)
+  direction_changes <= 5 AND body_ratio >= 0.45 → 85
+  direction_changes <= 6 AND body_ratio >= 0.40 → 70 (readable)
+  direction_changes <= 8 AND body_ratio >= 0.35 → 55
+  direction_changes <= 9 AND body_ratio >= 0.30 → 40 (messy)
+  direction_changes >= 10 OR body_ratio < 0.25  → 15 (noise)
+
+  If ema_aligned → add +10 (cap at 100)
+
+────────────────────────────────────────
+CRITERION 3 — LEVEL QUALITY (weight 15%)
+────────────────────────────────────────
+
+Question: "Are there clear S/R levels for strategies to use?"
+
+Why it matters:
+  Level Bounce needs levels to bounce from
+  Micro Breakout needs levels to break
+  EMA Bounce uses levels to check headroom
+  Without levels → 3 of 6 strategies have nothing to work with
+
+Calculation:
+  Find swing highs (high > 3 neighbors on each side)
+  Find swing lows (low < 3 neighbors on each side)
+  Search across last 50 candles
+  Cluster points within 0.15% of each other → one level
+  Count touches per level
+  significant_levels = levels with 2+ touches
+  nearest_distance = distance between two closest significant
+    levels, as % of price
+
+Scoring:
+  significant_levels >= 3 AND nearest_distance > 0.20% → 95
+  significant_levels >= 3                               → 80
+  significant_levels == 2 AND nearest_distance > 0.15%  → 70
+  significant_levels == 2                               → 55
+  significant_levels == 1                               → 35
+  significant_levels == 0                               → 10
+
+────────────────────────────────────────
+CRITERION 4 — STRATEGY AVAILABILITY (weight 25%)
+────────────────────────────────────────
+
+Question: "How many of the bot's 6 strategies CAN potentially
+work on this pair given current market conditions?"
+
+THIS IS THE KEY CRITERION. It bridges the scanner with the
+signal engine. We check PREREQUISITES — not signals.
+
+For each strategy, check if its prerequisites exist:
+
+  Strategy 1 — EMA Bounce:
+  APPLICABLE if ALL of:
+    □ EMA(5), EMA(13), EMA(21) are aligned in order
+    □ atr_ratio > 0.5
+    □ At least 3 of last 10 candles were in trend direction
+
+  Strategy 2 — Squeeze Breakout:
+  APPLICABLE if ANY of:
+    □ atr_ratio < 0.7 AND last 5 candle bodies < 60% of
+      avg body over 30 candles AND Bollinger Bands narrowing
+    □ atr_ratio was < 0.7 within last 5 candles but now rising
+
+  Strategy 3 — Level Bounce:
+  APPLICABLE if ALL of:
+    □ At least 1 significant level exists (2+ touches)
+    □ Current price is within 0.3% of at least one level
+    □ EMA alignment is NOT very strong against the bounce
+
+  Strategy 4 — RSI Reversal:
+  APPLICABLE if ANY of:
+    □ RSI(7) is currently below 25 or above 75
+    □ RSI(7) was below 30 or above 70 within last 5 candles
+    □ 3+ consecutive candles in one direction AND atr_ratio > 0.7
+
+  Strategy 5 — Micro Breakout:
+  APPLICABLE if ALL of:
+    □ At least 1 significant level exists (2+ touches)
+    □ Current price is within 0.2% of a level
+    □ Level has been tested 2+ times in last 20 candles
+
+  Strategy 6 — Divergence:
+  APPLICABLE if ALL of:
+    □ At least 2 swing lows OR 2 swing highs in last 20 candles
+    □ RSI(7) range > 20 over last 20 candles
+    □ atr_ratio > 0.5
+
+  Count applicable strategies:
+
+Scoring:
+  applicable >= 4 → 100
+  applicable == 3 → 80
+  applicable == 2 → 60
+  applicable == 1 → 35
+  applicable == 0 →  5
+
+  Store WHICH strategies are applicable for display.
+
+────────────────────────────────────────
+CRITERION 5 — CANDLE SIZE (weight 10%)
+────────────────────────────────────────
+
+Question: "Are candles big enough for 1-2 min expiry?"
+
+Calculation:
+  avg_body = average body over last 20 candles
+  avg_body_pct = (avg_body / current_price) × 100
+
+Scoring:
+  avg_body_pct < 0.003%         →  5
+  avg_body_pct 0.003% - 0.006%  → 25
+  avg_body_pct 0.006% - 0.012%  → 55
+  avg_body_pct 0.012% - 0.030%  → 85
+  avg_body_pct 0.030% - 0.060%  → 100
+  avg_body_pct 0.060% - 0.100%  → 75
+  avg_body_pct > 0.100%         → 30
+
+────────────────────────────────────────
+CRITERION 6 — ABSENCE OF ANOMALIES (weight 5%)
+────────────────────────────────────────
+
+Question: "Is the chart clean?"
+
+Calculation:
+  avg_body_10 = average body over last 10 candles
+  spikes = candles in last 10 with body > 4× avg_body_10
+  gaps = gaps > 0.03% between consecutive candles in last 10
+  doji_pct = % of candles in last 10 with body < 15% of range
+
+Scoring:
+  spikes == 0 AND gaps == 0 AND doji_pct < 0.3 → 95
+  spikes <= 1 AND gaps == 0                     → 75
+  spikes <= 1 AND gaps <= 1                     → 55
+  spikes >= 2 OR doji_pct >= 0.5                → 25
+  spikes >= 2 AND gaps >= 1                     →  5
+
+═══════════════════════════════════════
+TRADABILITY FORMULA
+═══════════════════════════════════════
+
+tradability = volatility_score      × 0.25
+            + structure_score       × 0.20
+            + level_score           × 0.15
+            + strategy_avail_score  × 0.25
+            + candle_size_score     × 0.10
+            + anomaly_score         × 0.05
+
+Range: 0-100
+
+═══════════════════════════════════════
+MARKET MODE DETECTION (for display)
+═══════════════════════════════════════
+
+For each recommended pair, detect mode:
+TRENDING UP: EMA5 > EMA13 > EMA21, bullish majority
+TRENDING DOWN: EMA5 < EMA13 < EMA21, bearish majority
+RANGE: EMAs intertwined, price between levels
+VOLATILE: ATR high, no clear direction
+SQUEEZE: ATR very low, BB narrow, small candles
+
+═══════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════
+
+Show ONLY recommended pairs (tradability >= 65).
+Do NOT show acceptable, not recommended, or skipped pairs.
+User does not need to see what is bad — only what is good.
+
+Maximum pairs shown: 7
+Minimum pairs shown: 1
+Sorted by tradability score descending.
+
+If zero pairs reach >= 65:
+  Lower threshold to 55 and try again.
+  If still zero:
+    "⏳ No suitable pairs found right now.
+     Market conditions are poor across all pairs.
+     Try again in 3-5 minutes."
+
+Format:
+
+🔍 Recommended Pairs
+⏰ [time UTC]
+🕐 [session + note]
+
+Session detection:
+  00:00-07:00 UTC → 🌏 Asian — JPY, AUD highlighted
+  07:00-12:00 UTC → 🇪🇺 London — EUR, GBP highlighted
+  12:00-16:00 UTC → 🌐 London+NY overlap — peak activity
+  16:00-21:00 UTC → 🇺🇸 New York — USD highlighted
+  21:00-00:00 UTC → 🌙 Late session — fewer pairs expected
+
+Add 🌟 next to pairs matching current session.
+
+Each pair:
+
+[rank]. [PAIR] 🌟(if match) — ⭐ [score]/100
+📊 Market: [mode]
+🎯 Strategies: [applicable strategy names]
+📐 Levels: S: [price] R: [price] (if levels exist)
+💡 [1-2 specific sentences WHY this pair is good]
+
+Example:
+
+🔍 Recommended Pairs
+⏰ 14:32 UTC
+🕐 🌐 London+NY overlap — peak activity
+
+1. EUR/USD 🌟 — ⭐ 84/100
+📊 Market: Trending Up
+🎯 Strategies: EMA Bounce, Level Bounce, Micro Breakout
+📐 Levels: S: 1.0845  R: 1.0872
+💡 Clean uptrend, EMAs aligned. Support tested twice.
+   Volatility ideal. 4 strategies can work here.
+
+2. GBP/JPY 🌟 — ⭐ 78/100
+📊 Market: Range
+🎯 Strategies: Level Bounce, RSI Reversal, Micro Breakout
+📐 Levels: S: 188.40  R: 188.85
+💡 Clear range with strong levels. Good candle size.
+   Price near support — bounce setup likely.
+
+3. AUD/USD — ⭐ 73/100
+📊 Market: Squeeze
+🎯 Strategies: Squeeze Breakout
+📐 Levels: R: 0.6520 (3 touches)
+💡 Volatility compressed, BB narrow. Breakout building.
+
+4. USD/CAD 🌟 — ⭐ 68/100
+📊 Market: Trending Down
+🎯 Strategies: EMA Bounce, Divergence
+📐 Levels: S: 1.3580
+💡 Moderate downtrend, EMAs aligned.
+   2 strategies available.
+
+═══════════════════════════════════════
+AFTER USER SELECTS A PAIR
+═══════════════════════════════════════
+
+When user selects a pair from the list and sets expiry:
+
+1. Bot confirms:
+   "✅ Selected: [PAIR] | Expiry: [TIME]
+    📡 Fetching fresh data..."
+
+2. Bot makes fresh WS request for THIS pair
+
+3. Bot runs FULL strategy analysis on fresh data:
+   - All indicators
+   - Market mode
+   - All 6 strategies
+   - Decision engine
+   - Final signal
+
+4. If signal found (confidence >= 52):
+   → Send signal immediately
+
+5. If no signal right now:
+   → "📡 Monitoring [PAIR]...
+      Market mode: [mode]
+      Watching for: [applicable strategies]
+      Will alert when setup appears."
+   → Continue checking every 20-30 seconds
+   → Send signal when strategy triggers
+
+6. If conditions deteriorate (tradability drops below 40):
+   → "⚠️ [PAIR] conditions worsened. Consider switching.
+      Press Recommended Pairs to rescan."
+
+═══════════════════════════════════════
+IMPORTANT RULES
+═══════════════════════════════════════
+
+1. Scanner checks CONDITIONS not signals.
+   It uses tradability criteria.
+   It does NOT run full strategy analysis during scan.
+   This is faster AND results stay valid longer.
+
+2. Full strategy analysis runs AFTER user selects a pair.
+   Fresh data, real-time signal.
+
+3. Cache scan results for 90 seconds.
+   If button pressed within 90 sec:
+   "📋 Recent scan [X]s ago. Tap again after [Y]s for fresh scan."
+
+4. If fewer than 1 pair reaches threshold:
+   "⏳ No suitable pairs found. Try again in 3-5 minutes."
+
+5. Session-aware 🌟 highlighting:
+   Asian → JPY, AUD
+   London → EUR, GBP
+   NY → USD
+   Overlap → EUR, GBP, USD
+
+6. Strategy names must match signal engine:
+   EMA Bounce, Squeeze Breakout, Level Bounce,
+   RSI Reversal, Micro Breakout, Divergence
+
+7. The 💡 explanation must be SPECIFIC:
+   Reference actual EMA state, actual level prices,
+   actual ATR condition. Not generic text.
+
+═══════════════════════════════════════
+IMPLEMENTATION
+═══════════════════════════════════════
+
+File: asset_scanner.py
+
+Imports from existing modules:
+  - indicators.py → EMA, RSI, ATR, Bollinger Bands
+  - levels.py → find_levels(), cluster_levels()
+  - market_mode.py → detect_mode()
+
+Functions:
+
+  calculate_volatility_score(candles) → int
+  calculate_structure_score(candles, emas) → int
+  calculate_level_score(candles) → int, levels_info
+  calculate_strategy_availability(candles, indicators, levels) → int, list[str]
+  calculate_candle_size_score(candles) → int
+  calculate_anomaly_score(candles) → int
+  calculate_tradability(candles) → TradabilityResult
+  scan_all_pairs(cache) → list[TradabilityResult]
+  format_scan_output(results) → str
+
+TradabilityResult:
+  pair: str
+  score: int
+  mode: str
+  applicable_strategies: list[str]
+  levels: dict
+  explanation: str
+  criteria: dict
+
+Performance: scan must complete in <3 seconds.
+All data from cache. Only math with numpy. No network requests.

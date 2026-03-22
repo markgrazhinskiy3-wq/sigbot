@@ -17,10 +17,16 @@ from db.database import (
     get_daily_admin_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
-from services.signal_service import get_signal, scan_all_signals, format_signal_message
+from services.signal_service import get_signal, format_signal_message
 from services.candle_cache import is_warm_up_done
 from services.outcome_tracker import track_outcome
+from services.analysis.asset_scanner import (
+    scan_all_pairs, format_scan_output, get_scan_cache, TradabilityResult,
+)
 import services.pairs_cache as pairs_cache
+
+# ── Active monitoring tasks: {user_id: asyncio.Task} ─────────────────────────
+_monitor_tasks: dict[int, asyncio.Task] = {}
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
@@ -33,6 +39,86 @@ router = Router()
 
 def _is_admin(user_id: int) -> bool:
     return user_id == config.ADMIN_USER_ID
+
+
+def _cancel_monitor(user_id: int) -> None:
+    """Cancel any active monitoring task for the user."""
+    task = _monitor_tasks.pop(user_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
+async def _monitor_pair(
+    bot: Bot,
+    chat_id: int,
+    symbol: str,
+    pair_label: str,
+    expiration_sec: int,
+) -> None:
+    """
+    Background task: recheck pair every 25s until a signal fires or conditions worsen.
+    Warns user if tradability drops below 40.
+    """
+    from services.analysis.asset_scanner import calculate_tradability
+    from services.candle_cache import get_cached
+    from bot.keyboards import signal_result_keyboard, back_to_menu_keyboard
+
+    checks     = 0
+    max_checks = 12   # ~5 minutes max
+
+    try:
+        while checks < max_checks:
+            await asyncio.sleep(25)
+            checks += 1
+
+            candles = get_cached(symbol)
+            if candles and len(candles) >= 30:
+                tr = calculate_tradability(symbol, pair_label, candles)
+                if tr and tr.score < 40:
+                    await bot.send_message(
+                        chat_id,
+                        f"⚠️ <b>Условия на {pair_label} ухудшились</b>\n\n"
+                        f"Скор торгуемости упал до {tr.score}/100.\n"
+                        f"Рекомендуем выбрать другую пару.",
+                        parse_mode="HTML",
+                        reply_markup=back_to_menu_keyboard(),
+                    )
+                    break
+
+            try:
+                signal = await get_signal(symbol, pair_label, expiration_sec)
+                if signal.direction in ("BUY", "SELL"):
+                    text = format_signal_message(signal)
+                    await bot.send_message(
+                        chat_id, text, parse_mode="HTML",
+                        reply_markup=signal_result_keyboard(symbol, expiration_sec),
+                    )
+                    d            = signal.details if isinstance(signal.details, dict) else {}
+                    signal_price = d.get("debug", {}).get("last_close")
+                    strategy     = d.get("primary_strategy")
+                    if signal_price:
+                        outcome_id = await save_signal_outcome(
+                            user_id=chat_id, symbol=symbol, pair_label=pair_label,
+                            direction=signal.direction, confidence=signal.confidence,
+                            strategy=strategy, expiration_sec=expiration_sec,
+                            signal_price=signal_price,
+                        )
+                        asyncio.create_task(track_outcome(
+                            bot=bot, chat_id=chat_id, outcome_id=outcome_id,
+                            symbol=symbol, pair_label=pair_label,
+                            direction=signal.direction, strategy=strategy,
+                            expiration_sec=expiration_sec, signal_price=signal_price,
+                        ))
+                    break
+            except Exception as exc:
+                logger.debug("Monitor signal check failed: %s", exc)
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        logger.warning("Monitor task error for %s: %s", symbol, exc)
+    finally:
+        _monitor_tasks.pop(chat_id, None)
 
 
 # ─── /start ─────────────────────────────────────────────────────────────────
@@ -377,6 +463,7 @@ async def _check_user_access(callback: CallbackQuery) -> bool:
 
 @router.callback_query(F.data == "action:back_to_menu")
 async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    _cancel_monitor(callback.from_user.id)
     await state.clear()
     await callback.message.edit_text(
         "👋 <b>Pocket Option Signal Bot</b>\n\nВыберите действие:",
@@ -511,6 +598,21 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
+        # ── Start monitoring if no signal ──────────────────────────────────────
+        if signal.direction == "NO_SIGNAL":
+            user_id = callback.from_user.id
+            _cancel_monitor(user_id)
+            task = asyncio.create_task(
+                _monitor_pair(
+                    bot=callback.bot,
+                    chat_id=user_id,
+                    symbol=symbol,
+                    pair_label=pair_label,
+                    expiration_sec=expiration_sec,
+                )
+            )
+            _monitor_tasks[user_id] = task
+
         # ── Save to DB & start result watcher ─────────────────────────────────
         if signal.direction in ("BUY", "SELL"):
             d = signal.details if isinstance(signal.details, dict) else {}
@@ -567,6 +669,21 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
+    cached_results, cache_age = get_scan_cache()
+    if cached_results is not None:
+        age_str = f"{int(cache_age)}с"
+        await callback.answer(f"📋 Скан {age_str} назад")
+        text    = format_scan_output(cached_results, scan_age_sec=cache_age)
+        text   += f"\n\n<i>Последнее сканирование: {age_str} назад</i>"
+        try:
+            await callback.message.edit_text(
+                text, parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard(cached_results),
+            )
+        except TelegramBadRequest:
+            pass
+        return
+
     await callback.answer("📊 Сканирую пары...")
     await callback.message.edit_text(
         "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
@@ -574,40 +691,34 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
     )
 
     try:
-        pairs_map = _build_pairs_map()
-        signals = await scan_all_signals(pairs_map)
-
-        if not signals:
-            if not is_warm_up_done():
-                await callback.message.edit_text(
-                    "⏳ <b>Бот загружается...</b>\n\n"
-                    "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
-                    "<i>Подождите немного и нажмите «Обновить».</i>",
-                    parse_mode="HTML",
-                    reply_markup=recommended_pairs_keyboard([]),
-                )
-            else:
-                await callback.message.edit_text(
-                    "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
-                    "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
-                    "<i>Подождите 1–2 минуты и нажмите «Обновить».</i>",
-                    parse_mode="HTML",
-                    reply_markup=recommended_pairs_keyboard([]),
-                )
+        if not is_warm_up_done():
+            await callback.message.edit_text(
+                "⏳ <b>Бот загружается...</b>\n\n"
+                "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                "<i>Подождите немного и нажмите «Обновить».</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
             return
 
-        lines = ["📊 <b>Пары с активными сигналами:</b>\n"]
-        for sig in signals:
-            lines.append(f"• {sig.pair}")
-        lines.append(
-            "\n<i>Переключитесь на нужную пару в Pocket Option, затем нажмите на неё ниже — "
-            "сигнал будет рассчитан для выбранного времени экспирации.</i>"
-        )
+        pairs_map = _build_pairs_map()
+        results   = scan_all_pairs(pairs_map)
 
+        if not results:
+            await callback.message.edit_text(
+                "⚠️ <b>Подходящих пар не найдено</b>\n\n"
+                "Рынок сейчас в неопределённом состоянии.\n"
+                "Можно попробовать выбрать пару вручную.\n\n"
+                "<i>Нажмите «Обновить» через 1–2 минуты.</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
+            return
+
+        text = format_scan_output(results)
         await callback.message.edit_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            reply_markup=recommended_pairs_keyboard(signals),
+            text, parse_mode="HTML",
+            reply_markup=recommended_pairs_keyboard(results),
         )
 
     except Exception as e:
@@ -642,9 +753,20 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
 @router.message(Command("signal"))
 async def cmd_signal(message: Message) -> None:
     user_id = message.from_user.id
-    status = await get_status(user_id)
+    status  = await get_status(user_id)
     if status != "approved":
         await message.answer("❌ У вас нет доступа к боту.")
+        return
+
+    cached_results, cache_age = get_scan_cache()
+    if cached_results is not None:
+        age_str = f"{int(cache_age)}с"
+        text    = format_scan_output(cached_results, scan_age_sec=cache_age)
+        text   += f"\n\n<i>Последнее сканирование: {age_str} назад</i>"
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=recommended_pairs_keyboard(cached_results),
+        )
         return
 
     msg = await message.answer(
@@ -653,40 +775,33 @@ async def cmd_signal(message: Message) -> None:
     )
 
     try:
-        pairs_map = _build_pairs_map()
-        signals = await scan_all_signals(pairs_map)
-
-        if not signals:
-            if not is_warm_up_done():
-                await msg.edit_text(
-                    "⏳ <b>Бот загружается...</b>\n\n"
-                    "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
-                    "<i>Подождите немного и попробуйте ещё раз.</i>",
-                    parse_mode="HTML",
-                    reply_markup=recommended_pairs_keyboard([]),
-                )
-            else:
-                await msg.edit_text(
-                    "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
-                    "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
-                    "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
-                    parse_mode="HTML",
-                    reply_markup=recommended_pairs_keyboard([]),
-                )
+        if not is_warm_up_done():
+            await msg.edit_text(
+                "⏳ <b>Бот загружается...</b>\n\n"
+                "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                "<i>Подождите немного и попробуйте ещё раз.</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
             return
 
-        lines = ["📊 <b>Пары с активными сигналами:</b>\n"]
-        for sig in signals:
-            lines.append(f"• {sig.pair}")
-        lines.append(
-            "\n<i>Переключитесь на нужную пару в Pocket Option, затем нажмите на неё ниже — "
-            "сигнал будет рассчитан для выбранного времени экспирации.</i>"
-        )
+        pairs_map = _build_pairs_map()
+        results   = scan_all_pairs(pairs_map)
 
+        if not results:
+            await msg.edit_text(
+                "⚠️ <b>Подходящих пар не найдено</b>\n\n"
+                "Рынок сейчас в неопределённом состоянии.\n\n"
+                "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
+            return
+
+        text = format_scan_output(results)
         await msg.edit_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            reply_markup=recommended_pairs_keyboard(signals),
+            text, parse_mode="HTML",
+            reply_markup=recommended_pairs_keyboard(results),
         )
 
     except Exception as e:
