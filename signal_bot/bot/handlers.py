@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 
 from aiogram import Router, F, Bot
@@ -474,9 +475,9 @@ async def cmd_debug(message: Message) -> None:
         f"🧭 <b>Режим рынка: {mode}</b> (сила={mode_str})",
     ]
     if mode_exp:
-        lines.append(f"  {mode_exp}")
+        lines.append(f"  {html.escape(str(mode_exp))}")
     if isinstance(mode_dbg, dict) and mode_dbg:
-        parts = [f"{k}={v}" for k, v in mode_dbg.items()]
+        parts = [f"{html.escape(str(k))}={html.escape(str(v))}" for k, v in mode_dbg.items()]
         lines.append(f"  {' | '.join(parts)}")
 
     # ── Indicators ──────────────────────────────────────────────────────────
@@ -559,7 +560,7 @@ async def cmd_debug(message: Message) -> None:
                 f"  {icon} <b>{sname}</b>: {fired} {sdir} | {scm}/{stot} ({spct}%) | conf={sconf}{mult_str}"
             )
             if early:
-                lines.append(f"    ⛔ Ранний отказ: {early}")
+                lines.append(f"    ⛔ Ранний отказ: {html.escape(str(early))}")
             # Per-condition breakdown
             conds = sd.get("conditions", {})
             if conds:
@@ -569,7 +570,7 @@ async def cmd_debug(message: Message) -> None:
                         lines.append(f"    {mark} {cname}")
                     elif isinstance(cval, str):
                         # e.g. pattern_type = "pin_bar" — show as info
-                        lines.append(f"    ℹ️ {cname}: {cval}")
+                        lines.append(f"    ℹ️ {cname}: {html.escape(cval)}")
 
     # ── Final decision ───────────────────────────────────────────────────────
     lines.append("")
@@ -588,13 +589,13 @@ async def cmd_debug(message: Message) -> None:
         ]
         reasoning = details.get("reasoning", "")
         if reasoning:
-            lines.append(f"  Причина: {reasoning[:120]}")
+            lines.append(f"  Причина: {html.escape(str(reasoning)[:120])}")
     else:
         reject = details.get("reject_reason") or details.get("reasoning", "—")
         conf_r = debug.get("conf_raw")
         thresh = debug.get("min_threshold")
         lines.append(f"❌ <b>NO_SIGNAL</b>")
-        lines.append(f"  Причина: {reject}")
+        lines.append(f"  Причина: {html.escape(str(reject))}")
         if conf_r is not None and thresh is not None:
             lines.append(f"  conf={conf_r} < порог={thresh}")
 

@@ -388,9 +388,9 @@ def run_decision_engine(
     if raised_threshold:
         min_threshold = 70
     elif used_tier == "secondary":
-        min_threshold = 48   # secondary: same as primary — valid fallback setups matter
+        min_threshold = 46   # secondary: allow borderline fallback setups
     else:
-        min_threshold = 48   # primary: was 52, now 48 — allow normal signals
+        min_threshold = 46   # primary: 4-met + mode mult(50%) = 47.2 → needs ≤46 threshold
 
     if conf_raw < min_threshold:
         return _no_signal(
