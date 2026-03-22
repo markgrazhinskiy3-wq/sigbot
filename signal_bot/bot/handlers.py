@@ -22,7 +22,7 @@ from db.database import (
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
-from services.candle_cache import is_warm_up_done
+from services.candle_cache import is_warm_up_done, is_data_ready, data_ready_in_seconds
 from services.outcome_tracker import track_outcome
 from services.analysis.asset_scanner import (
     scan_all_pairs, scan_pairs_fresh, format_scan_output, get_scan_cache, TradabilityResult,
@@ -901,6 +901,22 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     pair_label = _label_for_symbol(symbol)
 
     await callback.answer("⏳ Анализирую рынок...")
+
+    if not is_data_ready():
+        remaining = data_ready_in_seconds()
+        mins = remaining // 60
+        secs = remaining % 60
+        time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+        await callback.message.edit_text(
+            "📊 <b>Накапливаю данные для анализа...</b>\n\n"
+            f"Готовность через: <b>{time_str}</b>\n\n"
+            "Бот собирает историю свечей для точного анализа.\n"
+            "<i>Сигналы станут доступны автоматически.</i>",
+            parse_mode="HTML",
+            reply_markup=back_to_menu_keyboard(),
+        )
+        return
+
     await callback.message.edit_text(
         f"🔄 <b>Анализирую {pair_label}...</b>\n\nПодождите, собираю данные.",
         parse_mode="HTML",
@@ -981,8 +997,22 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
         if not is_warm_up_done():
             await callback.message.edit_text(
                 "⏳ <b>Бот загружается...</b>\n\n"
-                "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
                 "<i>Подождите немного и нажмите «Обновить».</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
+            return
+        if not is_data_ready():
+            remaining = data_ready_in_seconds()
+            mins = remaining // 60
+            secs = remaining % 60
+            time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+            await callback.message.edit_text(
+                "📊 <b>Накапливаю данные для анализа...</b>\n\n"
+                f"Готовность через: <b>{time_str}</b>\n\n"
+                "Бот собирает историю свечей для точного анализа.\n"
+                "<i>Сигналы станут доступны автоматически.</i>",
                 parse_mode="HTML",
                 reply_markup=recommended_pairs_keyboard([]),
             )
@@ -1068,8 +1098,22 @@ async def cmd_signal(message: Message) -> None:
         if not is_warm_up_done():
             await msg.edit_text(
                 "⏳ <b>Бот загружается...</b>\n\n"
-                "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
                 "<i>Подождите немного и попробуйте ещё раз.</i>",
+                parse_mode="HTML",
+                reply_markup=recommended_pairs_keyboard([]),
+            )
+            return
+        if not is_data_ready():
+            remaining = data_ready_in_seconds()
+            mins = remaining // 60
+            secs = remaining % 60
+            time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+            await msg.edit_text(
+                "📊 <b>Накапливаю данные для анализа...</b>\n\n"
+                f"Готовность через: <b>{time_str}</b>\n\n"
+                "Бот собирает историю свечей для точного анализа.\n"
+                "<i>Сигналы станут доступны автоматически.</i>",
                 parse_mode="HTML",
                 reply_markup=recommended_pairs_keyboard([]),
             )

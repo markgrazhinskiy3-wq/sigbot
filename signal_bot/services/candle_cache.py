@@ -29,8 +29,15 @@ CACHE_TTL: int = 90
 # How often the background loop refreshes all pairs (should be << CACHE_TTL)
 REFRESH_INTERVAL: int = 45
 
-# How many candles to keep per pair (enough for all analysis modules)
-CANDLE_COUNT: int = 80
+# How many candles to keep per pair.
+# At 15s per candle and 45s refresh interval, each pair grows by ~3 candles/cycle.
+# 200 bars ≈ 50 min of history at steady state (~37 min accumulation after startup).
+CANDLE_COUNT: int = 200
+
+# Minimum minutes of accumulation before signals are allowed.
+# After startup the cache has ~55 bars (13 min); we wait until enough WS cycles
+# have run to build a meaningful history for indicator quality.
+DATA_READY_MINUTES: int = 10
 
 
 class _CacheEntry(NamedTuple):
@@ -41,11 +48,28 @@ class _CacheEntry(NamedTuple):
 _cache: dict[str, _CacheEntry] = {}
 _refresher_task: asyncio.Task | None = None
 _warm_up_done: bool = False
+_bot_start_time: float = time.time()
 
 
 def is_warm_up_done() -> bool:
     """Returns True once the initial browser warm-up cycle has completed."""
     return _warm_up_done
+
+
+def data_ready_in_seconds() -> int:
+    """Seconds remaining until data accumulation period is over. 0 = ready."""
+    elapsed = time.time() - _bot_start_time
+    remaining = DATA_READY_MINUTES * 60 - elapsed
+    return max(0, int(remaining))
+
+
+def is_data_ready() -> bool:
+    """
+    True when both:
+      1. Initial browser warm-up has finished (all pairs fetched at least once).
+      2. DATA_READY_MINUTES have passed since startup (cache has accumulated history).
+    """
+    return _warm_up_done and data_ready_in_seconds() == 0
 
 
 def get_cached_symbols() -> list[str]:
