@@ -117,16 +117,8 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
 def signal_result_keyboard(symbol: str, expiration_sec: int = 0) -> InlineKeyboardMarkup:
     """
     Keyboard shown after a BUY/SELL signal.
-    - Next signal: re-opens the expiration picker for the same pair
-    - Main menu
     """
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="🔄 Следующий сигнал",
-            callback_data=f"pair:{symbol}",
-        )
-    )
     builder.row(
         InlineKeyboardButton(
             text="📊 Рекомендуемые пары",
