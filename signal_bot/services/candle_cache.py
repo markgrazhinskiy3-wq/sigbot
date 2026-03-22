@@ -23,9 +23,10 @@ import config
 logger = logging.getLogger(__name__)
 
 # How long a cached entry stays "fresh" (seconds)
-CACHE_TTL: int = 55
+# Must be significantly larger than REFRESH_INTERVAL to survive slow refresh cycles.
+CACHE_TTL: int = 90
 
-# How often the background loop refreshes all pairs (should be < CACHE_TTL)
+# How often the background loop refreshes all pairs (should be << CACHE_TTL)
 REFRESH_INTERVAL: int = 45
 
 # How many candles to keep per pair (enough for all analysis modules)
@@ -39,6 +40,12 @@ class _CacheEntry(NamedTuple):
 
 _cache: dict[str, _CacheEntry] = {}
 _refresher_task: asyncio.Task | None = None
+_warm_up_done: bool = False
+
+
+def is_warm_up_done() -> bool:
+    """Returns True once the initial browser warm-up cycle has completed."""
+    return _warm_up_done
 
 
 def get_cached_symbols() -> list[str]:
@@ -185,6 +192,8 @@ async def _refresher_loop(pairs: list[str]) -> None:
                 symbol,
                 len(entry.candles) if entry else 0,
             )
+    global _warm_up_done
+    _warm_up_done = True
     logger.info("Cache warm-up complete. WS auth available: %s", ws_available())
 
     while True:

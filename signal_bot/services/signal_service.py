@@ -24,14 +24,19 @@ async def scan_all_signals(pairs_map: dict[str, str]) -> list[SignalResponse]:
     """
     Scan all cached pairs and return a list of BUY/SELL signals sorted by confidence desc.
     `pairs_map` is {symbol: label}. Returns empty list if no signals found.
+
+    IMPORTANT: uses get_cached (fresh cache only) — never triggers live browser fetches.
+    This prevents scan from competing with the background refresher for the browser lock.
+    If a pair's cache is expired or empty, it is skipped silently.
     """
+    from services.candle_cache import get_cached
     symbols = get_cached_symbols()
     results: list[SignalResponse] = []
     for symbol in symbols:
-        label = pairs_map.get(symbol, symbol)
-        candles = await get_candles(symbol, count=80)
+        candles = get_cached(symbol)   # cache-only: returns None if expired/missing
         if not candles:
             continue
+        label = pairs_map.get(symbol, symbol)
         result: SignalResult = calculate_signal(candles)
         if result.direction not in ("BUY", "SELL"):
             continue

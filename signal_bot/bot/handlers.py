@@ -17,6 +17,7 @@ from db.database import (
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, scan_all_signals, format_signal_message
+from services.candle_cache import is_warm_up_done
 from services.outcome_tracker import track_outcome
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
@@ -559,13 +560,22 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
         signals = await scan_all_signals(pairs_map)
 
         if not signals:
-            await callback.message.edit_text(
-                "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
-                "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
-                "<i>Подождите 1–2 минуты и нажмите «Обновить».</i>",
-                parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
-            )
+            if not is_warm_up_done():
+                await callback.message.edit_text(
+                    "⏳ <b>Бот загружается...</b>\n\n"
+                    "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                    "<i>Подождите немного и нажмите «Обновить».</i>",
+                    parse_mode="HTML",
+                    reply_markup=recommended_pairs_keyboard([]),
+                )
+            else:
+                await callback.message.edit_text(
+                    "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
+                    "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
+                    "<i>Подождите 1–2 минуты и нажмите «Обновить».</i>",
+                    parse_mode="HTML",
+                    reply_markup=recommended_pairs_keyboard([]),
+                )
             return
 
         lines = [
