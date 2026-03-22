@@ -63,6 +63,7 @@ async def _setup_commands(bot: Bot) -> None:
         BotCommand(command="users",     description="👥 Список всех пользователей"),
         BotCommand(command="broadcast", description="📢 Рассылка"),
         BotCommand(command="debug",     description="🔬 Debug анализа пары"),
+        BotCommand(command="daystats", description="📅 Статистика всех сигналов за сегодня"),
     ]
 
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())

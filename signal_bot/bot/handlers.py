@@ -14,6 +14,7 @@ from db.database import (
     add_or_get_user, get_status, set_status,
     list_all, list_pending, list_approved,
     save_signal_outcome, get_user_stats, get_strategy_stats,
+    get_daily_admin_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, scan_all_signals, format_signal_message
@@ -717,6 +718,73 @@ async def cmd_help(message: Message) -> None:
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
+
+
+# ─── /daystats (admin) ───────────────────────────────────────────────────────
+
+@router.message(Command("daystats"))
+async def cmd_daystats(message: Message) -> None:
+    if not _is_admin(message.from_user.id):
+        return
+
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    data = await get_daily_admin_stats(today)
+
+    t = data["totals"]
+    total   = t.get("total")   or 0
+    users   = t.get("unique_users") or 0
+    wins    = t.get("wins")    or 0
+    losses  = t.get("losses")  or 0
+    pending = t.get("pending") or 0
+    winrate = t.get("winrate")
+    buy_c   = t.get("buy_count")  or 0
+    sell_c  = t.get("sell_count") or 0
+
+    if total == 0:
+        await message.answer(
+            f"📊 <b>Статистика за {today}</b>\n\nСигналов за сегодня ещё не было.",
+            parse_mode="HTML",
+        )
+        return
+
+    wr_str = f"{winrate}%" if winrate is not None else "—"
+
+    lines = [
+        f"📊 <b>Статистика за {today} (UTC)</b>\n",
+        f"Всего сигналов:    <b>{total}</b>",
+        f"Уникальных юзеров: <b>{users}</b>",
+        f"✅ Прибыльных:     <b>{wins}</b>",
+        f"❌ Убыточных:      <b>{losses}</b>",
+        f"⏳ В процессе:     <b>{pending}</b>",
+        f"🎯 Точность:       <b>{wr_str}</b>",
+        f"📈 BUY / SELL:     <b>{buy_c} / {sell_c}</b>",
+    ]
+
+    _strat_names = {
+        "impulse":  "Импульс",
+        "bounce":   "Отскок",
+        "breakout": "Лож. пробой",
+    }
+
+    if data["by_strategy"]:
+        lines.append("\n<b>По стратегиям:</b>")
+        for s in data["by_strategy"]:
+            name = _strat_names.get(s["strategy"] or "", s["strategy"] or "?")
+            wr   = f"{s['winrate']}%" if s["winrate"] is not None else "—"
+            lines.append(
+                f"  {name}: {s['total']} сиг  {s['wins']}W/{s['losses']}L  ({wr})"
+            )
+
+    if data["by_pair"]:
+        lines.append("\n<b>По парам (топ):</b>")
+        for p in data["by_pair"]:
+            wr = f"{p['winrate']}%" if p["winrate"] is not None else "—"
+            lines.append(
+                f"  {p['pair_label']}: {p['total']} сиг  {p['wins']}W/{p['losses']}L  ({wr})"
+            )
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # ─── /stats ──────────────────────────────────────────────────────────────────

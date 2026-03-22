@@ -201,6 +201,85 @@ async def get_user_stats(user_id: int) -> dict:
             }
 
 
+async def get_daily_admin_stats(date_prefix: str) -> dict:
+    """
+    Admin-only: aggregate stats for all signals issued on a given UTC date.
+    date_prefix — ISO date string prefix, e.g. '2026-03-22'
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Overall totals
+        async with db.execute(
+            """
+            SELECT
+                COUNT(*)                                                AS total,
+                COUNT(DISTINCT user_id)                                 AS unique_users,
+                SUM(CASE WHEN outcome = 'win'     THEN 1 ELSE 0 END)   AS wins,
+                SUM(CASE WHEN outcome = 'loss'    THEN 1 ELSE 0 END)   AS losses,
+                SUM(CASE WHEN outcome = 'pending' THEN 1 ELSE 0 END)   AS pending,
+                SUM(CASE WHEN direction = 'BUY'  THEN 1 ELSE 0 END)   AS buy_count,
+                SUM(CASE WHEN direction = 'SELL' THEN 1 ELSE 0 END)    AS sell_count
+            FROM signal_outcomes
+            WHERE created_at LIKE ?
+            """,
+            (date_prefix + "%",),
+        ) as cursor:
+            row = await cursor.fetchone()
+            totals = dict(row) if row else {}
+
+        # By pair (top 8)
+        async with db.execute(
+            """
+            SELECT
+                pair_label,
+                COUNT(*)                                              AS total,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END)   AS wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END)   AS losses
+            FROM signal_outcomes
+            WHERE created_at LIKE ?
+            GROUP BY pair_label
+            ORDER BY total DESC
+            LIMIT 8
+            """,
+            (date_prefix + "%",),
+        ) as cursor:
+            by_pair = [dict(r) for r in await cursor.fetchall()]
+
+        # By strategy
+        async with db.execute(
+            """
+            SELECT
+                strategy,
+                COUNT(*)                                              AS total,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END)   AS wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END)   AS losses
+            FROM signal_outcomes
+            WHERE created_at LIKE ?
+            GROUP BY strategy
+            ORDER BY total DESC
+            """,
+            (date_prefix + "%",),
+        ) as cursor:
+            by_strategy = [dict(r) for r in await cursor.fetchall()]
+
+    wins    = totals.get("wins")    or 0
+    losses  = totals.get("losses")  or 0
+    winrate = round(wins / (wins + losses) * 100) if (wins + losses) > 0 else None
+    totals["winrate"] = winrate
+
+    for row in by_pair + by_strategy:
+        w = row.get("wins") or 0
+        l = row.get("losses") or 0
+        row["winrate"] = round(w / (w + l) * 100) if (w + l) > 0 else None
+
+    return {
+        "totals":      totals,
+        "by_pair":     by_pair,
+        "by_strategy": by_strategy,
+    }
+
+
 async def get_strategy_stats(user_id: int) -> list[dict]:
     """Return win/loss breakdown by strategy for a user."""
     async with aiosqlite.connect(DB_PATH) as db:
