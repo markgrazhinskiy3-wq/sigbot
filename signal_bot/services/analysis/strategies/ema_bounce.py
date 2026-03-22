@@ -71,7 +71,11 @@ def ema_bounce_strategy(
     base_conf      = 0.0
     reason         = "Условия не выполнены"
 
-    if buy_score > sell_score and buy_met >= _MIN_MET and not buy_reject:
+    # Tiebreaker: if scores are equal, context trend breaks the tie
+    buy_wins  = (buy_met > sell_met) or (buy_met == sell_met and ctx_trend_up  and not ctx_trend_down)
+    sell_wins = (sell_met > buy_met) or (sell_met == buy_met and ctx_trend_down and not ctx_trend_up)
+
+    if buy_wins and buy_met >= _MIN_MET and not buy_reject:
         direction      = "BUY"
         conditions_met = buy_met
         # Anchored curve: 3→45, 4→53, 5→61, 6→69, 7→77, 8→85
@@ -88,7 +92,7 @@ def ema_bounce_strategy(
         if 45 <= ind.rsi <= 60:
             base_conf += 3
 
-    elif sell_score > buy_score and sell_met >= _MIN_MET and not sell_reject:
+    elif sell_wins and sell_met >= _MIN_MET and not sell_reject:
         direction      = "SELL"
         conditions_met = sell_met
         # Same anchored curve as buy side

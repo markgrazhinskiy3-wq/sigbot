@@ -330,7 +330,7 @@ def run_decision_engine(
         # Conflicting strategies — pick whichever direction is stronger
         best_buy  = max(buy_cands,  key=lambda r: r.confidence)
         best_sell = max(sell_cands, key=lambda r: r.confidence)
-        if abs(best_buy.confidence - best_sell.confidence) < 10:
+        if abs(best_buy.confidence - best_sell.confidence) < 6:
             # Too close — skip
             return _no_signal(
                 "Противоречие стратегий — сигнал пропущен",
@@ -388,7 +388,7 @@ def run_decision_engine(
     if raised_threshold:
         min_threshold = 70
     elif used_tier == "secondary":
-        min_threshold = 52   # secondary: was 58, now 52 — allow valid fallback setups
+        min_threshold = 48   # secondary: same as primary — valid fallback setups matter
     else:
         min_threshold = 48   # primary: was 52, now 48 — allow normal signals
 
