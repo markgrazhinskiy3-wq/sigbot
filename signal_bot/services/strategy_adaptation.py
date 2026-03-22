@@ -7,9 +7,13 @@ User sees nothing — they simply receive better signals over time.
 Statuses:
   ACTIVE     — works normally, multiplier x1.0
   WEAKENED   — confidence x0.85 (only strong signals pass threshold)
-  DISABLED   — completely skipped for 20 minutes
-  PROBATION  — re-enabled after 20 min, confidence x0.80;
+  PROBATION  — re-enabled after WEAKENED run, confidence x0.80;
                evaluated after 5 new results accumulate
+
+Note: No strategy is ever fully DISABLED. A low-winrate strategy naturally
+produces low confidence, which falls below the threshold — no signal shown.
+Auto-disabling is redundant and harmful: it removes the strategy from debug
+output and prevents it from recovering without artificial delay.
 """
 from __future__ import annotations
 
@@ -31,32 +35,26 @@ ALL_STRATEGIES = [
     "divergence",
 ]
 
-# Strategies that can never be fully DISABLED — worst case is WEAKENED.
-_PROTECTED_STRATEGIES: set[str] = {"ema_bounce"}
-
 _MULTIPLIERS = {
     "ACTIVE":    1.0,
     "WEAKENED":  0.85,
     "PROBATION": 0.80,
-    "DISABLED":  0.0,
 }
 
-_CACHE_TTL        = 60.0        # seconds between full DB scans
-_PROBATION_DELAY  = 20 * 60     # seconds until DISABLED → PROBATION
-_MIN_DATA         = 8           # minimum results before evaluating status
-_SAMPLE_SIZE      = 20          # last N results used for evaluation
-_PROBATION_SAMPLE = 5           # results needed in probation to re-evaluate
+_CACHE_TTL        = 60.0   # seconds between full DB scans
+_MIN_DATA         = 8      # minimum results before evaluating status
+_SAMPLE_SIZE      = 20     # last N results used for evaluation
+_PROBATION_SAMPLE = 5      # results needed in probation to re-evaluate
 
 # ── In-memory state ────────────────────────────────────────────────────────────
 
 _status: dict[str, dict] = {
     name: {
-        "status":               "ACTIVE",
-        "winrate":              None,
-        "total_signals":        0,
+        "status":                "ACTIVE",
+        "winrate":               None,
+        "total_signals":         0,
         "confidence_multiplier": 1.0,
-        "disabled_at":          None,   # epoch when strategy was disabled
-        "probation_start":      None,   # epoch when probation began
+        "probation_start":       None,   # epoch when probation began
     }
     for name in ALL_STRATEGIES
 }
@@ -78,11 +76,6 @@ def _db_path() -> str:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _count_usable() -> int:
-    """Count ACTIVE + WEAKENED + PROBATION strategies."""
-    return sum(1 for s in _status.values() if s["status"] != "DISABLED")
-
 
 async def _fetch_outcomes(name: str, limit: int, after_epoch: float | None = None) -> list[str]:
     """Return recent outcomes ('win'/'loss') for a strategy, newest first."""
@@ -119,23 +112,19 @@ async def _fetch_outcomes(name: str, limit: int, after_epoch: float | None = Non
 
 def _set_status(name: str, new_status: str, winrate: float | None, total: int) -> None:
     """Apply a new status to a strategy entry."""
-    entry  = _status[name]
-    prev   = entry["status"]
-    entry["status"]               = new_status
+    entry = _status[name]
+    prev  = entry["status"]
+    entry["status"]                = new_status
     entry["confidence_multiplier"] = _MULTIPLIERS[new_status]
     entry["winrate"]               = round(winrate * 100, 1) if winrate is not None else None
     entry["total_signals"]         = total
 
-    if new_status == "DISABLED" and prev != "DISABLED":
-        entry["disabled_at"]     = time.time()
-        entry["probation_start"] = None
-        logger.info("Strategy %s → DISABLED (winrate=%.0f%%, n=%d)", name,
-                    (winrate or 0) * 100, total)
-    elif new_status == "PROBATION" and prev == "DISABLED":
+    if new_status == "PROBATION" and prev != "PROBATION":
         entry["probation_start"] = time.time()
-        entry["disabled_at"]     = None
-        logger.info("Strategy %s: DISABLED → PROBATION (20 min elapsed)", name)
-    elif prev != new_status:
+    elif new_status != "PROBATION":
+        entry["probation_start"] = None
+
+    if prev != new_status:
         logger.info(
             "Strategy %s: %s → %s (winrate=%.0f%%, n=%d)",
             name, prev, new_status, (winrate or 0) * 100, total
@@ -158,13 +147,6 @@ async def update_strategy_statuses() -> None:
     for name in ALL_STRATEGIES:
         entry = _status[name]
 
-        # ── DISABLED → PROBATION after 20 min ─────────────────────────────────
-        if entry["status"] == "DISABLED":
-            disabled_since = entry.get("disabled_at") or 0.0
-            if now - disabled_since >= _PROBATION_DELAY:
-                _set_status(name, "PROBATION", None, 0)
-            continue   # don't re-evaluate from DB while disabled
-
         # ── PROBATION: check if 5 new results have accumulated ─────────────────
         if entry["status"] == "PROBATION":
             probation_start = entry.get("probation_start") or now
@@ -175,12 +157,7 @@ async def update_strategy_statuses() -> None:
                 winrate = wins / total
                 if winrate >= 0.60:
                     new_s = "ACTIVE"
-                elif winrate >= 0.40:
-                    new_s = "WEAKENED"
                 else:
-                    new_s = "DISABLED"
-                # Protected strategies can never be fully disabled
-                if new_s == "DISABLED" and name in _PROTECTED_STRATEGIES:
                     new_s = "WEAKENED"
                 _set_status(name, new_s, winrate, total)
                 logger.info(
@@ -207,35 +184,21 @@ async def update_strategy_statuses() -> None:
         elif winrate >= 0.38:
             target = "WEAKENED"
         else:
-            # Safety floor: always keep at least 2 usable strategies
-            if _count_usable() <= 2 and entry["status"] in ("ACTIVE", "WEAKENED"):
-                target = "WEAKENED"
-                logger.info(
-                    "Strategy %s winrate=%.0f%% — safety floor, setting WEAKENED not DISABLED",
-                    name, winrate * 100
-                )
-            else:
-                target = "DISABLED"
-
-        # Protected strategies can never be fully disabled — floor is WEAKENED
-        if target == "DISABLED" and name in _PROTECTED_STRATEGIES:
-            target = "WEAKENED"
-            logger.info(
-                "Strategy %s winrate=%.0f%% — protected, setting WEAKENED not DISABLED",
-                name, winrate * 100
-            )
+            # Poor winrate → PROBATION (multiplier 0.80, re-evaluated after 5 results)
+            # Strategy stays visible and keeps running — confidence naturally drops
+            target = "PROBATION"
 
         _set_status(name, target, winrate, total)
 
 
 def get_confidence_multiplier(strategy_name: str) -> float:
-    """Return confidence multiplier for strategy (1.0 / 0.85 / 0.80 / 0.0)."""
+    """Return confidence multiplier for strategy (1.0 / 0.85 / 0.80)."""
     return _status.get(strategy_name, {}).get("confidence_multiplier", 1.0)
 
 
 def is_strategy_enabled(strategy_name: str) -> bool:
-    """Return False only when strategy status is DISABLED."""
-    return _status.get(strategy_name, {}).get("status") != "DISABLED"
+    """All strategies are always enabled. Kept for API compatibility."""
+    return True
 
 
 async def initialize() -> None:

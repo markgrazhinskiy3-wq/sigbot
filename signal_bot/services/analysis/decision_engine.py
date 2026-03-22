@@ -393,14 +393,12 @@ def run_decision_engine(
         conf_raw *= 0.50   # SELL against uptrend: conf halved → likely below threshold
 
     # ── Threshold check ────────────────────────────────────────────────────────
-    # Primary strategies: lower bar (52) — these are well-fitted to the mode.
-    # Secondary strategies: higher bar (58) — they're fallbacks; raise the bar
-    #   to avoid weak secondary signals dominating the output.
-    # After 2 consecutive losses: both thresholds raise to 70.
+    # Hard floor: 60 for all tiers — no signal below 60 ever becomes a trade.
+    # After 2 consecutive losses: threshold raises to 70.
     if raised_threshold:
         min_threshold = 70
     else:
-        min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
+        min_threshold = 60   # hard floor: no signal below 60 ever becomes a trade
 
     if conf_raw < min_threshold:
         return _no_signal(
