@@ -1,0 +1,378 @@
+You are rewriting rsi_reversal.py and tightening
+ema_bounce.py in a binary options signal bot.
+
+Bot trades 1-2 MINUTE expiration on OTC pairs.
+15-second candles, ~50 bars history.
+
+CRITICAL CONTEXT:
+  These strategies must generate signals based on
+  MULTIPLE confirming conditions, not single indicators.
+  The confidence score MUST depend on how many conditions
+  are met. More conditions = higher confidence.
+
+═══════════════════════════════════════════════════════════
+FILE 1: rsi_reversal.py — FULL REWRITE
+═══════════════════════════════════════════════════════════
+
+CURRENT PROBLEMS:
+  1. _past_rsi_val() is a stub returning 50.0 always
+  2. Confidence is hardcoded by RSI depth (65/75/85)
+     and does NOT depend on conditions_met at all
+  3. Condition 6 (momentum) has "or momentum > 0"
+     which passes too easily
+  4. Result: this is a single-indicator signal
+     disguised as a multi-condition strategy
+
+REWRITE REQUIREMENTS:
+
+────────────────────────
+A) Fix _past_rsi_val()
+────────────────────────
+
+  Delete the stub function entirely.
+  Calculate previous RSI directly from candle data.
+
+  The bot has ~50 candles of 15-sec data.
+  RSI is calculated using period 7.
+  
+  To get "previous RSI" — calculate RSI on candles
+  UP TO the second-to-last candle:
+
+  def _prev_rsi(close_prices, period=7):
+    """Calculate RSI for the previous candle."""
+    # Use close_prices[:-1] (exclude last candle)
+    # Apply same RSI calculation as main RSI
+    # Return the RSI value
+    
+    if len(close_prices) < period + 2:
+      return None  # not enough data
+    
+    prev_closes = close_prices[:-1]
+    # ... standard RSI calculation on prev_closes ...
+    return rsi_value
+
+  OR simpler: if ind object already has RSI calculated
+  on each candle, store last 3 RSI values in a list
+  during indicator calculation phase, and pass them
+  through ind object:
+  
+    ind.rsi       = current RSI (last candle)
+    ind.rsi_prev  = RSI of second-to-last candle
+    ind.rsi_prev2 = RSI of third-to-last candle
+
+  Choose whichever approach fits the existing code better.
+  The key point: we need REAL previous RSI, not 50.0.
+
+────────────────────────
+B) New condition structure (8 conditions, need ≥5)
+────────────────────────
+
+  Adding more conditions AND requiring more of them = 
+  only strong setups pass.
+
+  FOR BUY (oversold reversal):
+
+  CONDITION 1 — RSI extreme:
+    ind.rsi < 25  (was < 30, tighter now)
+    This alone means nothing. Just the entry ticket.
+
+  CONDITION 2 — RSI turning up:
+    ind.rsi > ind.rsi_prev  (REAL previous, not stub)
+    AND ind.rsi_prev < 30   (was actually oversold before)
+    RSI was low AND is now rising. Real reversal signal.
+
+  CONDITION 3 — Bearish run before reversal:
+    Count red candles in candles[-6] to candles[-2]:
+    bear_count = number where close < open
+    bear_count >= 3  (was >=2, stricter now)
+    Need a real selloff before calling reversal.
+
+  CONDITION 4 — Reversal candle pattern:
+    Current candle shows buying pressure. ANY of:
+    a) Bullish candle with body > average_body * 0.8
+       (strong buy candle, not tiny)
+    b) Lower shadow > body * 2.5 AND lower shadow >
+       average_body (pin bar with real size)
+    c) Current candle engulfs previous candle body
+       (bullish engulfing)
+    Only ONE of these needs to be true.
+    But each must be meaningful, not tiny.
+
+  CONDITION 5 — Stochastic confirms:
+    ind.stoch_k < 25 AND ind.stoch_d < 25
+    AND ind.stoch_k > ind.stoch_k_prev
+    Both K and D must be oversold, and K turning up.
+    (Was: only K < 20. Now both must be low.)
+
+  CONDITION 6 — Price near support:
+    levels.dist_to_sup_pct < 0.15
+    Price is within 0.15% of nearest support level.
+    Reversals are more likely at support.
+    If no support detected: condition = False
+    (not a freebie)
+
+  CONDITION 7 — Momentum shift:
+    ind.momentum > ind.momentum_prev
+    AND ind.momentum_prev < 0
+    Momentum was negative (falling) and is now
+    increasing. Real shift, not just "momentum > 0".
+    (Removed the "or momentum > 0" loophole)
+
+  CONDITION 8 — Volume/volatility confirmation:
+    Current candle range (high - low) > average range
+    of last 10 candles * 0.8
+    The reversal candle should have decent range.
+    Tiny candles at oversold = no real buying pressure.
+
+  FOR SELL (overbought reversal):
+    Mirror all conditions. RSI > 75, etc.
+
+────────────────────────
+C) Confidence MUST depend on conditions_met
+────────────────────────
+
+  TOTAL_CONDITIONS = 8
+  MIN_CONDITIONS = 5
+
+  if met < MIN_CONDITIONS:
+    return StrategyResult(direction="NONE", confidence=0,
+      conditions_met=met, total_conditions=TOTAL_CONDITIONS,
+      reasoning="Only {met}/8 conditions met, need 5")
+
+  # Base confidence from conditions ratio
+  base_conf = (met / TOTAL_CONDITIONS) * 85
+  
+  # 5/8 = 53.1
+  # 6/8 = 63.7
+  # 7/8 = 74.3
+  # 8/8 = 85.0
+
+  # Bonus for RSI depth (small, not dominant)
+  if ind.rsi < 15:
+    base_conf += 5
+  elif ind.rsi < 10:
+    base_conf += 8
+  # Note: no bonus for RSI 15-25. Being oversold
+  # is already captured by condition 1.
+
+  # Bonus for candle pattern quality
+  if engulfing_pattern:
+    base_conf += 4
+  elif pin_bar:
+    base_conf += 3
+
+  # Bonus for support proximity
+  if levels.dist_to_sup_pct < 0.05:  # very close
+    base_conf += 3
+
+  # Cap total bonuses
+  total_bonus = base_conf - (met / TOTAL_CONDITIONS) * 85
+  total_bonus = min(total_bonus, 12)  # max +12 from bonuses
+  base_conf = (met / TOTAL_CONDITIONS) * 85 + total_bonus
+
+  confidence = min(int(base_conf), 100)
+
+────────────────────────
+D) Hard rejects (return NONE immediately)
+────────────────────────
+
+  # RSI not extreme enough — don't even check
+  if 25 <= ind.rsi <= 75:
+    return NONE
+
+  # Price AT resistance (for BUY) — no room to go up
+  if direction == "BUY" and levels.dist_to_res_pct < 0.05:
+    return NONE
+
+  # Price AT support (for SELL) — no room to go down
+  if direction == "SELL" and levels.dist_to_sup_pct < 0.05:
+    return NONE
+
+  # ATR too low — market dead, reversal means nothing
+  if current_atr < baseline_atr * 0.4:
+    return NONE
+
+────────────────────────
+E) Remove 5-min trend dependency
+────────────────────────
+
+  REMOVE this from rsi_reversal.py:
+    +5 если 5-мин тренд совпадает
+
+  RSI Reversal catches REVERSALS.
+  By definition these are often counter-trend.
+  Bonus for trend confirmation makes no sense here.
+
+  DO NOT penalize for counter-trend either.
+  On 1-2 min expiration, reversal = the whole point.
+
+────────────────────────
+F) Return format (unchanged)
+────────────────────────
+
+  return StrategyResult(
+    direction="BUY" or "SELL",
+    confidence=confidence,
+    conditions_met=met,
+    total_conditions=TOTAL_CONDITIONS,
+    reasoning="RSI reversal: " + "; ".join(parts)
+  )
+
+═══════════════════════════════════════════════════════════
+FILE 2: ema_bounce.py — TIGHTEN CONDITIONS
+═══════════════════════════════════════════════════════════
+
+DO NOT rewrite from scratch. Just tighten these:
+
+────────────────────────
+A) Tighten EMA touch zone
+────────────────────────
+
+  BEFORE: ema13_zone = ind.ema13 * 1.0005  (±0.05%)
+  AFTER:  ema13_zone = ind.ema13 * 1.0002  (±0.02%)
+
+  On 15-sec candles, ±0.02% is still ~2 pips.
+  Genuine touch, not "somewhere near EMA".
+
+────────────────────────
+B) Tighten pullback requirement
+────────────────────────
+
+  BEFORE: 2 of 3 candles are bearish (for BUY)
+  AFTER:  3 of 4 candles before current must be bearish
+          AND at least one must close below EMA13
+
+  This ensures a real pullback TO the EMA, not just
+  random red candles.
+
+────────────────────────
+C) Add condition: bounce candle strength
+────────────────────────
+
+  The candle that bounces off EMA should show conviction:
+  - Body > average_body * 0.7 (not a tiny doji)
+  - Closes in upper 60% of its range (for BUY)
+    (close - low) / (high - low) > 0.6
+
+  Add this as condition 8 (was 7 total, now 8).
+  Raise minimum from 4 to 5.
+
+────────────────────────
+D) Tighten hard rejects
+────────────────────────
+
+  ADD:
+  # Too close to resistance — bounce has no room
+  if direction == "BUY" and levels.dist_to_res_pct < 0.08:
+    return NONE
+
+  # ATR dead — EMA bounce meaningless
+  if current_atr < baseline_atr * 0.4:
+    return NONE
+
+────────────────────────
+E) Remove 5-min trend bonus
+────────────────────────
+
+  Same as RSI Reversal.
+  EMA Bounce on 1-2 min doesn't need 5-min confirmation.
+  Remove "+5 if 5-min trend confirms".
+  Remove any counter-trend penalty.
+
+  The existing hard reject for RSI > 78 is enough
+  protection against terrible entries.
+
+═══════════════════════════════════════════════════════════
+ALSO CHECK AND FIX IN OTHER 4 STRATEGIES
+═══════════════════════════════════════════════════════════
+
+For each of these files, CHECK:
+
+1. level_bounce.py
+2. squeeze_breakout.py
+3. micro_breakout.py
+4. divergence.py
+
+CHECK each for:
+
+  □ Does confidence depend on conditions_met?
+    YES → good, leave it
+    NO → FIX: confidence = (met / total) * 85 + bonuses
+
+  □ Any stub functions returning hardcoded values?
+    YES → FIX: replace with real calculation
+    NO → good
+
+  □ Any "or" loopholes that make conditions too easy?
+    Like: "if X or True" patterns
+    YES → FIX: remove the easy escape
+    NO → good
+
+  □ 5-min trend bonus/penalty?
+    YES → REMOVE it
+    NO → good
+
+  □ Hard rejects for dead market (ATR too low)?
+    YES → good
+    NO → ADD: if atr < baseline * 0.4: return NONE
+
+DO NOT rewrite these 4 strategies entirely.
+Only apply the specific fixes above.
+Print what you found and fixed for each file.
+
+═══════════════════════════════════════════════════════════
+VERIFICATION AFTER ALL CHANGES
+═══════════════════════════════════════════════════════════
+
+After rewrite, test these scenarios mentally:
+
+RSI Reversal — should fire:
+  RSI = 22, prev_RSI = 19 (rising from deeper oversold)
+  4 red candles before
+  Current candle: bullish engulfing
+  Stoch K=18, D=22, K rising
+  Near support (0.08%)
+  Momentum: -0.3 → -0.1 (negative but rising)
+  Candle range > average
+  → conditions met: 8/8 → confidence: 85 + bonuses
+  → STRONG BUY ✓
+
+RSI Reversal — should NOT fire:
+  RSI = 29 (barely oversold)
+  prev_RSI = 31 (was not oversold before) 
+  1 red candle (not enough selloff)
+  Current candle: small doji
+  Stoch K=35 (not oversold)
+  No support nearby
+  → conditions met: 1/8 (only RSI < 25... wait, 29 > 25)
+  → Hard reject: RSI not extreme enough → NONE ✓
+
+EMA Bounce — should fire:
+  EMA5 > EMA13 > EMA21 for 5 candles
+  Price touched EMA13 within 0.02%
+  Closed above EMA13
+  Strong bullish candle
+  3 of 4 previous candles bearish, one below EMA13
+  RSI 52
+  Stoch K crossed D upward
+  Bounce candle closes in upper 70% of range
+  → conditions met: 8/8 → confidence: 85 ✓
+
+EMA Bounce — should NOT fire:
+  EMA5 > EMA13 > EMA21
+  Price "near" EMA13 (but 0.04% away — outside 0.02%)
+  Only 1 bearish candle before (no real pullback)
+  Tiny doji candle (no conviction)
+  → conditions met: 3/8 → below minimum → NONE ✓
+
+═══════════════════════════════════════════════════════════
+IMPORTANT
+═══════════════════════════════════════════════════════════
+
+1. Do NOT change StrategyResult format
+2. Do NOT change function signatures
+3. Do NOT change how decision_engine calls strategies
+4. Do NOT change indicator calculations
+5. Do NOT add new indicators
+6. ONLY change logic INSIDE strategy functions
+7. Keep all reasoning strings for debugging

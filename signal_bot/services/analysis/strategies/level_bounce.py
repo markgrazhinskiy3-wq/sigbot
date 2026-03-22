@@ -43,6 +43,10 @@ def level_bounce_strategy(
     if n < 6:
         return _none("Мало данных")
 
+    # Hard reject: dead market
+    if ind.atr_ratio < 0.4:
+        return _none("ATR мёртвый — рынок стоит")
+
     price    = float(close[-1])
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
     tolerance = max(0.001, avg_body / price) * price  # max(0.1%, avg_body_pct)
@@ -119,21 +123,16 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if any(abs(float(low[-i]) - sup) / sup < 0.001 for i in range(1, min(3, n))):
             met += 1; parts.append("Касание зоны")
 
-        # 3. Reversal pattern
+        # 3. Reversal pattern — required, no pattern → skip this level
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
-        base_from_pattern = 0.0
+        if pat.pattern == "none":
+            continue
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
-            base_from_pattern = 85 * pat.quality
         elif pat.pattern == "engulfing":
             met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
-            base_from_pattern = 80 * pat.quality
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
-            base_from_pattern = 75 * pat.quality
-
-        if pat.pattern == "none":
-            continue  # must have a reversal pattern
 
         # 4. Current candle closed ABOVE support
         if float(close[-1]) > zone_lo:
@@ -151,10 +150,12 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if levels.dist_to_res_pct > 0.15:
             met += 1; parts.append(f"Пространство {levels.dist_to_res_pct:.2f}%")
 
-        # Hard reject: strong 5-min downtrend
-        # (reflected in context — handled at engine level)
+        # Confidence: conditions-driven + pattern quality bonus
+        conf = (met / _TOTAL) * 85
+        if pat.pattern == "pin_bar":     conf += pat.quality * 8
+        elif pat.pattern == "engulfing": conf += pat.quality * 6
+        elif pat.pattern == "hammer":    conf += pat.quality * 5
 
-        conf = base_from_pattern if base_from_pattern > 0 else met / _TOTAL * 70
         if conf > best[0] and met >= 4:
             best = (conf, met, " | ".join(parts), touch_count)
 
@@ -187,19 +188,14 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
             met += 1; parts.append("Касание зоны")
 
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
-        base_from_pattern = 0.0
-        if pat.pattern == "pin_bar":
-            met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
-            base_from_pattern = 85 * pat.quality
-        elif pat.pattern == "engulfing":
-            met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
-            base_from_pattern = 80 * pat.quality
-        elif pat.pattern == "hammer":
-            met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
-            base_from_pattern = 75 * pat.quality
-
         if pat.pattern == "none":
             continue
+        if pat.pattern == "pin_bar":
+            met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
+        elif pat.pattern == "engulfing":
+            met += 1; parts.append(f"Поглощение (кач={pat.quality:.1f})")
+        elif pat.pattern == "hammer":
+            met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
 
         if float(close[-1]) < zone_hi:
             met += 1; parts.append("Закрылась ниже сопротивления")
@@ -213,7 +209,12 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         if levels.dist_to_sup_pct > 0.15:
             met += 1; parts.append(f"Пространство {levels.dist_to_sup_pct:.2f}%")
 
-        conf = base_from_pattern if base_from_pattern > 0 else met / _TOTAL * 70
+        # Confidence: conditions-driven + pattern quality bonus
+        conf = (met / _TOTAL) * 85
+        if pat.pattern == "pin_bar":     conf += pat.quality * 8
+        elif pat.pattern == "engulfing": conf += pat.quality * 6
+        elif pat.pattern == "hammer":    conf += pat.quality * 5
+
         if conf > best[0] and met >= 4:
             best = (conf, met, " | ".join(parts), touch_count)
 

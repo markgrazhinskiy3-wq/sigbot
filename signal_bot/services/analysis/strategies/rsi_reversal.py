@@ -1,7 +1,12 @@
 """
 Strategy 4 — RSI Extreme Reversal
-Scenario: Strong one-directional move, RSI hit extreme (<15 or >85).
-A snapback of 1-3 candles is likely. Best in: RANGE, VOLATILE modes.
+Scenario: Strong one-directional move pushed RSI to extreme (<25 or >75).
+Multiple confirming conditions required before signaling a snapback.
+Best in: RANGE, VOLATILE modes.
+
+8 conditions, minimum 5 required.
+Confidence = (conditions_met / 8) * 85 + small bonuses (capped +12).
+NO 5-min trend dependency — reversals are by definition counter-trend.
 """
 from __future__ import annotations
 import numpy as np
@@ -23,7 +28,8 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL = 6
+_TOTAL   = 8
+_MIN_MET = 5
 
 
 def rsi_reversal_strategy(
@@ -42,169 +48,213 @@ def rsi_reversal_strategy(
     if n < 8:
         return _none("Мало данных")
 
-    # Hard reject: ATR extremely high — could be news event
-    if ind.atr_ratio > 2.5:
-        return _none("ATR слишком высокий — возможные новости")
+    # Hard reject: dead market — reversals need energy
+    if ind.atr_ratio < 0.4:
+        return _none("ATR мёртвый — рынок стоит")
 
-    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    # Hard reject: RSI not extreme enough
+    if 25 <= ind.rsi <= 75:
+        return _none(f"RSI {ind.rsi:.0f} не в экстремуме (нужно <25 или >75)")
 
-    buy_met, buy_conf, buy_parts = _check_buy(close, open_, high, low, n, ind, levels, avg_body, ctx_trend_up)
-    sell_met, sell_conf, sell_parts = _check_sell(close, open_, high, low, n, ind, levels, avg_body, ctx_trend_down)
+    avg_body  = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    avg_range = float(np.mean(high[-min(10, n):] - low[-min(10, n):])) or 1e-8
 
-    direction = "NONE"
-    conditions_met = 0
-    base_conf = 0.0
-    reason = "RSI не в экстремуме"
+    if ind.rsi < 25:
+        # Hard reject: price at resistance — no room to go up
+        if levels.dist_to_res_pct < 0.05:
+            return _none("Цена у сопротивления — нет места для роста")
+        met, conf, parts = _check_buy(close, open_, high, low, n, ind, levels, avg_body, avg_range)
+        direction = "BUY"
+    else:
+        # Hard reject: price at support — no room to go down
+        if levels.dist_to_sup_pct < 0.05:
+            return _none("Цена у поддержки — нет места для падения")
+        met, conf, parts = _check_sell(close, open_, high, low, n, ind, levels, avg_body, avg_range)
+        direction = "SELL"
 
-    if buy_conf > sell_conf and buy_met >= 4:
-        direction = "BUY"; conditions_met = buy_met; base_conf = buy_conf
-        reason = " | ".join(buy_parts)
-    elif sell_conf > buy_conf and sell_met >= 4:
-        direction = "SELL"; conditions_met = sell_met; base_conf = sell_conf
-        reason = " | ".join(sell_parts)
+    if met < _MIN_MET:
+        return _none(f"Только {met}/{_TOTAL} условий — нужно минимум {_MIN_MET}")
 
     return StrategyResult(
         direction=direction,
-        confidence=min(100.0, base_conf),
-        conditions_met=conditions_met,
+        confidence=min(100.0, conf),
+        conditions_met=met,
         total_conditions=_TOTAL,
         strategy_name="rsi_reversal",
-        reasoning=reason,
-        debug={"rsi": round(ind.rsi, 1), "buy_met": buy_met, "sell_met": sell_met}
+        reasoning="RSI разворот: " + " | ".join(parts),
+        debug={
+            "rsi":      round(ind.rsi, 1),
+            "rsi_prev": round(ind.rsi_prev, 1),
+            "met":      met,
+            "conf":     round(conf, 1),
+        },
     )
 
 
-def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body, ctx_up):
-    """RSI snapback from oversold → BUY."""
-    met = 0
+def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
+               avg_body: float, avg_range: float):
+    """RSI snapback from oversold → BUY. 8 conditions, need 5."""
+    met   = 0
     parts = []
 
-    # Determine RSI extreme and base confidence
-    rsi_base = 0.0
-    rsi_extreme_bars = _rsi_extreme_bars(close, open_, ind, side="buy", lookback=min(3, n))
+    # CONDITION 1 — RSI extreme (< 25) — entry ticket
+    # Guaranteed by hard reject above; always counts.
+    met += 1
+    parts.append(f"RSI перепродан ({ind.rsi:.0f})")
 
-    if rsi_extreme_bars == 0:
-        return 0, 0.0, []
+    # CONDITION 2 — RSI genuinely turning up (real previous RSI, not 50.0)
+    if ind.rsi > ind.rsi_prev and ind.rsi_prev < 30:
+        met += 1
+        parts.append(f"RSI разворачивается вверх ({ind.rsi_prev:.0f}→{ind.rsi:.0f})")
 
-    if ind.rsi < 10 or rsi_extreme_bars == 1 and _past_rsi_val(close, open_, n, 1) < 10:
-        rsi_base = 85
-    elif ind.rsi < 15 or rsi_extreme_bars > 0 and _past_rsi_val(close, open_, n, 1) < 15:
-        rsi_base = 75
-    else:
-        rsi_base = 65
+    # CONDITION 3 — Bearish run before reversal (3+ red candles among last 5)
+    bear_count = sum(1 for i in range(2, min(7, n)) if close[-i] < open_[-i])
+    if bear_count >= 3:
+        met += 1
+        parts.append(f"Медвежий забег ({bear_count} свечей)")
 
-    # 1. RSI was below 20 within last 3 bars
-    met += 1; parts.append(f"RSI экстрем ({ind.rsi:.0f})")
-
-    # 2. Current RSI recovering
-    prev_rsi = _past_rsi_val(close, open_, n, 1)
-    if ind.rsi > prev_rsi:
-        met += 1; parts.append("RSI начинает расти")
-
-    # 3. Last 3-5 candles were bearish (the drop)
-    bear_run = sum(1 for i in range(2, min(6, n)) if close[-i] < open_[-i])
-    if bear_run >= 2:
-        met += 1; parts.append(f"Медвежий забег ({bear_run} свечи)")
-
-    # 4. Current candle bullish OR has lower shadow > 2× body
-    curr_body = abs(close[-1] - open_[-1])
+    # CONDITION 4 — Reversal candle pattern (any one of three forms)
+    curr_body    = abs(close[-1] - open_[-1])
     lower_shadow = min(close[-1], open_[-1]) - low[-1]
-    if close[-1] > open_[-1]:
-        met += 1; parts.append("Бычья свеча разворота")
-    elif lower_shadow > curr_body * 2:
-        met += 1; parts.append("Нижняя тень > 2× тела")
-
-    # 5. Stochastic %K < 20 and crossing up
-    if ind.stoch_k < 20 and ind.stoch_k > ind.stoch_k_prev:
-        met += 1; parts.append(f"Stoch разворот ({ind.stoch_k:.0f})")
-
-    # 6. Momentum starting to rise
-    if ind.momentum > ind.momentum_prev or (ind.momentum > 0):
-        met += 1; parts.append("Моментум поворачивает вверх")
-
-    # Bonuses
-    conf = rsi_base
     pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
-    if pat.pattern == "engulfing": conf += 7
-    elif pat.pattern == "pin_bar": conf += 5
+    reversal_candle = False
+    pat_label = ""
+
+    if close[-1] > open_[-1] and curr_body > avg_body * 0.8:
+        reversal_candle = True
+        pat_label = f"Бычья свеча (тело ×{curr_body / avg_body:.1f})"
+    elif lower_shadow > curr_body * 2.5 and lower_shadow > avg_body:
+        reversal_candle = True
+        pat_label = f"Пин-бар снизу (тень ×{lower_shadow / (curr_body + 1e-10):.1f})"
+    elif pat.pattern == "engulfing":
+        reversal_candle = True
+        pat_label = "Бычье поглощение"
+
+    if reversal_candle:
+        met += 1
+        parts.append(pat_label)
+
+    # CONDITION 5 — Stochastic: both K and D oversold, K turning up
+    if ind.stoch_k < 25 and ind.stoch_d < 25 and ind.stoch_k > ind.stoch_k_prev:
+        met += 1
+        parts.append(f"Stoch перепродан и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})")
+
+    # CONDITION 6 — Price near support level
     if levels.nearest_sup > 0 and levels.dist_to_sup_pct < 0.15:
-        conf += 5   # support nearby
-    if ctx_up:
-        conf += 5
+        met += 1
+        parts.append(f"Рядом поддержка ({levels.dist_to_sup_pct:.2f}%)")
 
-    # Hard reject: no reversal candle at all
-    if close[-1] < open_[-1] and lower_shadow <= curr_body * 2:
-        met = max(0, met - 2)
+    # CONDITION 7 — Momentum shift: was negative, now rising
+    if ind.momentum > ind.momentum_prev and ind.momentum_prev < 0:
+        met += 1
+        parts.append(f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})")
 
-    return met, conf, parts
+    # CONDITION 8 — Reversal candle has meaningful range (not a tiny doji)
+    curr_range = high[-1] - low[-1]
+    if curr_range > avg_range * 0.8:
+        met += 1
+        parts.append(f"Хороший размах свечи (×{curr_range / avg_range:.1f})")
+
+    # Confidence: primarily driven by conditions_met
+    base_conf = (met / _TOTAL) * 85
+
+    # Small bonuses, capped at +12 total
+    bonus = 0.0
+    if ind.rsi < 15:
+        bonus += 5
+    elif ind.rsi < 20:
+        bonus += 3
+    if pat.pattern == "engulfing":
+        bonus += 4
+    elif pat.pattern == "pin_bar":
+        bonus += 3
+    if levels.nearest_sup > 0 and levels.dist_to_sup_pct < 0.05:
+        bonus += 3
+    bonus = min(bonus, 12.0)
+
+    return met, base_conf + bonus, parts
 
 
-def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body, ctx_down):
-    """RSI snapback from overbought → SELL."""
-    met = 0
+def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
+                avg_body: float, avg_range: float):
+    """RSI snapback from overbought → SELL. 8 conditions, need 5."""
+    met   = 0
     parts = []
 
-    rsi_extreme_bars = _rsi_extreme_bars(close, open_, ind, side="sell", lookback=min(3, n))
-    if rsi_extreme_bars == 0:
-        return 0, 0.0, []
+    # CONDITION 1 — RSI extreme (> 75) — entry ticket
+    met += 1
+    parts.append(f"RSI перекуплен ({ind.rsi:.0f})")
 
-    if ind.rsi > 90 or _past_rsi_val(close, open_, n, 1) > 90:
-        rsi_base = 85
-    elif ind.rsi > 85 or _past_rsi_val(close, open_, n, 1) > 85:
-        rsi_base = 75
-    else:
-        rsi_base = 65
+    # CONDITION 2 — RSI genuinely turning down (real previous RSI)
+    if ind.rsi < ind.rsi_prev and ind.rsi_prev > 70:
+        met += 1
+        parts.append(f"RSI разворачивается вниз ({ind.rsi_prev:.0f}→{ind.rsi:.0f})")
 
-    met += 1; parts.append(f"RSI экстрем ({ind.rsi:.0f})")
+    # CONDITION 3 — Bullish run before reversal (3+ green candles among last 5)
+    bull_count = sum(1 for i in range(2, min(7, n)) if close[-i] > open_[-i])
+    if bull_count >= 3:
+        met += 1
+        parts.append(f"Бычий забег ({bull_count} свечей)")
 
-    prev_rsi = _past_rsi_val(close, open_, n, 1)
-    if ind.rsi < prev_rsi:
-        met += 1; parts.append("RSI начинает падать")
-
-    bull_run = sum(1 for i in range(2, min(6, n)) if close[-i] > open_[-i])
-    if bull_run >= 2:
-        met += 1; parts.append(f"Бычий забег ({bull_run} свечи)")
-
-    curr_body = abs(close[-1] - open_[-1])
+    # CONDITION 4 — Reversal candle pattern
+    curr_body    = abs(close[-1] - open_[-1])
     upper_shadow = high[-1] - max(close[-1], open_[-1])
-    if close[-1] < open_[-1]:
-        met += 1; parts.append("Медвежья свеча разворота")
-    elif upper_shadow > curr_body * 2:
-        met += 1; parts.append("Верхняя тень > 2× тела")
-
-    if ind.stoch_k > 80 and ind.stoch_k < ind.stoch_k_prev:
-        met += 1; parts.append(f"Stoch разворот ({ind.stoch_k:.0f})")
-
-    if ind.momentum < ind.momentum_prev or ind.momentum < 0:
-        met += 1; parts.append("Моментум поворачивает вниз")
-
-    conf = rsi_base
     pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
-    if pat.pattern == "engulfing": conf += 7
-    elif pat.pattern == "pin_bar": conf += 5
-    if levels.dist_to_res_pct < 0.15:
-        conf += 5
-    if ctx_down:
-        conf += 5
+    reversal_candle = False
+    pat_label = ""
 
-    if close[-1] > open_[-1] and upper_shadow <= curr_body * 2:
-        met = max(0, met - 2)
+    if close[-1] < open_[-1] and curr_body > avg_body * 0.8:
+        reversal_candle = True
+        pat_label = f"Медвежья свеча (тело ×{curr_body / avg_body:.1f})"
+    elif upper_shadow > curr_body * 2.5 and upper_shadow > avg_body:
+        reversal_candle = True
+        pat_label = f"Пин-бар сверху (тень ×{upper_shadow / (curr_body + 1e-10):.1f})"
+    elif pat.pattern == "engulfing":
+        reversal_candle = True
+        pat_label = "Медвежье поглощение"
 
-    return met, conf, parts
+    if reversal_candle:
+        met += 1
+        parts.append(pat_label)
 
+    # CONDITION 5 — Stochastic: both K and D overbought, K turning down
+    if ind.stoch_k > 75 and ind.stoch_d > 75 and ind.stoch_k < ind.stoch_k_prev:
+        met += 1
+        parts.append(f"Stoch перекуплен и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})")
 
-def _rsi_extreme_bars(close, open_, ind: Indicators, side: str, lookback: int) -> int:
-    """How many of the last `lookback` bars had RSI in extreme territory."""
-    if side == "buy":
-        return 1 if ind.rsi < 30 else 0
-    else:
-        return 1 if ind.rsi > 70 else 0
+    # CONDITION 6 — Price near resistance level
+    if levels.nearest_res > 0 and levels.dist_to_res_pct < 0.15:
+        met += 1
+        parts.append(f"Рядом сопротивление ({levels.dist_to_res_pct:.2f}%)")
 
+    # CONDITION 7 — Momentum shift: was positive, now falling
+    if ind.momentum < ind.momentum_prev and ind.momentum_prev > 0:
+        met += 1
+        parts.append(f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})")
 
-def _past_rsi_val(close, open_, n, bars_ago):
-    """Approximate previous RSI by looking at recent price action direction."""
-    # Simple: if more bearish candles before → RSI was lower
-    return 50.0   # placeholder; actual RSI series comparison handled by ind
+    # CONDITION 8 — Reversal candle has meaningful range
+    curr_range = high[-1] - low[-1]
+    if curr_range > avg_range * 0.8:
+        met += 1
+        parts.append(f"Хороший размах свечи (×{curr_range / avg_range:.1f})")
+
+    # Confidence: primarily driven by conditions_met
+    base_conf = (met / _TOTAL) * 85
+
+    bonus = 0.0
+    if ind.rsi > 85:
+        bonus += 5
+    elif ind.rsi > 80:
+        bonus += 3
+    if pat.pattern == "engulfing":
+        bonus += 4
+    elif pat.pattern == "pin_bar":
+        bonus += 3
+    if levels.nearest_res > 0 and levels.dist_to_res_pct < 0.05:
+        bonus += 3
+    bonus = min(bonus, 12.0)
+
+    return met, base_conf + bonus, parts
 
 
 def _none(reason: str) -> StrategyResult:

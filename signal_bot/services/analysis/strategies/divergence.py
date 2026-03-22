@@ -43,6 +43,10 @@ def divergence_strategy(
     if n < 15:
         return _none("Мало данных для дивергенции")
 
+    # Hard reject: dead market
+    if ind.atr_ratio < 0.4:
+        return _none("ATR мёртвый — рынок стоит")
+
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 
     buy_met, buy_conf, buy_parts = _check_bullish_div(
@@ -175,14 +179,11 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
     if ind.stoch_k > ind.stoch_k_prev:
         met += 1; parts.append(f"Stoch поворачивает вверх ({ind.stoch_k:.0f})")
 
-    base_conf = 75.0
+    # Confidence: conditions-driven (not hardcoded)
+    base_conf = (met / _TOTAL) * 85
     if _divergence_at_level(low2, levels.supports): base_conf += 10
-    if rsi2 < rsi1 and abs(rsi_diff) > 10:         base_conf += 7  # strong divergence
-    if mode == "RANGE":                              base_conf += 5
-    if ctx_up:                                       base_conf += 5
-
-    # Hard reject: strong 5-min downtrend
-    # (handled at engine level by multipliers)
+    if abs(rsi_diff) > 10:                          base_conf += 7  # strong divergence
+    if mode == "RANGE":                             base_conf += 5
 
     return met, base_conf, parts
 
@@ -231,11 +232,11 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     if ind.stoch_k < ind.stoch_k_prev:
         met += 1; parts.append(f"Stoch поворачивает вниз ({ind.stoch_k:.0f})")
 
-    base_conf = 75.0
+    # Confidence: conditions-driven (not hardcoded)
+    base_conf = (met / _TOTAL) * 85
     if _divergence_at_level(high2, levels.resistances): base_conf += 10
-    if rsi_diff > 10:                                    base_conf += 7
-    if mode == "RANGE":                                  base_conf += 5
-    if ctx_down:                                         base_conf += 5
+    if rsi_diff > 10:                                   base_conf += 7
+    if mode == "RANGE":                                 base_conf += 5
 
     return met, base_conf, parts
 

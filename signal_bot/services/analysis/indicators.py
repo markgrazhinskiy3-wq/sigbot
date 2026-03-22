@@ -26,7 +26,8 @@ class Indicators:
     ema21_series: pd.Series
 
     # RSI(7)
-    rsi: float          # 0-100
+    rsi: float          # current RSI (last candle)
+    rsi_prev: float     # RSI of second-to-last candle (real, not stub)
 
     # Stochastic(5,3,3)
     stoch_k: float      # smoothed %K
@@ -63,7 +64,8 @@ def calculate_indicators(df: pd.DataFrame) -> Indicators:
     ema21_s = close.ewm(span=21, adjust=False).mean()
 
     # ── RSI(7) ────────────────────────────────────────────────────────────────
-    rsi_val = _rsi(close, 7)
+    rsi_val      = _rsi(close, 7)
+    rsi_prev_val = _rsi(close.iloc[:-1], 7) if n >= 9 else rsi_val
 
     # ── Stochastic(5, 3, 3) ───────────────────────────────────────────────────
     stoch_k_val, stoch_d_val, stoch_k_prev_val = _stochastic(high, low, close, k=5, smooth_k=3, d=3)
@@ -110,6 +112,7 @@ def calculate_indicators(df: pd.DataFrame) -> Indicators:
         ema13_series=ema13_s,
         ema21_series=ema21_s,
         rsi=rsi_val,
+        rsi_prev=rsi_prev_val,
         stoch_k=stoch_k_val,
         stoch_d=stoch_d_val,
         stoch_k_prev=stoch_k_prev_val,

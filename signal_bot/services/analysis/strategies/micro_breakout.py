@@ -42,6 +42,10 @@ def micro_breakout_strategy(
     if n < 10:
         return _none("Мало данных")
 
+    # Hard reject: dead market — breakouts need energy
+    if ind.atr_ratio < 0.4:
+        return _none("ATR мёртвый — рынок стоит")
+
     avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 
     buy_met, buy_conf, buy_parts = _check_buy(close, open_, high, low, n, ind, levels, avg_body_10, ctx_trend_up)
@@ -120,7 +124,6 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, av
     base_conf = met / _TOTAL * 80
 
     # Bonuses
-    if ctx_up:                           base_conf += 7
     if touch_count >= 3:                 base_conf += 5
     if (close[-1] - broken_res) / broken_res > 0.0005:
         base_conf += 3   # strong hold above level
@@ -180,7 +183,6 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
 
     base_conf = met / _TOTAL * 80
 
-    if ctx_down:                         base_conf += 7
     if touch_count >= 3:                 base_conf += 5
     if (broken_sup - close[-1]) / broken_sup > 0.0005:
         base_conf += 3

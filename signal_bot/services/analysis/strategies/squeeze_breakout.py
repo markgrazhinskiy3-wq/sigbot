@@ -42,6 +42,10 @@ def squeeze_breakout_strategy(
     if n < 15:
         return _none("Мало данных")
 
+    # Hard reject: dead market — breakouts need energy
+    if ind.atr_ratio < 0.4:
+        return _none("ATR мёртвый — рынок стоит")
+
     price    = close[-1]
     avg_body_30 = float(np.mean(np.abs(close[-min(30, n):] - open_[-min(30, n):]))) or 1e-8
     avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
@@ -61,7 +65,6 @@ def squeeze_breakout_strategy(
         conditions_met = buy_met
         base_conf      = buy_met / _TOTAL * 80
         reason         = " | ".join(buy_parts)
-        if ctx_trend_up:   base_conf += 7
         # Squeeze duration bonus — check if last 8+ candles were all small
         small_run = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
         if small_run >= 8:  base_conf += 5
@@ -74,7 +77,6 @@ def squeeze_breakout_strategy(
         conditions_met = sell_met
         base_conf      = sell_met / _TOTAL * 80
         reason         = " | ".join(sell_parts)
-        if ctx_trend_down: base_conf += 7
         small_run = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
         if small_run >= 8:  base_conf += 5
         if close[-1] < ind.bb_lower:  base_conf += 5
