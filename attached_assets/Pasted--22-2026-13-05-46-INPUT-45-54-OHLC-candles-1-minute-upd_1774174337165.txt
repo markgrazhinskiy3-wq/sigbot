@@ -1,0 +1,84 @@
+Женя Крук, [22 марта 2026 г., 13:05:46]:
+...## INPUT
+- 45–54 OHLC candles (1-minute), updated every 45 seconds
+- Analysis runs on the latest ~50 candles
+
+## STEP 1 — MARKET REGIME DETECTION
+Classify market into one of: uptrend / downtrend / range / weak_trend / chaotic_noise
+- Use EMA(9) vs EMA(21) slope and price position
+- Use ATR(14) relative to recent average ATR for volatility context
+- chaotic_noise = ATR spike + no clear EMA direction + price whipping both sides
+
+## STEP 2 — THREE PATTERN MODULES (each scores BUY and SELL from 0–100)
+
+### A. Impulse + Pullback
+- Strong move (3+ candles same direction, body > 60% of range)
+- Then pullback of 30–50% of the move
+- Then reversal candle confirming resumption
+- Score based on completeness of all three phases
+
+### B. Level Rejection
+- Identify support/resistance: recent swing highs/lows (last 30 candles), round numbers
+- Price approaches within 0.1% of level
+- Rejection candle: long wick toward level, close away from it
+- Score based on wick/body ratio and number of prior touches
+
+### C. False Breakout
+- Price closes beyond level
+- Next 1–2 candles return inside range
+- NOTE: Do NOT apply "trading against trend" penalty to this pattern — it is inherently counter-directional
+
+## STEP 3 — COMBINE PATTERN SCORES
+pa_score = best_pattern × 0.70 + average_of_three × 0.30
+(This requires partial agreement, not just one strong signal)
+
+## STEP 4 — SUPPORTING MODULES
+
+### Candle Strength (score 0–100)
+- Last 3 candles: body/range ratio, direction consistency
+- Neutral candles (doji, spinning tops) reduce score
+
+### Indicator Confirmation (score 0–100)
+- EMA(9/21): crossover or alignment with signal direction
+- RSI(14): not in extreme opposite zone (e.g., don't BUY above 75)
+- Stochastic: K/D cross or direction
+- Momentum: positive/negative
+- Weight each 25%, combine into indicator_score
+
+### Level Proximity (score 0–100, INVERSE)
+- How far is price from the OPPOSITE key level
+- Close to opposite level = lower score (risk of reversal)
+
+## STEP 5 — CONFIDENCE FORMULA
+confidence = pa_score×0.58 + candles×0.15 + regime×0.10 + indicators×0.12 + levels×0.05
+
+
+## STEP 6 — PENALTIES
+Apply these AFTER base confidence:
+- weak_trend regime: −8
+- Incomplete pattern (only 1–2 of 3 phases present): −8
+- Trading against clear trend (NOT applicable to False Breakout pattern): −10
+- Price within 0.08% of opposite level: −5
+- Neutral/doji candles dominate last 3 bars: −5
+- ATR compressed below 50% of 20-period average ATR: −4
+- chaotic_noise regime: −15 (NOT a full block — apply penalty only)
+
+## STEP 7 — HARD BLOCKS (signal suppressed regardless of score)
+Only two hard blocks remain:
+1. BUY and SELL scores differ by less than 3 points (true ambiguity)
+2. All three pattern modules score below 30 on the winning side (no pattern support at all)
+
+## STEP 8 — SIGNAL DECISION
+| Confidence | Output |
+|------------|--------|
+| ≥ 68 | Strong signal — strength 3–5/5 (scale within 68–100) |
+| 45–67 | Moderate signal — strength 2/5 |
+| < 45 | NO_SIGNAL |
+
+Signal includes: direction (BUY/SELL), strength (1–5), active pattern name, key reason in 1 line.
+
+## DESIGN PRINCIPLES
+- Prioritize giving signals in most market conditions — silence is not safe, it is lost opportunity
+- chaotic_noise should penalize, not block — chaotic markets still have tradeable moments
+- Pattern agreement matters more than one perfect module
+- Indicators confirm, they do not lead — never let indicator_score alone push a signal over threshold...
