@@ -103,9 +103,7 @@ def _mode_label(mode: str) -> str:
 def format_signal_message(signal: SignalResponse) -> str:
     if signal.direction == "NO_SIGNAL":
         d      = signal.details if isinstance(signal.details, dict) else {}
-        reject = d.get("reject_reason") or ""
         mode   = d.get("market_mode", "")
-        hard   = d.get("hard_conflicts", [])
         mode_lbl = _mode_label(mode) or d.get("regime_label", "")
 
         lines = [
@@ -114,10 +112,6 @@ def format_signal_message(signal: SignalResponse) -> str:
             f"⏳ <b>Сигнал ещё не сформировался</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
             "Условия благоприятные, но конкретной точки входа пока нет.",
         ]
-        if hard and hard[0]:
-            lines.append(f"\n<i>🚫 {html.escape(str(hard[0]))}</i>")
-        elif reject:
-            lines.append(f"\n<i>{html.escape(str(reject))}</i>")
         lines.append("")
         lines.append("Нажмите <b>«Включить мониторинг»</b>, чтобы бот сам уведомил вас когда появится сигнал, или <b>«Попробовать снова»</b> для повторной проверки прямо сейчас.")
         return "\n".join(lines)
