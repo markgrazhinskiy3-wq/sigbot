@@ -29,10 +29,6 @@ from bot.keyboards import (
 logger = logging.getLogger(__name__)
 router = Router()
 
-# Pending signal info per user — populated when signal is shown, consumed when user clicks
-# "🟢 Открываю сделку". Keyed by user_id.
-_pending_signals: dict[int, dict] = {}
-
 
 def _is_admin(user_id: int) -> bool:
     return user_id == config.ADMIN_USER_ID
@@ -498,20 +494,34 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
-        # ── Store pending signal for "🟢 Открываю сделку" button ──────────────
-        # Track_outcome starts ONLY when user confirms they placed the trade —
-        # this ensures the timer and entry price are accurate.
+        # ── Save to DB & start result watcher ─────────────────────────────────
         if signal.direction in ("BUY", "SELL"):
             d = signal.details if isinstance(signal.details, dict) else {}
-            strategy = d.get("primary_strategy")
-            _pending_signals[callback.from_user.id] = {
-                "symbol":         symbol,
-                "pair_label":     pair_label,
-                "direction":      signal.direction,
-                "confidence":     signal.confidence,
-                "strategy":       strategy,
-                "expiration_sec": expiration_sec,
-            }
+            signal_price = d.get("debug", {}).get("last_close")
+            strategy     = d.get("primary_strategy")
+
+            if signal_price:
+                outcome_id = await save_signal_outcome(
+                    user_id        = callback.from_user.id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    confidence     = signal.confidence,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                )
+                asyncio.create_task(track_outcome(
+                    bot            = callback.bot,
+                    chat_id        = callback.from_user.id,
+                    outcome_id     = outcome_id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                ))
 
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
@@ -521,82 +531,6 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
             parse_mode="HTML",
             reply_markup=back_to_menu_keyboard(),
         )
-
-
-# ─── Start trade (outcome timer) ─────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("start_trade:"))
-async def cb_start_trade(callback: CallbackQuery) -> None:
-    """
-    User clicked "🟢 Открываю сделку" — THIS is the true trade start moment.
-    We grab the current price from cache as the entry price, then start the
-    outcome tracker with a timer beginning NOW (not at signal generation).
-    """
-    if not await _check_user_access(callback):
-        return
-
-    parts = callback.data.split(":", 2)
-    if len(parts) < 3:
-        await callback.answer("Ошибка данных кнопки.")
-        return
-
-    _, symbol, sec_str = parts
-    expiration_sec = int(sec_str)
-
-    pending = _pending_signals.pop(callback.from_user.id, None)
-    if pending is None:
-        await callback.answer("Сигнал уже устарел — запросите новый.", show_alert=True)
-        return
-
-    pair_label = pending["pair_label"]
-    direction  = pending["direction"]
-    strategy   = pending.get("strategy")
-    confidence = pending.get("confidence", 0)
-
-    from services.candle_cache import get_cached
-    candles = get_cached(symbol)
-    if not candles:
-        await callback.answer("Нет данных о цене — запросите сигнал снова.", show_alert=True)
-        return
-
-    entry_price = float(candles[-1]["close"])
-
-    try:
-        outcome_id = await save_signal_outcome(
-            user_id        = callback.from_user.id,
-            symbol         = symbol,
-            pair_label     = pair_label,
-            direction      = direction,
-            confidence     = confidence,
-            strategy       = strategy,
-            expiration_sec = expiration_sec,
-            signal_price   = entry_price,
-        )
-        asyncio.create_task(track_outcome(
-            bot            = callback.bot,
-            chat_id        = callback.from_user.id,
-            outcome_id     = outcome_id,
-            symbol         = symbol,
-            pair_label     = pair_label,
-            direction      = direction,
-            strategy       = strategy,
-            expiration_sec = expiration_sec,
-            signal_price   = entry_price,
-        ))
-    except Exception as e:
-        logger.exception("Failed to save/start outcome tracking: %s", e)
-
-    exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
-    dir_text  = "ВВЕРХ ⬆️" if direction == "BUY" else "ВНИЗ ⬇️"
-
-    await callback.message.edit_text(
-        f"⏳ <b>Сделка открыта!</b>\n\n"
-        f"📊 {pair_label} · {dir_text} · {exp_label}\n"
-        f"Цена входа: <code>{entry_price:.6g}</code>\n\n"
-        f"<i>Результат придёт через {expiration_sec} сек...</i>",
-        parse_mode="HTML",
-    )
-    await callback.answer("Таймер запущен!")
 
 
 # ─── Recommended pairs ───────────────────────────────────────────────────────
