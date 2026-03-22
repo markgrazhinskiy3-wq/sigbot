@@ -34,7 +34,7 @@ import aiohttp
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from services.pocket_browser import WS_AUTH_PATH
+from services.pocket_browser import WS_AUTH_PATH, WS_AUTH_PATH_MON
 from services.pocket_browser import _candles_from_binary_frames
 
 logger = logging.getLogger(__name__)
@@ -46,15 +46,25 @@ _HISTORY_TIMEOUT = 8
 _MIN_CANDLES = 10
 
 
-def load_auth() -> dict | None:
+def load_auth(path: Path | None = None) -> dict | None:
     """Return saved auth dict {ws_url, auth} or None if not yet captured."""
+    target = path or WS_AUTH_PATH
     try:
-        if Path(WS_AUTH_PATH).exists():
-            with open(WS_AUTH_PATH) as f:
+        if Path(target).exists():
+            with open(target) as f:
                 return json.load(f)
     except Exception as e:
-        logger.warning("Could not load WS auth: %s", e)
+        logger.warning("Could not load WS auth from %s: %s", target, e)
     return None
+
+
+def load_monitor_auth() -> dict | None:
+    """Return auth for the monitoring (secondary) account, falling back to main."""
+    auth = load_auth(WS_AUTH_PATH_MON)
+    if auth:
+        return auth
+    logger.debug("Monitor WS auth not found — falling back to main auth")
+    return load_auth()
 
 
 def is_available() -> bool:
@@ -312,7 +322,7 @@ async def stream_pair(
 
     symbol format: '#EURUSD_otc'  (with leading #, same as candle_cache keys)
     """
-    auth_data = load_auth()
+    auth_data = load_monitor_auth()
     if not auth_data:
         logger.warning("stream_pair: WS auth not available")
         return

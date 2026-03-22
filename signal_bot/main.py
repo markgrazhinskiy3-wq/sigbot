@@ -15,7 +15,7 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeCha
 import config
 from db.database import init_db
 from bot.handlers import router
-from services.pocket_browser import close_browser
+from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
 import services.pairs_cache as pairs_cache
 
@@ -102,6 +102,10 @@ async def main() -> None:
     # Start candle cache — warms up all live pairs in background so signal
     # requests are served instantly from cache instead of opening a browser per user.
     start_refresher(pairs=live_pairs)
+
+    # Initialise secondary account WS auth for real-time monitoring.
+    # Runs in the background so it doesn't block bot startup.
+    asyncio.create_task(init_monitor_ws_auth())
 
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,

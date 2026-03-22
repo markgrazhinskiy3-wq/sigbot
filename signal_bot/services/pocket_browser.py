@@ -33,17 +33,20 @@ def _get_lock() -> asyncio.Lock:
 SCREENSHOTS_DIR = Path(os.path.dirname(__file__)).parent / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
-COOKIES_PATH  = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
-WS_AUTH_PATH  = Path(os.path.dirname(__file__)).parent / "po_ws_auth.json"
+COOKIES_PATH       = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
+COOKIES_PATH_MON   = Path(os.path.dirname(__file__)).parent / "po_cookies_monitor.json"
+WS_AUTH_PATH       = Path(os.path.dirname(__file__)).parent / "po_ws_auth.json"
+WS_AUTH_PATH_MON   = Path(os.path.dirname(__file__)).parent / "po_ws_auth_monitor.json"
 
 
-def _save_ws_auth(ws_url: str, auth_payload: dict) -> None:
+def _save_ws_auth(ws_url: str, auth_payload: dict, path: Path | None = None) -> None:
     """Persist the auth payload captured from the browser's WS handshake."""
+    target = path or WS_AUTH_PATH
     try:
         data = {"ws_url": ws_url, "auth": auth_payload}
-        with open(WS_AUTH_PATH, "w") as f:
+        with open(target, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info("WS auth saved → %s (uid=%s)", WS_AUTH_PATH, auth_payload.get("uid"))
+        logger.info("WS auth saved → %s (uid=%s)", target, auth_payload.get("uid"))
     except Exception as e:
         logger.warning("Could not save WS auth: %s", e)
 
@@ -514,6 +517,224 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
 
     logger.warning("Could not select asset %s from panel", slash_name)
     return False
+
+
+async def _login_with_credentials(page, login: str, password: str) -> None:
+    """Like _login() but uses custom credentials instead of config.PO_LOGIN/PASSWORD."""
+    from playwright.async_api import Page as _Page
+    logger.info("Logging into Pocket Option with secondary account (%s)", login[:4] + "***")
+    await page.goto(config.PO_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+    await page.wait_for_timeout(3000)
+
+    # Debug screenshot before filling form
+    try:
+        dbg = str(SCREENSHOTS_DIR / "monitor_login_before.png")
+        await page.screenshot(path=dbg)
+        logger.info("Secondary login debug screenshot: %s", dbg)
+    except Exception:
+        pass
+
+    email_selectors = [
+        'input[name="email"]', 'input[type="email"]',
+        'input[autocomplete="email"]', 'input[autocomplete="username"]',
+        'input[placeholder*="Email" i]', 'input[placeholder*="mail" i]',
+        '#email', '#login', 'form input:nth-of-type(1)',
+    ]
+    password_selectors = [
+        'input[name="password"]', 'input[type="password"]',
+        'input[autocomplete="current-password"]',
+        'input[placeholder*="Password" i]', '#password',
+    ]
+    submit_selectors = [
+        'button[type="submit"]', 'input[type="submit"]',
+        'button:has-text("SIGN IN")', 'button:has-text("Sign in")',
+        'button:has-text("Log in")', 'button:has-text("Login")',
+        'button:has-text("Войти")', 'form button',
+    ]
+
+    email_filled = False
+    for sel in email_selectors:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.wait_for(state="visible", timeout=3000)
+                await el.click()
+                await el.fill(login)
+                email_filled = True
+                logger.info("Secondary: email filled via %s", sel)
+                break
+        except Exception:
+            continue
+
+    password_filled = False
+    for sel in password_selectors:
+        try:
+            el = page.locator(sel).first
+            if await el.count() > 0:
+                await el.wait_for(state="visible", timeout=3000)
+                await el.click()
+                await el.fill(password)
+                password_filled = True
+                logger.info("Secondary: password filled via %s", sel)
+                break
+        except Exception:
+            continue
+
+    if not email_filled or not password_filled:
+        try:
+            dbg2 = str(SCREENSHOTS_DIR / "monitor_login_fail.png")
+            await page.screenshot(path=dbg2)
+            logger.error("Secondary: could not fill form (email=%s, pwd=%s), screenshot: %s", email_filled, password_filled, dbg2)
+        except Exception:
+            pass
+
+    clicked = False
+    for sel in submit_selectors:
+        try:
+            btn = page.locator(sel).first
+            if await btn.count() > 0:
+                await btn.wait_for(state="visible", timeout=3000)
+                await btn.click()
+                clicked = True
+                logger.info("Secondary: submit clicked via %s", sel)
+                break
+        except Exception:
+            continue
+    if not clicked:
+        await page.keyboard.press("Enter")
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=30_000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(5000)
+
+    # Debug screenshot after submit
+    try:
+        dbg3 = str(SCREENSHOTS_DIR / "monitor_login_after.png")
+        await page.screenshot(path=dbg3)
+        logger.info("Secondary login after-submit screenshot: %s (URL=%s)", dbg3, page.url)
+    except Exception:
+        pass
+
+    url = page.url.lower()
+    # Give extra time if still on intermediate page
+    if "login" in url or "auth" in url:
+        await page.wait_for_timeout(5000)
+        url = page.url.lower()
+    if "login" in url or "auth" in url:
+        raise RuntimeError(f"Secondary account login failed (URL: {url})")
+    logger.info("Secondary account login OK, URL: %s", page.url)
+
+
+async def init_monitor_ws_auth() -> bool:
+    """
+    Log in with the secondary PocketOption account (PP_LOGIN/PP_PASSWORD) in a
+    separate browser context, capture the WS auth token, save it to
+    po_ws_auth_monitor.json, then close the context.
+
+    Returns True if successful, False if credentials not configured or login fails.
+    Called once at bot startup; stream_pair() then uses this auth file.
+    """
+    if not config.PP_LOGIN or not config.PP_PASSWORD:
+        logger.warning("init_monitor_ws_auth: PP_LOGIN/PP_PASSWORD not set — monitor will share main auth")
+        return False
+
+    logger.info("Initialising monitoring WebSocket auth (secondary account)…")
+
+    from playwright.async_api import async_playwright as _ap
+
+    captured: dict = {}
+
+    def _on_ws(ws):
+        if "po.market" not in ws.url:
+            return
+        ws_url = ws.url
+        def _on_sent(msg):
+            if isinstance(msg, str) and msg.startswith('42["auth"'):
+                try:
+                    payload = json.loads(msg[2:])[1]
+                    if not captured:
+                        captured["ws_url"] = ws_url
+                        captured["auth"] = payload
+                        logger.info("Monitor WS auth captured (uid=%s)", payload.get("uid"))
+                except Exception:
+                    pass
+        ws.on("framesent", _on_sent)
+
+    playwright = await _ap().start()
+    try:
+        browser = await playwright.chromium.launch(
+            headless=config.HEADLESS,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await context.new_page()
+        page.on("websocket", _on_ws)
+
+        # Try cookie login first for secondary account
+        cookie_login_ok = False
+        if COOKIES_PATH_MON.exists():
+            try:
+                with open(COOKIES_PATH_MON) as f:
+                    mon_cookies = json.load(f)
+                if mon_cookies:
+                    await context.add_cookies(mon_cookies)
+                    logger.info("Loaded %d monitor cookies from %s", len(mon_cookies), COOKIES_PATH_MON)
+                    await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+                    await page.wait_for_timeout(3000)
+                    if "cabinet" in page.url or "trade" in page.url:
+                        cookie_login_ok = True
+                        logger.info("Monitor cookie login OK, URL: %s", page.url)
+                    else:
+                        logger.warning("Monitor cookie login failed (URL: %s), falling back to credentials", page.url)
+            except Exception as e:
+                logger.warning("Monitor cookie load error: %s", e)
+
+        if not cookie_login_ok:
+            # Fall back to credentials login
+            await _login_with_credentials(page, config.PP_LOGIN, config.PP_PASSWORD)
+            # Save cookies for future runs (avoid reCAPTCHA)
+            try:
+                saved = await context.cookies()
+                if saved:
+                    with open(COOKIES_PATH_MON, "w") as f:
+                        json.dump(saved, f, indent=2)
+                    logger.info("Saved %d monitor cookies → %s", len(saved), COOKIES_PATH_MON)
+            except Exception as e:
+                logger.warning("Could not save monitor cookies: %s", e)
+            # Navigate to trading page — this triggers the WS handshake that sends auth
+            await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+        # Wait up to 10 seconds for WS auth capture
+        for _ in range(20):
+            if captured:
+                break
+            await page.wait_for_timeout(500)
+
+        if captured:
+            _save_ws_auth(captured["ws_url"], captured["auth"], path=WS_AUTH_PATH_MON)
+            logger.info("Monitor WS auth saved to %s", WS_AUTH_PATH_MON)
+            await browser.close()
+            await playwright.stop()
+            return True
+        else:
+            logger.warning("init_monitor_ws_auth: WS auth not captured within timeout")
+            await browser.close()
+            await playwright.stop()
+            return False
+    except Exception as e:
+        logger.error("init_monitor_ws_auth failed: %s", e)
+        try:
+            await playwright.stop()
+        except Exception:
+            pass
+        return False
 
 
 async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:

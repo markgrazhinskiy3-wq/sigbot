@@ -10,6 +10,9 @@ ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
 PO_LOGIN: str = os.environ["PO_LOGIN"]
 PO_PASSWORD: str = os.environ["PO_PASSWORD"]
 
+PP_LOGIN: str = os.environ.get("PP_LOGIN", "")
+PP_PASSWORD: str = os.environ.get("PP_PASSWORD", "")
+
 AUTO_TRADE: bool = os.getenv("AUTO_TRADE", "false").lower() == "true"
 
 HEADLESS: bool = os.getenv("HEADLESS", "true").lower() == "true"
