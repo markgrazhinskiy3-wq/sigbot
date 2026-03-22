@@ -619,6 +619,106 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
         pass
 
 
+# ─── /signal — quick scan ────────────────────────────────────────────────────
+
+@router.message(Command("signal"))
+async def cmd_signal(message: Message) -> None:
+    user_id = message.from_user.id
+    status = await get_status(user_id)
+    if status != "approved":
+        await message.answer("❌ У вас нет доступа к боту.")
+        return
+
+    msg = await message.answer(
+        "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
+        parse_mode="HTML",
+    )
+
+    try:
+        pairs_map = _build_pairs_map()
+        signals = await scan_all_signals(pairs_map)
+
+        if not signals:
+            if not is_warm_up_done():
+                await msg.edit_text(
+                    "⏳ <b>Бот загружается...</b>\n\n"
+                    "Идёт начальный прогрев данных (~2–3 мин после запуска).\n\n"
+                    "<i>Подождите немного и попробуйте ещё раз.</i>",
+                    parse_mode="HTML",
+                    reply_markup=recommended_pairs_keyboard([]),
+                )
+            else:
+                await msg.edit_text(
+                    "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
+                    "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
+                    "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+                    parse_mode="HTML",
+                    reply_markup=recommended_pairs_keyboard([]),
+                )
+            return
+
+        lines = ["📊 <b>Пары с активными сигналами:</b>\n"]
+        for sig in signals:
+            lines.append(f"• {sig.pair}")
+        lines.append(
+            "\n<i>Переключитесь на нужную пару в Pocket Option, "
+            "затем нажмите на неё ниже — сигнал будет рассчитан для выбранного времени экспирации.</i>"
+        )
+
+        await msg.edit_text(
+            "\n".join(lines),
+            parse_mode="HTML",
+            reply_markup=recommended_pairs_keyboard(signals),
+        )
+
+    except Exception as e:
+        logger.exception("cmd_signal error: %s", e)
+        await msg.edit_text(
+            "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
+            parse_mode="HTML",
+            reply_markup=back_to_menu_keyboard(),
+        )
+
+
+# ─── /help ───────────────────────────────────────────────────────────────────
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    user_id = message.from_user.id
+    status = await get_status(user_id)
+
+    if status == "pending":
+        await message.answer(
+            "⏳ Ваша заявка на доступ ещё рассматривается.\n"
+            "Используйте /start чтобы проверить статус.",
+            parse_mode="HTML",
+        )
+        return
+
+    if status == "denied":
+        await message.answer("⛔ Доступ к боту запрещён.")
+        return
+
+    await message.answer(
+        "ℹ️ <b>Как пользоваться ботом</b>\n\n"
+        "1. <b>/signal</b> — быстрый скан всех OTC-пар и список лучших сигналов прямо сейчас\n"
+        "2. <b>/start</b> — главное меню с полным выбором пары и экспирации\n"
+        "3. <b>/stats</b> — ваша личная статистика: WR, число сделок, результаты по стратегиям\n\n"
+        "<b>Как торговать по сигналу:</b>\n"
+        "• Выберите пару в Pocket Option\n"
+        "• Нажмите на неё в боте → выберите экспирацию\n"
+        "• Бот рассчитает направление (BUY / SELL) и силу сигнала\n"
+        "• Открывайте сделку сразу после получения — таймер уже идёт\n\n"
+        "<b>Сила сигнала:</b>\n"
+        "🟩🟩🟩🟩🟩 — максимальная\n"
+        "🟩🟩🟩⬜⬜ — средняя\n"
+        "🟩🟩⬜⬜⬜ — умеренная\n\n"
+        "<i>Сигналы основаны на Price Action, уровнях поддержки/сопротивления и индикаторах.</i>",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
 # ─── /stats ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("stats"))

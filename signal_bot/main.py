@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 
 import config
 from db.database import init_db
@@ -47,6 +48,36 @@ def _kill_stale_instances() -> None:
         logger.warning("Could not check for stale instances: %s", e)
 
 
+async def _setup_commands(bot: Bot) -> None:
+    user_commands = [
+        BotCommand(command="signal", description="📊 Скан пар — лучшие сигналы прямо сейчас"),
+        BotCommand(command="start",  description="🏠 Главное меню"),
+        BotCommand(command="stats",  description="📈 Моя статистика"),
+        BotCommand(command="help",   description="ℹ️ Как пользоваться ботом"),
+    ]
+    admin_commands = user_commands + [
+        BotCommand(command="admin",     description="⚙️ Панель администратора"),
+        BotCommand(command="pending",   description="⏳ Заявки на одобрение"),
+        BotCommand(command="approve",   description="✅ Одобрить пользователя"),
+        BotCommand(command="deny",      description="❌ Отклонить пользователя"),
+        BotCommand(command="users",     description="👥 Список всех пользователей"),
+        BotCommand(command="broadcast", description="📢 Рассылка"),
+        BotCommand(command="debug",     description="🔬 Debug анализа пары"),
+    ]
+
+    await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
+    try:
+        await bot.set_my_commands(
+            admin_commands,
+            scope=BotCommandScopeChat(chat_id=config.ADMIN_USER_ID),
+        )
+    except Exception as e:
+        logger.warning("Could not set admin commands scope: %s", e)
+
+    logger.info("Bot command menu registered (%d user + %d admin commands)",
+                len(user_commands), len(admin_commands))
+
+
 async def main() -> None:
     _kill_stale_instances()
 
@@ -63,6 +94,8 @@ async def main() -> None:
         token=config.TELEGRAM_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
+    await _setup_commands(bot)
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
