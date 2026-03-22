@@ -18,6 +18,7 @@ from bot.handlers import router, load_admin_cache
 from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
 from services.strategy_adaptation import initialize as init_strategy_adaptation
+from services.outcome_tracker import recover_pending_outcomes
 import services.pairs_cache as pairs_cache
 
 logging.basicConfig(
@@ -125,6 +126,9 @@ async def main() -> None:
     )
 
     await _setup_commands(bot)
+
+    # Recover any pending outcomes lost due to previous restart
+    asyncio.create_task(recover_pending_outcomes(bot))
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)

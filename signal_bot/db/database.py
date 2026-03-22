@@ -423,6 +423,28 @@ async def get_performance_report(days: int | None = None) -> list[dict]:
     return result
 
 
+async def get_pending_outcomes(max_age_sec: int = 1800) -> list[dict]:
+    """
+    Return pending signal outcomes created within the last max_age_sec seconds.
+    Used at bot startup to recover tracking tasks lost due to restart.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, user_id, symbol, pair_label, direction, strategy,
+                   expiration_sec, signal_price, created_at
+            FROM signal_outcomes
+            WHERE outcome = 'pending'
+              AND created_at >= datetime('now', ?)
+            ORDER BY created_at ASC
+            """,
+            (f"-{max_age_sec} seconds",),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
 async def get_pair_outcomes(symbol: str, limit: int = 15) -> list[dict]:
     """
     Return recent resolved signal outcomes for a specific pair symbol.
