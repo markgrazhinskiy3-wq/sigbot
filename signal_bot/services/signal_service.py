@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from services.candle_cache import get_candles_cached as get_candles, get_cached_symbols
+from services.candle_cache import get_candles_cached as get_candles, get_cached_symbols, refresh_pair_now
 from services.strategy_engine import calculate_signal, SignalResult
 
 logger = logging.getLogger(__name__)
@@ -53,8 +53,11 @@ async def scan_all_signals(pairs_map: dict[str, str]) -> list[SignalResponse]:
 
 
 async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> SignalResponse:
-    logger.info("Fetching signal for %s (exp=%ds)", symbol, expiration_sec)
-    candles = await get_candles(symbol, count=80)   # more candles for level detection
+    logger.info("Fetching fresh signal for %s (exp=%ds)", symbol, expiration_sec)
+    # Always fetch fresh candles via WS before analysis; falls back to cache if WS unavailable
+    candles = await refresh_pair_now(symbol)
+    if not candles:
+        candles = await get_candles(symbol, count=80)
     result: SignalResult = calculate_signal(candles)
     return SignalResponse(
         direction=result.direction,

@@ -485,11 +485,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     )
 
     try:
-        _t0 = asyncio.get_event_loop().time()
         signal = await get_signal(symbol, pair_label, expiration_sec)
-        _elapsed = asyncio.get_event_loop().time() - _t0
-        if _elapsed < 1.2:
-            await asyncio.sleep(1.2 - _elapsed)
         text = format_signal_message(signal)
 
         kb = (

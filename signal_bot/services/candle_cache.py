@@ -239,6 +239,37 @@ def start_refresher(pairs: list[dict] | None = None) -> None:
     logger.info("Cache refresher task created for %d pairs.", len(symbols))
 
 
+async def refresh_pair_now(symbol: str) -> list[dict]:
+    """
+    Force-refresh candles for ONE symbol right now (called before a user signal).
+    - WS available: fetch fresh candles via WS, merge into cache, return full history.
+    - WS not available: return whatever is in cache (refresher keeps it ≤90s old).
+    Does NOT compete with the browser — uses WS only.
+    """
+    from services.po_ws_client import fetch_all_pairs, is_available
+    if is_available():
+        try:
+            async with asyncio.timeout(20):
+                results = await fetch_all_pairs([symbol])
+            candles = results.get(symbol, [])
+            if candles:
+                store_merge(symbol, candles)
+                entry = _cache.get(symbol)
+                if entry:
+                    logger.info(
+                        "Signal refresh via WS: %s (%d candles)", symbol, len(entry.candles)
+                    )
+                    return list(entry.candles)
+        except Exception as e:
+            logger.warning("WS signal-refresh failed for %s: %s — using cache", symbol, e)
+
+    # Fallback: use whatever is in the cache
+    cached = get_cached(symbol)
+    if cached:
+        return cached
+    return []
+
+
 async def get_candles_cached(symbol: str, count: int = 80) -> list[dict]:
     """
     Primary API for getting candles.
