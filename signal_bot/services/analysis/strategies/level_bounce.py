@@ -119,7 +119,7 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         # Check touch in last 2 bars
         touched = any(float(low[-i]) <= zone_hi and float(high[-i]) >= zone_lo
                       for i in range(1, min(3, n)))
-        if not touched and (price - zone_hi) / price * 100 > 0.1:
+        if not touched and (price - zone_hi) / price * 100 > 0.15:
             continue
 
         # Get touch count from strong levels
@@ -135,8 +135,8 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         conds["level_found"] = True
         met += 1; parts.append(f"Поддержка {sup:.5f}")
 
-        # 2. Price low within 0.1% of level in last 2 candles
-        c2 = any(abs(float(low[-i]) - sup) / sup < 0.001 for i in range(1, min(3, n)))
+        # 2. Price low within 0.2% of level in last 2 candles (relaxed from 0.1%)
+        c2 = any(abs(float(low[-i]) - sup) / sup < 0.002 for i in range(1, min(3, n)))
         conds["zone_touch"] = c2
         if c2:
             met += 1; parts.append("Касание зоны")
@@ -212,7 +212,7 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
 
         touched = any(float(high[-i]) >= zone_lo and float(low[-i]) <= zone_hi
                       for i in range(1, min(3, n)))
-        if not touched and (zone_lo - price) / price * 100 > 0.1:
+        if not touched and (zone_lo - price) / price * 100 > 0.15:
             continue
 
         touch_count = 2 if res in levels.strong_res else 1
@@ -226,7 +226,8 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         conds["level_found"] = True
         met += 1; parts.append(f"Сопротивление {res:.5f}")
 
-        c2 = any(abs(float(high[-i]) - res) / res < 0.001 for i in range(1, min(3, n)))
+        # 2. Price high within 0.2% of level in last 2 candles (relaxed from 0.1%)
+        c2 = any(abs(float(high[-i]) - res) / res < 0.002 for i in range(1, min(3, n)))
         conds["zone_touch"] = c2
         if c2:
             met += 1; parts.append("Касание зоны")

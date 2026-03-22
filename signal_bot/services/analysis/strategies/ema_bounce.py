@@ -28,7 +28,7 @@ class StrategyResult:
 
 
 _TOTAL   = 8
-_MIN_MET = 5
+_MIN_MET = 4
 
 
 def ema_bounce_strategy(
@@ -40,7 +40,7 @@ def ema_bounce_strategy(
 ) -> StrategyResult:
     """
     Returns BUY / SELL / NONE with confidence 0-100.
-    Requires >= 5 of 8 conditions met.
+    Requires >= 4 of 8 conditions met.
     """
     close = df["close"].values
     open_ = df["open"].values
@@ -129,12 +129,12 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c1:
         met += 1; parts.append("EMA выровнены вверх")
 
-    # 2. Price low touched EMA(13) zone — ±0.04% (OTC spreads make ±0.02% too tight)
-    ema13_zone = ind.ema13 * 1.0004
+    # 2. Price low touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
+    ema13_zone = ind.ema13 * 1.0007
     c2 = any(float(low[-i]) <= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 (±0.04%)")
+        met += 1; parts.append("Коснулась EMA13 (±0.07%)")
 
     # 3. Candle closed ABOVE EMA(13)
     c3 = close[-1] > ind.ema13
@@ -166,16 +166,16 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c6:
         met += 1; parts.append(f"RSI {ind.rsi:.0f} в норме")
 
-    # 7. Stochastic %K crossed above %D or %K > %D
-    c7 = ind.stoch_k > ind.stoch_d or (ind.stoch_k > ind.stoch_k_prev and ind.stoch_k_prev < ind.stoch_d)
+    # 7. Stochastic %K > %D (relaxed: no strict cross required)
+    c7 = ind.stoch_k > ind.stoch_d
     conds["stoch_turning_up"] = c7
     if c7:
-        met += 1; parts.append(f"Stoch разворот вверх ({ind.stoch_k:.0f})")
+        met += 1; parts.append(f"Stoch K>D ({ind.stoch_k:.0f}>{ind.stoch_d:.0f})")
 
-    # 8. Bounce candle shows conviction: body > 0.7× avg AND closes in upper 60% of range
+    # 8. Bounce candle shows conviction: body > 0.5× avg AND closes in upper 50% of range
     total_range = high[-1] - low[-1]
-    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.7 and
-          total_range > 0 and (close[-1] - low[-1]) / total_range > 0.6)
+    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.5 and
+          total_range > 0 and (close[-1] - low[-1]) / total_range > 0.5)
     conds["candle_conviction"] = c8
     if c8:
         met += 1; parts.append("Свеча закрылась в верхней зоне диапазона")
@@ -198,12 +198,12 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c1:
         met += 1; parts.append("EMA выровнены вниз")
 
-    # 2. Price high touched EMA(13) zone — tightened to ±0.02%
-    ema13_zone = ind.ema13 * 0.9998
+    # 2. Price high touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
+    ema13_zone = ind.ema13 * 0.9993
     c2 = any(float(high[-i]) >= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 сверху (±0.02%)")
+        met += 1; parts.append("Коснулась EMA13 сверху (±0.07%)")
 
     # 3. Candle closed BELOW EMA(13)
     c3 = close[-1] < ind.ema13
@@ -235,16 +235,16 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c6:
         met += 1; parts.append(f"RSI {ind.rsi:.0f} в норме")
 
-    # 7. Stochastic %K crossed below %D or %K < %D
-    c7 = ind.stoch_k < ind.stoch_d or (ind.stoch_k < ind.stoch_k_prev and ind.stoch_k_prev > ind.stoch_d)
+    # 7. Stochastic %K < %D (relaxed: no strict cross required)
+    c7 = ind.stoch_k < ind.stoch_d
     conds["stoch_turning_down"] = c7
     if c7:
-        met += 1; parts.append(f"Stoch разворот вниз ({ind.stoch_k:.0f})")
+        met += 1; parts.append(f"Stoch K<D ({ind.stoch_k:.0f}<{ind.stoch_d:.0f})")
 
-    # 8. Bounce candle shows conviction: body > 0.7× avg AND closes in lower 60% of range
+    # 8. Bounce candle shows conviction: body > 0.5× avg AND closes in lower 50% of range
     total_range = high[-1] - low[-1]
-    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.7 and
-          total_range > 0 and (high[-1] - close[-1]) / total_range > 0.6)
+    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.5 and
+          total_range > 0 and (high[-1] - close[-1]) / total_range > 0.5)
     conds["candle_conviction"] = c8
     if c8:
         met += 1; parts.append("Свеча закрылась в нижней зоне диапазона")

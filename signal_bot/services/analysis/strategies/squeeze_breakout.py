@@ -119,8 +119,8 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent} из последних 8)")
 
-    # 3. Current candle body > 2× avg body of last 10 and bullish
-    c3 = curr_body > avg_body_10 * 2.0 and close[-1] > open_[-1]
+    # 3. Current candle body > 1.5× avg body of last 10 and bullish (relaxed from 2.0×)
+    c3 = curr_body > avg_body_10 * 1.5 and close[-1] > open_[-1]
     conds["breakout_candle_bullish"] = c3
     if c3:
         met += 1; parts.append(f"Пробойная бычья свеча (×{curr_body/avg_body_10:.1f})")
@@ -152,9 +152,9 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     if c7:
         met += 1; parts.append("EMA5 поворачивает вверх")
 
-    # Hard reject: shadow > 50% of body or running into strong resistance
+    # Hard reject: shadow > 60% of body or running into strong resistance (relaxed from 50%)
     upper_shadow_body = upper_shadow / (curr_body + 1e-10)
-    if upper_shadow_body > 0.5:
+    if upper_shadow_body > 0.6:
         met = max(0, met - 2)   # heavy penalty
     if levels.dist_to_res_pct < 0.05:
         met = max(0, met - 2)
@@ -180,7 +180,8 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
     if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent})")
 
-    c3 = curr_body > avg_body_10 * 2.0 and close[-1] < open_[-1]
+    # 3. Current candle body > 1.5× avg body of last 10 and bearish (relaxed from 2.0×)
+    c3 = curr_body > avg_body_10 * 1.5 and close[-1] < open_[-1]
     conds["breakout_candle_bearish"] = c3
     if c3:
         met += 1; parts.append(f"Пробойная медвежья свеча (×{curr_body/avg_body_10:.1f})")
@@ -209,7 +210,7 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
         met += 1; parts.append("EMA5 поворачивает вниз")
 
     lower_shadow_body = lower_shadow / (curr_body + 1e-10)
-    if lower_shadow_body > 0.5:
+    if lower_shadow_body > 0.6:   # relaxed from 0.5
         met = max(0, met - 2)
     if levels.dist_to_sup_pct < 0.05:
         met = max(0, met - 2)
