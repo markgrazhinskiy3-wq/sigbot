@@ -41,18 +41,20 @@ def divergence_strategy(
     n     = len(df)
 
     if n < 15:
-        return _none("Мало данных для дивергенции")
+        return _none("Мало данных для дивергенции", {"early_reject": "n<15"})
 
     # Divergence works in moderate conditions — lower bar than breakouts
     if ind.atr_ratio < 0.35:
-        return _none("ATR мёртвый — рынок стоит")
+        return _none("ATR мёртвый — рынок стоит",
+                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.35",
+                      "atr_ratio": round(ind.atr_ratio, 3)})
 
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 
-    buy_met, buy_conf, buy_parts = _check_bullish_div(
+    buy_met, buy_conf, buy_parts, buy_conds = _check_bullish_div(
         close, open_, high, low, n, ind, levels, avg_body, ctx_trend_up, mode
     )
-    sell_met, sell_conf, sell_parts = _check_bearish_div(
+    sell_met, sell_conf, sell_parts, sell_conds = _check_bearish_div(
         close, open_, high, low, n, ind, levels, avg_body, ctx_trend_down, mode
     )
 
@@ -75,7 +77,12 @@ def divergence_strategy(
         total_conditions=_TOTAL,
         strategy_name="divergence",
         reasoning=reason,
-        debug={"buy_met": buy_met, "sell_met": sell_met, "rsi": round(ind.rsi, 1)}
+        debug={
+            "buy_met": buy_met, "sell_met": sell_met,
+            "rsi": round(ind.rsi, 1),
+            "buy_conditions": buy_conds,
+            "sell_conditions": sell_conds,
+        }
     )
 
 
@@ -129,10 +136,13 @@ def _approx_rsi_at(close: np.ndarray, idx: int, lookback: int, period: int = 7) 
 
 def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up, mode):
     """Bullish divergence: price makes lower low, RSI makes higher low → BUY."""
+    conds: dict[str, bool] = {}
     lookback = min(20, n - 1)
     pair = _find_two_lows(low, n, lookback)
+
+    conds["two_lows_found"] = pair is not None
     if pair is None:
-        return 0, 0.0, []
+        return 0, 0.0, [], conds
 
     i1, i2 = pair
     abs_i1 = n - lookback + i1
@@ -140,24 +150,24 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
 
     low1 = low[abs_i1]
     low2 = low[abs_i2]
-    if low2 >= low1:   # must be lower
-        return 0, 0.0, []
+    conds["second_low_is_lower"] = low2 < low1
+    if low2 >= low1:
+        return 0, 0.0, [], conds
 
     rsi1 = _approx_rsi_at(close, abs_i1, lookback)
     rsi2 = _approx_rsi_at(close, abs_i2, lookback)
 
     rsi_diff = rsi2 - rsi1
-    if rsi_diff < 5:   # divergence must be meaningful (RSI not confirming the new low)
-        return 0, 0.0, []
-    if rsi2 >= rsi1:
-        pass  # higher RSI at lower price = bullish divergence — correct!
-    else:
-        return 0, 0.0, []
+    conds["rsi_higher_at_lower_price"] = rsi2 > rsi1
+    conds["rsi_diff_significant"] = rsi_diff >= 5
+
+    if rsi_diff < 5 or rsi2 < rsi1:
+        return 0, 0.0, [], conds
 
     met = 0
     parts = []
 
-    # 1. Two price lows, second lower
+    # 1. Two price lows, second lower — already checked above
     met += 1; parts.append(f"Бычья дивергенция: цена {low2:.5f} < {low1:.5f}")
 
     # 2. RSI at second low > RSI at first low
@@ -168,15 +178,21 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
         met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
     # 4. Bullish candle appeared after second low
-    if n > abs_i2 and close[-1] > open_[-1]:
-        met += 1; parts.append("Бычья свеча после минимума")
-    elif n > abs_i2:
+    c4_bull = n > abs_i2 and close[-1] > open_[-1]
+    c4_shadow = False
+    if not c4_bull and n > abs_i2:
         lower_shadow = min(close[-1], open_[-1]) - low[-1]
-        if lower_shadow > abs(close[-1] - open_[-1]) * 1.5:
-            met += 1; parts.append("Нижняя тень (бычье давление)")
+        c4_shadow = lower_shadow > abs(close[-1] - open_[-1]) * 1.5
+    conds["bullish_candle_or_shadow"] = c4_bull or c4_shadow
+    if c4_bull:
+        met += 1; parts.append("Бычья свеча после минимума")
+    elif c4_shadow:
+        met += 1; parts.append("Нижняя тень (бычье давление)")
 
     # 5. Stochastic turning up
-    if ind.stoch_k > ind.stoch_k_prev:
+    c5 = ind.stoch_k > ind.stoch_k_prev
+    conds["stoch_turning_up"] = c5
+    if c5:
         met += 1; parts.append(f"Stoch поворачивает вверх ({ind.stoch_k:.0f})")
 
     # Confidence: conditions-driven (not hardcoded)
@@ -185,15 +201,18 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
     if abs(rsi_diff) > 10:                          base_conf += 7  # strong divergence
     if mode == "RANGE":                             base_conf += 5
 
-    return met, base_conf, parts
+    return met, base_conf, parts, conds
 
 
 def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_down, mode):
     """Bearish divergence: price makes higher high, RSI makes lower high → SELL."""
+    conds: dict[str, bool] = {}
     lookback = min(20, n - 1)
     pair = _find_two_highs(high, n, lookback)
+
+    conds["two_highs_found"] = pair is not None
     if pair is None:
-        return 0, 0.0, []
+        return 0, 0.0, [], conds
 
     i1, i2 = pair
     abs_i1 = n - lookback + i1
@@ -201,17 +220,19 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
 
     high1 = high[abs_i1]
     high2 = high[abs_i2]
+    conds["second_high_is_higher"] = high2 > high1
     if high2 <= high1:
-        return 0, 0.0, []
+        return 0, 0.0, [], conds
 
     rsi1 = _approx_rsi_at(close, abs_i1, lookback)
     rsi2 = _approx_rsi_at(close, abs_i2, lookback)
 
     rsi_diff = rsi1 - rsi2   # rsi2 < rsi1 at higher price = bearish divergence
-    if rsi_diff < 5:
-        return 0, 0.0, []
-    if rsi2 >= rsi1:
-        return 0, 0.0, []
+    conds["rsi_lower_at_higher_price"] = rsi2 < rsi1
+    conds["rsi_diff_significant"] = rsi_diff >= 5
+
+    if rsi_diff < 5 or rsi2 >= rsi1:
+        return 0, 0.0, [], conds
 
     met = 0
     parts = []
@@ -222,14 +243,20 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     if rsi_diff > 5:
         met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
-    if n > abs_i2 and close[-1] < open_[-1]:
-        met += 1; parts.append("Медвежья свеча после максимума")
-    elif n > abs_i2:
+    c4_bear = n > abs_i2 and close[-1] < open_[-1]
+    c4_shadow = False
+    if not c4_bear and n > abs_i2:
         upper_shadow = high[-1] - max(close[-1], open_[-1])
-        if upper_shadow > abs(close[-1] - open_[-1]) * 1.5:
-            met += 1; parts.append("Верхняя тень (медвежье давление)")
+        c4_shadow = upper_shadow > abs(close[-1] - open_[-1]) * 1.5
+    conds["bearish_candle_or_shadow"] = c4_bear or c4_shadow
+    if c4_bear:
+        met += 1; parts.append("Медвежья свеча после максимума")
+    elif c4_shadow:
+        met += 1; parts.append("Верхняя тень (медвежье давление)")
 
-    if ind.stoch_k < ind.stoch_k_prev:
+    c5 = ind.stoch_k < ind.stoch_k_prev
+    conds["stoch_turning_down"] = c5
+    if c5:
         met += 1; parts.append(f"Stoch поворачивает вниз ({ind.stoch_k:.0f})")
 
     # Confidence: conditions-driven (not hardcoded)
@@ -238,7 +265,7 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     if rsi_diff > 10:                                   base_conf += 7
     if mode == "RANGE":                                 base_conf += 5
 
-    return met, base_conf, parts
+    return met, base_conf, parts, conds
 
 
 def _divergence_at_level(price: float, levels: list[float]) -> bool:
@@ -246,5 +273,6 @@ def _divergence_at_level(price: float, levels: list[float]) -> bool:
     return any(abs(price - lvl) / max(price, 1e-10) < 0.002 for lvl in levels)
 
 
-def _none(reason: str) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "divergence", reason, {})
+def _none(reason: str, extra: dict | None = None) -> StrategyResult:
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "divergence", reason,
+                          extra or {})

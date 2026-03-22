@@ -40,20 +40,22 @@ def squeeze_breakout_strategy(
     n     = len(df)
 
     if n < 15:
-        return _none("Мало данных")
+        return _none("Мало данных", {"early_reject": "n<15"})
 
     # Squeeze breakouts need real energy to follow through
     if ind.atr_ratio < 0.50:
-        return _none("ATR слишком мал для пробоя")
+        return _none("ATR слишком мал для пробоя",
+                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.50",
+                      "atr_ratio": round(ind.atr_ratio, 3)})
 
     price    = close[-1]
     avg_body_30 = float(np.mean(np.abs(close[-min(30, n):] - open_[-min(30, n):]))) or 1e-8
     avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
     curr_body   = abs(close[-1] - open_[-1])
 
-    # ── BUY check ──────────────────────────────────────────────────────────────
-    buy_met, buy_parts = _check_buy(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
-    sell_met, sell_parts = _check_sell(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
+    # ── BUY / SELL check ───────────────────────────────────────────────────────
+    buy_met, buy_parts, buy_conds   = _check_buy(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
+    sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
 
     direction = "NONE"
     conditions_met = 0
@@ -90,44 +92,64 @@ def squeeze_breakout_strategy(
         total_conditions=_TOTAL,
         strategy_name="squeeze_breakout",
         reasoning=reason,
-        debug={"buy_met": buy_met, "sell_met": sell_met, "avg_body_30": round(avg_body_30, 6)}
+        debug={
+            "buy_met": buy_met, "sell_met": sell_met,
+            "avg_body_30": round(avg_body_30, 6),
+            "buy_conditions": buy_conds,
+            "sell_conditions": sell_conds,
+        }
     )
 
 
 def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_body_10, curr_body, levels: LevelSet):
     met = 0
     parts = []
+    conds: dict[str, bool] = {}
 
     # 1. ATR(10) recent < avg_30 × 0.7 — compressed volatility
-    if ind.atr_ratio < 0.7:
+    c1 = ind.atr_ratio < 0.7
+    conds["atr_compressed"] = c1
+    if c1:
         met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
     # 2. Last 5-8 bodies < 60% of avg_30
     small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-    if small_recent >= 5:
+    c2 = small_recent >= 5
+    conds["small_candles_compressed"] = c2
+    if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent} из последних 8)")
 
-    # 3. Current candle body > 2× avg body of last 10
-    if curr_body > avg_body_10 * 2.0 and close[-1] > open_[-1]:
+    # 3. Current candle body > 2× avg body of last 10 and bullish
+    c3 = curr_body > avg_body_10 * 2.0 and close[-1] > open_[-1]
+    conds["breakout_candle_bullish"] = c3
+    if c3:
         met += 1; parts.append(f"Пробойная бычья свеча (×{curr_body/avg_body_10:.1f})")
 
     # 4. Close > upper BB or > highest high of last 8 candles
     high_8 = float(max(high[-min(9, n):-1])) if n >= 2 else float(high[-1])
-    if close[-1] > ind.bb_upper or close[-1] > high_8:
+    c4 = close[-1] > ind.bb_upper or close[-1] > high_8
+    conds["breaks_bb_or_range"] = c4
+    if c4:
         met += 1; parts.append("Пробой вверх (BB/диапазон)")
 
     # 5. Shadow against direction < 30% of candle range
     total_range = high[-1] - low[-1]
     upper_shadow = high[-1] - max(close[-1], open_[-1])
-    if total_range > 0 and upper_shadow / total_range < 0.3:
+    c5 = total_range > 0 and upper_shadow / total_range < 0.3
+    conds["small_upper_shadow"] = c5
+    if c5:
         met += 1; parts.append("Малая верхняя тень")
 
     # 6. Momentum > 0 and positive
-    if ind.momentum > 0:
+    c6 = ind.momentum > 0
+    conds["momentum_positive"] = c6
+    if c6:
         met += 1; parts.append(f"Моментум растёт ({ind.momentum:+.5f})")
 
     # 7. EMA(5) turning up or already > EMA(13)
-    if ind.ema5 >= ind.ema13 or ind.ema5 > float(ind.ema5_series.iloc[-2]):
+    c7 = ind.ema5 >= ind.ema13 or ind.ema5 > float(ind.ema5_series.iloc[-2])
+    conds["ema5_turning_up"] = c7
+    if c7:
         met += 1; parts.append("EMA5 поворачивает вверх")
 
     # Hard reject: shadow > 50% of body or running into strong resistance
@@ -139,36 +161,51 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     if ind.rsi > 82:
         met = 0   # exhausted
 
-    return met, parts
+    return met, parts, conds
 
 
 def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_body_10, curr_body, levels: LevelSet):
     met = 0
     parts = []
+    conds: dict[str, bool] = {}
 
-    if ind.atr_ratio < 0.7:
+    c1 = ind.atr_ratio < 0.7
+    conds["atr_compressed"] = c1
+    if c1:
         met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
     small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-    if small_recent >= 5:
+    c2 = small_recent >= 5
+    conds["small_candles_compressed"] = c2
+    if c2:
         met += 1; parts.append(f"Сжатые свечи ({small_recent})")
 
-    if curr_body > avg_body_10 * 2.0 and close[-1] < open_[-1]:
+    c3 = curr_body > avg_body_10 * 2.0 and close[-1] < open_[-1]
+    conds["breakout_candle_bearish"] = c3
+    if c3:
         met += 1; parts.append(f"Пробойная медвежья свеча (×{curr_body/avg_body_10:.1f})")
 
     low_8 = float(min(low[-min(9, n):-1])) if n >= 2 else float(low[-1])
-    if close[-1] < ind.bb_lower or close[-1] < low_8:
+    c4 = close[-1] < ind.bb_lower or close[-1] < low_8
+    conds["breaks_bb_or_range"] = c4
+    if c4:
         met += 1; parts.append("Пробой вниз (BB/диапазон)")
 
     total_range = high[-1] - low[-1]
     lower_shadow = min(close[-1], open_[-1]) - low[-1]
-    if total_range > 0 and lower_shadow / total_range < 0.3:
+    c5 = total_range > 0 and lower_shadow / total_range < 0.3
+    conds["small_lower_shadow"] = c5
+    if c5:
         met += 1; parts.append("Малая нижняя тень")
 
-    if ind.momentum < 0:
+    c6 = ind.momentum < 0
+    conds["momentum_negative"] = c6
+    if c6:
         met += 1; parts.append(f"Моментум падает ({ind.momentum:+.5f})")
 
-    if ind.ema5 <= ind.ema13 or ind.ema5 < float(ind.ema5_series.iloc[-2]):
+    c7 = ind.ema5 <= ind.ema13 or ind.ema5 < float(ind.ema5_series.iloc[-2])
+    conds["ema5_turning_down"] = c7
+    if c7:
         met += 1; parts.append("EMA5 поворачивает вниз")
 
     lower_shadow_body = lower_shadow / (curr_body + 1e-10)
@@ -179,8 +216,9 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
     if ind.rsi < 18:
         met = 0
 
-    return met, parts
+    return met, parts, conds
 
 
-def _none(reason: str) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "squeeze_breakout", reason, {})
+def _none(reason: str, extra: dict | None = None) -> StrategyResult:
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "squeeze_breakout", reason,
+                          extra or {})

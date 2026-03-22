@@ -255,6 +255,19 @@ def run_decision_engine(
                 res.confidence = res.confidence * multiplier
 
             pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
+            # Pull per-condition breakdown from strategy debug
+            # Direction that fired determines which side's conditions to show
+            if res.direction == "BUY":
+                conds = res.debug.get("buy_conditions", {})
+            elif res.direction == "SELL":
+                conds = res.debug.get("sell_conditions", {})
+            else:
+                # NO_SIGNAL: show whichever side had more conditions met
+                buy_c  = res.debug.get("buy_conditions", {})
+                sell_c = res.debug.get("sell_conditions", {})
+                buy_n  = res.debug.get("buy_met", 0)
+                sell_n = res.debug.get("sell_met", 0)
+                conds  = buy_c if buy_n >= sell_n else sell_c
             debug_strategies[name] = {
                 "direction": res.direction,
                 "confidence": round(res.confidence, 1),
@@ -263,6 +276,8 @@ def run_decision_engine(
                 "pct": round(pct * 100),
                 "adaptation_multiplier": multiplier,
                 "tier": "primary" if name in routing["primary"] else "secondary",
+                "early_reject": res.debug.get("early_reject"),
+                "conditions": conds,
             }
             if res.direction in ("BUY", "SELL") and pct >= 0.55 and res.confidence > 10:
                 fired.append(res)

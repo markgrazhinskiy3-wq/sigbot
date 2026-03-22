@@ -41,19 +41,20 @@ def level_bounce_strategy(
     n     = len(df)
 
     if n < 6:
-        return _none("Мало данных")
+        return _none("Мало данных", {"early_reject": "n<6"})
 
     # Hard reject: dead market
-    # Level bounces work even in calmer markets — lower ATR bar than breakouts
     if ind.atr_ratio < 0.30:
-        return _none("ATR мёртвый — рынок стоит")
+        return _none("ATR мёртвый — рынок стоит",
+                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.30",
+                      "atr_ratio": round(ind.atr_ratio, 3)})
 
     price    = float(close[-1])
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
     tolerance = max(0.001, avg_body / price) * price  # max(0.1%, avg_body_pct)
 
-    best_buy  = _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, ind, levels)
-    best_sell = _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance, ind, levels)
+    best_buy, buy_conds   = _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, ind, levels)
+    best_sell, sell_conds = _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance, ind, levels)
 
     direction = "NONE"
     conditions_met = 0
@@ -91,13 +92,25 @@ def level_bounce_strategy(
         total_conditions=_TOTAL,
         strategy_name="level_bounce",
         reasoning=reason,
-        debug={"buy_score": best_buy[0], "sell_score": best_sell[0]}
+        debug={
+            "buy_score": best_buy[0], "sell_score": best_sell[0],
+            "buy_conditions": buy_conds,
+            "sell_conditions": sell_conds,
+        }
     )
 
 
 def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, ind, levels: LevelSet):
-    """Returns (base_conf, conditions_met, reasoning, touch_count)."""
+    """Returns ((base_conf, conditions_met, reasoning, touch_count), conds_dict)."""
     best = (0.0, 0, "", 0)
+    best_conds: dict[str, bool] = {}
+
+    n_sup = len(levels.supports[:5])
+    best_conds["levels_available"] = n_sup > 0
+
+    if n_sup == 0:
+        best_conds["level_found"] = False
+        return best, best_conds
 
     for sup in levels.supports[:5]:
         zone_lo = sup - tolerance
@@ -114,19 +127,28 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if touch_count < 2:
             continue  # must have 2+ touches
 
+        conds: dict[str, bool] = {}
         met = 0
         parts = []
 
         # 1. Support level with 2+ touches
+        conds["level_found"] = True
         met += 1; parts.append(f"Поддержка {sup:.5f}")
 
         # 2. Price low within 0.1% of level in last 2 candles
-        if any(abs(float(low[-i]) - sup) / sup < 0.001 for i in range(1, min(3, n))):
+        c2 = any(abs(float(low[-i]) - sup) / sup < 0.001 for i in range(1, min(3, n)))
+        conds["zone_touch"] = c2
+        if c2:
             met += 1; parts.append("Касание зоны")
 
         # 3. Reversal pattern — required, no pattern → skip this level
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
+        conds["reversal_pattern"] = pat.pattern != "none"
+        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
         if pat.pattern == "none":
+            # Record partial conds even though we skip this level
+            if met > best[1]:
+                best_conds = conds
             continue
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
@@ -136,19 +158,27 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
 
         # 4. Current candle closed ABOVE support
-        if float(close[-1]) > zone_lo:
+        c4 = float(close[-1]) > zone_lo
+        conds["close_above_support"] = c4
+        if c4:
             met += 1; parts.append("Закрылась выше поддержки")
 
         # 5. RSI < 35
-        if ind.rsi < 35:
+        c5 = ind.rsi < 35
+        conds["rsi_oversold"] = c5
+        if c5:
             met += 1; parts.append(f"RSI перепродан ({ind.rsi:.0f})")
 
         # 6. Stoch < 25 turning up
-        if ind.stoch_k < 25 and ind.stoch_k > ind.stoch_k_prev:
+        c6 = ind.stoch_k < 25 and ind.stoch_k > ind.stoch_k_prev
+        conds["stoch_turning_up"] = c6
+        if c6:
             met += 1; parts.append(f"Stoch разворот ({ind.stoch_k:.0f})")
 
         # 7. Room to resistance > 0.15%
-        if levels.dist_to_res_pct > 0.15:
+        c7 = levels.dist_to_res_pct > 0.15
+        conds["room_to_resistance"] = c7
+        if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_res_pct:.2f}%")
 
         # Confidence: conditions-driven + pattern quality bonus
@@ -159,13 +189,22 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
 
         if conf > best[0] and met >= 4:
             best = (conf, met, " | ".join(parts), touch_count)
+            best_conds = conds
 
-    return best
+    return best, best_conds
 
 
 def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance, ind, levels: LevelSet):
-    """Returns (base_conf, conditions_met, reasoning, touch_count)."""
+    """Returns ((base_conf, conditions_met, reasoning, touch_count), conds_dict)."""
     best = (0.0, 0, "", 0)
+    best_conds: dict[str, bool] = {}
+
+    n_res = len(levels.resistances[:5])
+    best_conds["levels_available"] = n_res > 0
+
+    if n_res == 0:
+        best_conds["level_found"] = False
+        return best, best_conds
 
     for res in levels.resistances[:5]:
         zone_lo = res - tolerance
@@ -180,16 +219,24 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         if touch_count < 2:
             continue
 
+        conds: dict[str, bool] = {}
         met = 0
         parts = []
 
+        conds["level_found"] = True
         met += 1; parts.append(f"Сопротивление {res:.5f}")
 
-        if any(abs(float(high[-i]) - res) / res < 0.001 for i in range(1, min(3, n))):
+        c2 = any(abs(float(high[-i]) - res) / res < 0.001 for i in range(1, min(3, n)))
+        conds["zone_touch"] = c2
+        if c2:
             met += 1; parts.append("Касание зоны")
 
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
+        conds["reversal_pattern"] = pat.pattern != "none"
+        conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
         if pat.pattern == "none":
+            if met > best[1]:
+                best_conds = conds
             continue
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
@@ -198,16 +245,24 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         elif pat.pattern == "hammer":
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
 
-        if float(close[-1]) < zone_hi:
+        c4 = float(close[-1]) < zone_hi
+        conds["close_below_resistance"] = c4
+        if c4:
             met += 1; parts.append("Закрылась ниже сопротивления")
 
-        if ind.rsi > 65:
+        c5 = ind.rsi > 65
+        conds["rsi_overbought"] = c5
+        if c5:
             met += 1; parts.append(f"RSI перекуплен ({ind.rsi:.0f})")
 
-        if ind.stoch_k > 75 and ind.stoch_k < ind.stoch_k_prev:
+        c6 = ind.stoch_k > 75 and ind.stoch_k < ind.stoch_k_prev
+        conds["stoch_turning_down"] = c6
+        if c6:
             met += 1; parts.append(f"Stoch разворот ({ind.stoch_k:.0f})")
 
-        if levels.dist_to_sup_pct > 0.15:
+        c7 = levels.dist_to_sup_pct > 0.15
+        conds["room_to_support"] = c7
+        if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_sup_pct:.2f}%")
 
         # Confidence: conditions-driven + pattern quality bonus
@@ -218,9 +273,11 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
 
         if conf > best[0] and met >= 4:
             best = (conf, met, " | ".join(parts), touch_count)
+            best_conds = conds
 
-    return best
+    return best, best_conds
 
 
-def _none(reason: str) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "level_bounce", reason, {})
+def _none(reason: str, extra: dict | None = None) -> StrategyResult:
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "level_bounce", reason,
+                          extra or {})

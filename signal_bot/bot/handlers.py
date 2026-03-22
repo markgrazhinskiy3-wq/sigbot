@@ -545,9 +545,22 @@ async def cmd_debug(message: Message) -> None:
             fired = "✅" if sdir in ("BUY", "SELL") else "❌"
             mult  = sd.get("adaptation_multiplier", 1.0)
             mult_str = f" ×{mult:.2f}" if mult != 1.0 else ""
+            early = sd.get("early_reject")
             lines.append(
-                f"  {icon} {sname}: {fired} {sdir} | {scm}/{stot} ({spct}%) | conf={sconf}{mult_str}"
+                f"  {icon} <b>{sname}</b>: {fired} {sdir} | {scm}/{stot} ({spct}%) | conf={sconf}{mult_str}"
             )
+            if early:
+                lines.append(f"    ⛔ Ранний отказ: {early}")
+            # Per-condition breakdown
+            conds = sd.get("conditions", {})
+            if conds:
+                for cname, cval in conds.items():
+                    if isinstance(cval, bool):
+                        mark = "✅" if cval else "❌"
+                        lines.append(f"    {mark} {cname}")
+                    elif isinstance(cval, str):
+                        # e.g. pattern_type = "pin_bar" — show as info
+                        lines.append(f"    ℹ️ {cname}: {cval}")
 
     # ── Final decision ───────────────────────────────────────────────────────
     lines.append("")
