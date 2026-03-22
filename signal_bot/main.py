@@ -15,6 +15,7 @@ import config
 from db.database import init_db
 from bot.handlers import router
 from services.pocket_browser import close_browser
+from services.candle_cache import start_refresher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +54,10 @@ async def main() -> None:
     await init_db()
 
     logger.info("Starting Pocket Option Signal Bot")
+
+    # Start candle cache — warms up all pairs in background so signal requests
+    # are served instantly from cache instead of opening a browser per user.
+    start_refresher()
 
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,

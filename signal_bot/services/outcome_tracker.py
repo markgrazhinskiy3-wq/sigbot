@@ -15,7 +15,7 @@ from aiogram import Bot
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from db.database import resolve_outcome
-from services.pocket_browser import get_candles
+from services.candle_cache import get_candles_cached as get_candles
 from bot.keyboards import after_result_keyboard
 
 logger = logging.getLogger(__name__)
