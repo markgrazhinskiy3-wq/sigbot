@@ -35,6 +35,15 @@ from .strategies   import (
     divergence_strategy,
 )
 
+# Strategy adaptation — optional import, falls back gracefully if unavailable
+try:
+    from services.strategy_adaptation import is_strategy_enabled, get_confidence_multiplier as _get_multiplier
+    _ADAPTATION_AVAILABLE = True
+except ImportError:
+    def is_strategy_enabled(name: str) -> bool: return True       # type: ignore[misc]
+    def _get_multiplier(name: str) -> float: return 1.0           # type: ignore[misc]
+    _ADAPTATION_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -145,6 +154,12 @@ def run_decision_engine(
         fn = _STRATEGY_FNS.get(name)
         if fn is None:
             continue
+
+        # Strategy adaptation: skip DISABLED strategies entirely
+        if not is_strategy_enabled(name):
+            debug_strategies[name] = {"status": "DISABLED", "skipped": True}
+            continue
+
         try:
             kwargs = dict(
                 df=df1m, ind=ind, levels=levels,
@@ -157,6 +172,11 @@ def run_decision_engine(
             logger.warning("Strategy %s failed: %s", name, e)
             continue
 
+        # Strategy adaptation: apply confidence multiplier (WEAKENED/PROBATION penalty)
+        multiplier = _get_multiplier(name)
+        if multiplier != 1.0:
+            res.confidence = res.confidence * multiplier
+
         pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
         debug_strategies[name] = {
             "direction": res.direction,
@@ -164,6 +184,7 @@ def run_decision_engine(
             "conditions_met": res.conditions_met,
             "total": res.total_conditions,
             "pct": round(pct * 100),
+            "adaptation_multiplier": multiplier,
         }
 
         # Must meet ≥ 60% of conditions and have a real direction

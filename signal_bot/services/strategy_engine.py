@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from services.analysis.candle_validator import validate_and_fix
 from services.analysis.decision_engine  import run_decision_engine, EngineResult
 from services.candle_cache              import resample_to_5m
+from services.strategy_adaptation      import update_strategy_statuses
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class SignalResult:
     details:    dict  # full analysis breakdown
 
 
-def calculate_signal(
+async def calculate_signal(
     candles: list[dict],
     raised_threshold: bool = False,
 ) -> SignalResult:
@@ -35,6 +36,12 @@ def calculate_signal(
         raised_threshold: True after 2 consecutive losses → raise min confidence to 70
     """
     n_raw = len(candles)
+
+    # Strategy adaptation: refresh statuses (cached 60s — no-op most of the time)
+    try:
+        await update_strategy_statuses()
+    except Exception:
+        pass  # never block signal calculation
 
     # ── Validate & clean ──────────────────────────────────────────────────────
     df, val = validate_and_fix(candles)

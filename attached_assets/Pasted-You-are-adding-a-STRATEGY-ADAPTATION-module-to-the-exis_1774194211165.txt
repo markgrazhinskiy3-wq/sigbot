@@ -1,0 +1,226 @@
+You are adding a STRATEGY ADAPTATION module to the existing
+binary options signal bot. This module silently tracks each
+strategy's performance and adjusts their usage based on
+real results from the signal_outcomes table.
+
+This is INTERNAL logic only. The user sees NOTHING about
+strategy adaptation — no messages, no notifications, no
+status lines. The user simply receives better signals.
+
+═══════════════════════════════════════
+DATA SOURCE
+═══════════════════════════════════════
+
+Table: signal_outcomes
+Columns used:
+  - strategy: strategy name (e.g. "EMA Bounce")
+  - outcome: "WIN" or "LOSE"
+  - created_at: timestamp
+  - confidence: 0-100
+
+═══════════════════════════════════════
+WHEN TO RECALCULATE
+═══════════════════════════════════════
+
+Recalculate strategy statuses:
+  - Every time calculate_signal() is called
+    (every 15 seconds during monitoring)
+  - This is lightweight — just a few DB queries
+  - Cache results for 60 seconds to avoid
+    querying DB every 15 seconds
+
+So effectively: recalculate once per minute.
+
+═══════════════════════════════════════
+HOW TO CALCULATE
+═══════════════════════════════════════
+
+For each of the 6 strategies:
+
+1. Query signal_outcomes:
+   SELECT outcome FROM signal_outcomes
+   WHERE strategy = [strategy_name]
+   ORDER BY created_at DESC
+   LIMIT 20
+
+2. If fewer than 8 results → status = ACTIVE (not enough data)
+
+3. If 8+ results:
+   winrate = count(outcome = "WIN") / total_results
+
+4. Assign status based on winrate:
+
+   winrate >= 50%  → ACTIVE
+     Strategy works normally.
+     No changes to confidence or thresholds.
+
+   winrate 38-49%  → WEAKENED
+     Strategy still runs, but its confidence is penalized.
+     Multiply signal confidence by 0.85.
+     Example: strategy returns confidence 70 → becomes 59.
+     This means only very strong signals from this
+     strategy will pass the threshold.
+
+   winrate < 38%   → DISABLED
+     Strategy is completely skipped.
+     calculate_signal() does not run this strategy at all.
+     Saves processing time and prevents bad signals.
+
+═══════════════════════════════════════
+RE-EVALUATION OF DISABLED STRATEGIES
+═══════════════════════════════════════
+
+A disabled strategy should not stay disabled forever.
+Market conditions change.
+
+Every 20 minutes:
+  - Check if a disabled strategy has been off for 20+ minutes
+  - If yes → set status to PROBATION
+  
+PROBATION status:
+  - Strategy is re-enabled but with confidence × 0.80
+  - It runs normally and generates signals (with penalty)
+  - After 5 new results accumulate for this strategy:
+    → Recalculate winrate from these 5 new results ONLY
+    → If 3+ wins (60%+) → status = ACTIVE (fully restored)
+    → If 2 wins (40%) → status = WEAKENED
+    → If 0-1 wins → status = DISABLED again (another 20 min)
+
+═══════════════════════════════════════
+SAFETY: MINIMUM ACTIVE STRATEGIES
+═══════════════════════════════════════
+
+The bot must always have at least 2 active strategies.
+
+If disabling a strategy would leave fewer than 2
+ACTIVE or WEAKENED strategies:
+  → Do NOT disable it
+  → Set to WEAKENED instead (confidence × 0.85)
+
+This prevents a situation where all strategies are off
+and the bot gives zero signals.
+
+═══════════════════════════════════════
+IMPLEMENTATION
+═══════════════════════════════════════
+
+Data structure (in memory):
+
+  strategy_status = {
+    "EMA Bounce": {
+      "status": "ACTIVE",       # ACTIVE / WEAKENED / DISABLED / PROBATION
+      "winrate": 0.75,
+      "total_signals": 18,
+      "confidence_multiplier": 1.0,  # 1.0 / 0.85 / 0.80 / 0
+      "disabled_at": None,      # timestamp when disabled
+      "probation_results": []   # results during probation
+    },
+    ...
+  }
+
+Functions:
+
+  def update_strategy_statuses():
+    """
+    Called once per minute (cached).
+    Queries signal_outcomes for each strategy.
+    Updates strategy_status dict.
+    Handles DISABLED → PROBATION transition (20 min check).
+    """
+
+  def get_confidence_multiplier(strategy_name) → float:
+    """
+    Called by calculate_signal() for each strategy.
+    Returns:
+      1.0  if ACTIVE
+      0.85 if WEAKENED
+      0.80 if PROBATION
+      0.0  if DISABLED (signal should be skipped entirely)
+    """
+
+  def is_strategy_enabled(strategy_name) → bool:
+    """
+    Quick check. Returns False only if DISABLED.
+    Called before running strategy to skip it entirely.
+    """
+
+  def record_probation_result(strategy_name, outcome):
+    """
+    Called when a signal from a PROBATION strategy gets
+    a result. Adds to probation_results list.
+    When 5 results accumulated → evaluate and transition.
+    """
+
+═══════════════════════════════════════
+INTEGRATION WITH calculate_signal()
+═══════════════════════════════════════
+
+In the existing calculate_signal() function, add:
+
+  BEFORE running each strategy:
+    if not is_strategy_enabled(strategy_name):
+      skip this strategy entirely
+
+  AFTER strategy returns a confidence score:
+    multiplier = get_confidence_multiplier(strategy_name)
+    adjusted_confidence = confidence * multiplier
+
+  Use adjusted_confidence for threshold comparison:
+    if adjusted_confidence >= signal_threshold:
+      send signal
+
+The rest of calculate_signal() stays exactly the same.
+Strategies themselves are NOT modified. Only their output
+confidence is adjusted.
+
+═══════════════════════════════════════
+STARTUP BEHAVIOR
+═══════════════════════════════════════
+
+When bot starts:
+  - Query signal_outcomes for recent data (last 3 hours)
+  - If data exists → calculate statuses immediately
+  - If no data → all strategies start as ACTIVE
+  - First recalculation happens after 8+ results exist
+
+═══════════════════════════════════════
+EXAMPLE SCENARIO
+═══════════════════════════════════════
+
+Bot has been running for 2 hours. signal_outcomes has data.
+
+update_strategy_statuses() runs:
+
+  EMA Bounce:      14/18 = 78% → ACTIVE      (× 1.0)
+  Level Bounce:     9/15 = 60% → ACTIVE      (× 1.0)
+  Squeeze Breakout: 5/8  = 63% → ACTIVE      (× 1.0)
+  Micro Breakout:   7/12 = 58% → ACTIVE      (× 1.0)
+  Divergence:       5/11 = 45% → WEAKENED    (× 0.85)
+  RSI Reversal:     3/10 = 30% → DISABLED    (× 0.0)
+
+Next signal check:
+  - RSI Reversal is skipped (not even calculated)
+  - Divergence finds a signal with confidence 72
+    → 72 × 0.85 = 61 → still above 52 threshold → sent
+  - Divergence finds a signal with confidence 58
+    → 58 × 0.85 = 49 → below threshold → filtered out
+  - EMA Bounce finds a signal with confidence 55
+    → 55 × 1.0 = 55 → above threshold → sent
+
+20 minutes later:
+  - RSI Reversal transitions to PROBATION (× 0.80)
+  - It starts generating signals again (penalized)
+  - After 5 results: 3 wins → back to ACTIVE
+
+═══════════════════════════════════════
+WHAT THIS MODULE DOES NOT DO
+═══════════════════════════════════════
+
+- Does NOT change bot operating modes (no STRICT/COOLDOWN)
+- Does NOT notify the user about anything
+- Does NOT modify strategy code or parameters
+- Does NOT affect pair recommendations
+- Does NOT change the signal threshold (52 stays 52)
+
+It ONLY adjusts confidence multiplier per strategy
+based on real performance data. Simple and effective.

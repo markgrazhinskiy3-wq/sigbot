@@ -93,7 +93,7 @@ async def _monitor_pair(
 
         # Run signal engine directly on fresh candles (no extra WS connection)
         try:
-            result: SignalResult = calculate_signal(candles)
+            result: SignalResult = await calculate_signal(candles)
         except Exception as exc:
             logger.debug("Monitor signal calc failed (check %d): %s", checks, exc)
             return False
@@ -668,7 +668,7 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
         from services.strategy_engine import calculate_signal
         candles = get_cached(symbol)
         if candles:
-            result = calculate_signal(candles)
+            result = await calculate_signal(candles)
             hint = (result.details or {}).get("expiry_hint", "")
             if hint == "1m":
                 recommended_sec = 60

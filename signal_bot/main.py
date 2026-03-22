@@ -17,6 +17,7 @@ from db.database import init_db
 from bot.handlers import router
 from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
+from services.strategy_adaptation import initialize as init_strategy_adaptation
 import services.pairs_cache as pairs_cache
 
 logging.basicConfig(
@@ -85,6 +86,9 @@ async def main() -> None:
 
     logger.info("Initializing Signal Bot database...")
     await init_db()
+
+    logger.info("Initializing strategy adaptation module...")
+    await init_strategy_adaptation()
 
     logger.info("Starting Pocket Option Signal Bot")
 
