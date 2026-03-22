@@ -34,6 +34,33 @@ _STRATEGY_LABELS = {
 }
 
 
+def _build_explanation(outcome: str, direction: str, strategy: str, pct: float) -> str:
+    """Return a short plain-text explanation of why the trade won or lost."""
+    if outcome == "win":
+        if pct >= 0.05:
+            return "Цена уверенно пошла в нужную сторону — сигнал отработал чисто."
+        else:
+            return "Цена едва сдвинулась в нужную сторону — победа по минимуму."
+
+    # outcome == "loss" — explain by strategy
+    strategy_reasons = {
+        "ema_bounce":       "Цена не удержалась у скользящей средней — рынок продолжил движение против сигнала.",
+        "squeeze_breakout": "Пробой не получил продолжения — возможно это был ложный пробой.",
+        "level_bounce":     "Уровень не удержал цену — давление оказалось сильнее.",
+        "rsi_reversal":     "Разворот не состоялся — импульс продолжился в старом направлении.",
+        "micro_breakout":   "Пробой уровня развернулся обратно — рынок не подтвердил движение.",
+        "divergence":       "Дивергенция не отработала на данной экспирации — нужно больше времени.",
+    }
+    reason = strategy_reasons.get(strategy, "Цена пошла против сигнала.")
+
+    suffix = (
+        " На короткой экспирации даже точный прогноз иногда не срабатывает — одна свеча может всё изменить."
+        if strategy not in ("divergence",) else
+        " Попробуйте более длинную экспирацию для этой стратегии."
+    )
+    return reason + suffix
+
+
 async def track_outcome(
     bot: Bot,
     chat_id: int,
@@ -92,6 +119,7 @@ async def track_outcome(
 
         strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
         exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
+        explanation = _build_explanation(outcome, direction, strategy or "", pct)
 
         text = (
             f"{icon} <b>{header}</b>\n"
@@ -102,6 +130,8 @@ async def track_outcome(
             f"Цена входа:  <code>{signal_price:.5g}</code>\n"
             f"Цена выхода: <code>{result_price:.5g}</code> {arrow}\n"
             f"Изменение:   {pct:.3f}%\n"
+            f"\n"
+            f"<i>{explanation}</i>\n"
         )
 
         await bot.send_message(
