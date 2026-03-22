@@ -49,24 +49,29 @@ logger = logging.getLogger(__name__)
 
 # ── Mode → strategy routing ───────────────────────────────────────────────────
 # PRIMARY strategies run first.  Secondary strategies run ONLY if no primary fires.
-# RSI Reversal is secondary everywhere — it confirms, not initiates.
-# Micro Breakout → VOLATILE primary only (needs ATR ≥ 0.55).
+# RSI Reversal: secondary in RANGE and SQUEEZE only (removed from TRENDING/VOLATILE).
+# Micro Breakout: VOLATILE primary only (requires ATR ≥ 0.55).
+# Secondary threshold: 58 (vs primary 52) — weaker signals filtered harder.
 _MODE_STRATEGIES: dict[str, dict] = {
+    # RSI Reversal removed from TRENDING and VOLATILE — counter-trend reversals
+    # in a confirmed trend direction have poor reliability at 1-2 min expiry.
     "TRENDING_UP": {
         "primary":   ["ema_bounce", "squeeze_breakout"],
-        "secondary": ["level_bounce", "divergence", "rsi_reversal"],
+        "secondary": ["level_bounce", "divergence"],
     },
     "TRENDING_DOWN": {
         "primary":   ["ema_bounce", "squeeze_breakout"],
-        "secondary": ["level_bounce", "divergence", "rsi_reversal"],
+        "secondary": ["level_bounce", "divergence"],
     },
     "RANGE": {
         # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
+        # RSI Reversal allowed here only — range is its natural habitat
         "primary":   ["level_bounce", "ema_bounce"],
         "secondary": ["divergence", "rsi_reversal"],
     },
     "VOLATILE": {
         # Micro Breakout only allowed here where ATR is high enough
+        # RSI Reversal removed — volatile markets make RSI signals unreliable
         "primary":   ["micro_breakout", "squeeze_breakout"],
         "secondary": ["level_bounce", "divergence"],
     },
@@ -146,26 +151,47 @@ def run_decision_engine(
     routing = _MODE_STRATEGIES.get(mode_obj.mode, _MODE_STRATEGIES["RANGE"])
 
     # ── Multi-timeframe context ───────────────────────────────────────────────
-    # 1m context (from resampled 1-min candles) — prevents 15s micro-noise dominating
+    #
+    # Layer A — short-term (1-3 min): EMA(3) vs EMA(8) on resampled 1-min bars
+    #   Tells us the direction of the last few minutes.
+    #
+    # Layer B — macro trend: linear regression slope over ALL available 1-min bars
+    #   50 fifteen-second bars → ~13 one-minute bars → slope is reliable without
+    #   needing 8+ five-minute bars.  5m EMA(5/21) is skipped because 4 bars
+    #   make it essentially noise.
+    #
+    # Bonus (+7) and penalty (×0.82) only fire when BOTH layers agree.
+
+    # Layer A — 1m EMA direction
     ctx_up_1m = ctx_dn_1m = False
     if df1m_ctx is not None and len(df1m_ctx) >= 5:
-        e3  = float(df1m_ctx["close"].ewm(span=3,  adjust=False).mean().iloc[-1])
-        e8  = float(df1m_ctx["close"].ewm(span=8,  adjust=False).mean().iloc[-1])
+        e3 = float(df1m_ctx["close"].ewm(span=3, adjust=False).mean().iloc[-1])
+        e8 = float(df1m_ctx["close"].ewm(span=8, adjust=False).mean().iloc[-1])
         ctx_up_1m = e3 > e8
         ctx_dn_1m = e3 < e8
 
-    # 5m context (macro bias)
-    ctx_up_5m = ctx_dn_5m = False
-    if df5m is not None and len(df5m) >= 5:
+    # Layer B — macro slope (linear regression on 1-min closes)
+    ctx_macro_up = ctx_macro_dn = False
+    ctx_macro_note = "slope_na"
+    if df1m_ctx is not None and len(df1m_ctx) >= 6:
+        closes = df1m_ctx["close"].values.astype(float)
+        x      = np.arange(len(closes))
+        slope  = float(np.polyfit(x, closes, 1)[0])
+        norm_slope = slope / float(closes.mean())          # fraction per 1-min bar
+        ctx_macro_up = norm_slope >  5e-5                  # +0.005%/bar → upward
+        ctx_macro_dn = norm_slope < -5e-5                  # -0.005%/bar → downward
+        ctx_macro_note = f"1m_slope={norm_slope * 1e4:.1f}bp/bar"
+    elif df5m is not None and len(df5m) >= 8:
+        # Fallback: 5m EMA only when we have enough bars to be meaningful
         e5  = float(df5m["close"].ewm(span=5,  adjust=False).mean().iloc[-1])
         e21 = float(df5m["close"].ewm(span=21, adjust=False).mean().iloc[-1])
-        ctx_up_5m = e5 > e21
-        ctx_dn_5m = e5 < e21
+        ctx_macro_up = e5 > e21
+        ctx_macro_dn = e5 < e21
+        ctx_macro_note = f"5m_ema5vs21 (n={len(df5m)})"
 
-    # Strong confirmation = both 1m and 5m agree (used for bonus)
-    # Weak confirmation  = mode or at least one timeframe (used as context flag)
-    ctx_up = (ctx_up_1m and ctx_up_5m) or (mode_obj.trend_up   and (ctx_up_1m or ctx_up_5m))
-    ctx_down = (ctx_dn_1m and ctx_dn_5m) or (mode_obj.trend_down and (ctx_dn_1m or ctx_dn_5m))
+    # ctx_up/ctx_down — weak context flag passed to strategies (informational)
+    ctx_up   = ctx_up_1m  or ctx_macro_up  or mode_obj.trend_up
+    ctx_down = ctx_dn_1m  or ctx_macro_dn  or mode_obj.trend_down
 
     debug_strategies: dict = {}
 
@@ -217,7 +243,11 @@ def run_decision_engine(
     if not candidates:
         return _no_signal(
             f"Ни одна стратегия не выполнила условия (режим={mode_obj.mode})",
-            {"mode": mode_obj.mode, "strategies": debug_strategies}
+            {"mode": mode_obj.mode, "strategies": debug_strategies,
+             "used_tier": used_tier,
+             "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
+             "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
+             "ctx_macro_note": ctx_macro_note}
         )
 
     # ── Pick best candidate ────────────────────────────────────────────────────
@@ -245,18 +275,16 @@ def run_decision_engine(
     # ── Layer 4: Multipliers ───────────────────────────────────────────────────
 
     # 4a. Multi-timeframe context confirmation / penalty
-    # Bonus requires BOTH 1m and 5m to agree (strong confirmation).
-    # Penalty applied only when both timeframes oppose signal (true counter-trend).
-    ctx_up_strong  = ctx_up_1m  and ctx_up_5m
-    ctx_dn_strong  = ctx_dn_1m  and ctx_dn_5m
-    ctx_up_any     = ctx_up_1m  or  ctx_up_5m  or mode_obj.trend_up
-    ctx_dn_any     = ctx_dn_1m  or  ctx_dn_5m  or mode_obj.trend_down
+    # Bonus (+7):  1m EMA direction AND macro slope BOTH agree with signal
+    # Penalty ×0.82: BOTH oppose signal (true counter-trend, not just noise)
+    ctx_up_strong = ctx_up_1m and ctx_macro_up
+    ctx_dn_strong = ctx_dn_1m and ctx_macro_dn
 
     if direction == "BUY":
         if ctx_up_strong:
-            conf_raw += 7     # capped: both 1m+5m confirm (was +10)
+            conf_raw += 7        # 1m EMA + slope confirm upward
         elif ctx_dn_strong:
-            conf_raw *= 0.82  # both timeframes oppose — counter-trend penalty
+            conf_raw *= 0.82     # both layers oppose → counter-trend penalty
     else:  # SELL
         if ctx_dn_strong:
             conf_raw += 7
@@ -277,13 +305,23 @@ def run_decision_engine(
     conf_raw = min(100.0, conf_raw)
 
     # ── Threshold check ────────────────────────────────────────────────────────
-    min_threshold = 70 if raised_threshold else 52
+    # Primary strategies: lower bar (52) — these are well-fitted to the mode.
+    # Secondary strategies: higher bar (58) — they're fallbacks; raise the bar
+    #   to avoid weak secondary signals dominating the output.
+    # After 2 consecutive losses: both thresholds raise to 70.
+    if raised_threshold:
+        min_threshold = 70
+    elif used_tier == "secondary":
+        min_threshold = 58
+    else:
+        min_threshold = 52
+
     if conf_raw < min_threshold:
         return _no_signal(
-            f"Уверенность {conf_raw:.0f} < порог {min_threshold}",
+            f"Уверенность {conf_raw:.0f} < порог {min_threshold} (tier={used_tier})",
             {"mode": mode_obj.mode, "conf_raw": round(conf_raw, 1),
              "strategy": best.strategy_name, "strategies": debug_strategies,
-             "used_tier": used_tier}
+             "used_tier": used_tier, "min_threshold": min_threshold}
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────
@@ -318,9 +356,12 @@ def run_decision_engine(
             "mode_debug": mode_obj.debug,
             "ctx_up": ctx_up,
             "ctx_down": ctx_down,
-            "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
-            "ctx_up_5m": ctx_up_5m, "ctx_dn_5m": ctx_dn_5m,
+            "ctx_up_1m": ctx_up_1m,   "ctx_dn_1m": ctx_dn_1m,
+            "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
+            "ctx_macro_note": ctx_macro_note,
+            "ctx_up_strong": ctx_up_strong, "ctx_dn_strong": ctx_dn_strong,
             "used_tier": used_tier,
+            "min_threshold": min_threshold,
             "strategies": debug_strategies,
             "best_strategy": best.strategy_name,
             "conf_before_multipliers": round(best.confidence, 1),
