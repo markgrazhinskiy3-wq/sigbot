@@ -18,6 +18,7 @@ from db.database import (
     get_daily_admin_stats, get_performance_report,
     get_all_admin_ids, get_all_admins, add_admin, remove_admin,
     get_condition_stats, reset_condition_stats,
+    get_pair_outcomes,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
@@ -598,6 +599,36 @@ async def cmd_debug(message: Message) -> None:
         lines.append(f"  Причина: {html.escape(str(reject))}")
         if conf_r is not None and thresh is not None:
             lines.append(f"  conf={conf_r} < порог={thresh}")
+
+    # ── Trade history from DB ─────────────────────────────────────────────────
+    history = await get_pair_outcomes(symbol, limit=15)
+    if history:
+        wins   = sum(1 for r in history if r["outcome"] == "win")
+        losses = sum(1 for r in history if r["outcome"] == "loss")
+        total  = wins + losses
+        wr     = round(wins / total * 100) if total else 0
+        lines += [
+            "",
+            f"📂 <b>История сделок ({total}): {wins}W / {losses}L — {wr}%</b>",
+        ]
+        for r in history:
+            icon   = "✅" if r["outcome"] == "win" else "❌"
+            ts     = (r["created_at"] or "")[:16].replace("T", " ")
+            strat  = (r["strategy"] or "?")
+            mode   = (r["market_mode"] or "?")
+            conf_r = r.get("confidence_raw")
+            conf_str = f" conf={conf_r:.0f}" if conf_r else ""
+            exp_sec = r.get("expiration_sec") or 0
+            exp_str = f"{exp_sec//60}m" if exp_sec >= 60 else f"{exp_sec}s"
+            entry  = r.get("signal_price") or 0
+            result = r.get("result_price") or 0
+            diff   = (result - entry) / entry * 100 if entry else 0
+            diff_str = f"{diff:+.3f}%"
+            lines.append(
+                f"  {icon} {ts} | {r['direction']} {exp_str}{conf_str} | {strat}/{mode} | {diff_str}"
+            )
+    else:
+        lines += ["", "📂 <b>История:</b> сделок по этой паре ещё нет"]
 
     text = "\n".join(lines)
     # Telegram limit: split if needed

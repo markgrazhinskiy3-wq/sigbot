@@ -423,6 +423,35 @@ async def get_performance_report(days: int | None = None) -> list[dict]:
     return result
 
 
+async def get_pair_outcomes(symbol: str, limit: int = 15) -> list[dict]:
+    """
+    Return recent resolved signal outcomes for a specific pair symbol.
+    Matches symbol case-insensitively and with/without leading '#'.
+    Ordered newest first. Used for /debug history section.
+    """
+    # Normalise: strip '#', lowercase, build LIKE pattern for both variants
+    clean = symbol.lstrip("#").lower()         # e.g. "eurchf_otc"
+    with_hash = "#" + clean                    # e.g. "#eurchf_otc"
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT
+                direction, confidence, confidence_raw, strategy,
+                market_mode, used_tier, expiration_sec,
+                signal_price, result_price, outcome, created_at
+            FROM signal_outcomes
+            WHERE LOWER(symbol) IN (?, ?) AND outcome IN ('win', 'loss')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (clean, with_hash, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
 async def get_strategy_stats(user_id: int) -> list[dict]:
     """Return win/loss breakdown by strategy for a user."""
     async with aiosqlite.connect(DB_PATH) as db:
