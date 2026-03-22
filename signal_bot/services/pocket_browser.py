@@ -17,6 +17,19 @@ _playwright = None
 _browser: Browser | None = None
 _context: BrowserContext | None = None
 
+# One browser operation at a time — prevents concurrent get_candles / place_demo_trade
+# from corrupting each other's page state.
+_browser_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Lazily creates the lock inside the running event loop."""
+    global _browser_lock
+    if _browser_lock is None:
+        _browser_lock = asyncio.Lock()
+    return _browser_lock
+
+
 SCREENSHOTS_DIR = Path(os.path.dirname(__file__)).parent / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
@@ -492,6 +505,17 @@ async def _switch_to_asset(page: Page, symbol: str) -> bool:
 
 
 async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
+    """Serialised, timeout-guarded entry point — delegates to _get_available_otc_pairs_impl."""
+    try:
+        async with asyncio.timeout(120):
+            async with _get_lock():
+                return await _get_available_otc_pairs_impl(min_payout)
+    except TimeoutError:
+        logger.error("get_available_otc_pairs timed out after 120s")
+        return []
+
+
+async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
     """
     Scrape available OTC pairs and their payout percentages from Pocket Option.
     Returns list of {"label": "EUR/USD OTC | 82%", "symbol": "#EURUSD_otc", "payout": 82}
@@ -751,6 +775,21 @@ async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
 
 
 async def get_candles(symbol: str, count: int = 60) -> list[dict]:
+    """
+    Serialised entry point for candle fetching.
+    Acquires _browser_lock so only one page is open at a time, then
+    delegates to _get_candles_impl with a hard 90-second timeout.
+    """
+    try:
+        async with asyncio.timeout(90):
+            async with _get_lock():
+                return await _get_candles_impl(symbol, count)
+    except TimeoutError:
+        logger.error("get_candles timed out after 90s for %s", symbol)
+        return []
+
+
+async def _get_candles_impl(symbol: str, count: int = 60) -> list[dict]:
     """
     Navigate to trading page for the given symbol and collect OHLC candle data.
     Uses WebSocket binary-frame interception (Socket.IO protocol).
