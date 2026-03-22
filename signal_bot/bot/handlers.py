@@ -461,10 +461,26 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
     symbol = callback.data.split(":", 1)[1]
     pair_label = _label_for_symbol(symbol)
 
+    # Quick hint from cache (pure computation, no browser/network calls)
+    recommended_sec: int | None = None
+    try:
+        from services.candle_cache import get_cached
+        from services.strategy_engine import calculate_signal
+        candles = get_cached(symbol)
+        if candles:
+            result = calculate_signal(candles)
+            hint = (result.details or {}).get("expiry_hint", "")
+            if hint == "1m":
+                recommended_sec = 60
+            elif hint == "2m":
+                recommended_sec = 120
+    except Exception:
+        pass  # hint is optional, never block user
+
     await callback.message.edit_text(
         f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации сделки:",
         parse_mode="HTML",
-        reply_markup=expiration_keyboard(symbol),
+        reply_markup=expiration_keyboard(symbol, recommended_sec),
     )
     await callback.answer()
 
