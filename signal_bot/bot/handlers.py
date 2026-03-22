@@ -29,6 +29,9 @@ import services.pairs_cache as pairs_cache
 
 # ── Active monitoring tasks: {user_id: asyncio.Task} ─────────────────────────
 _monitor_tasks: dict[int, asyncio.Task] = {}
+
+# ── Last selected pair per user (for /debug without args) ─────────────────────
+_last_pair: dict[int, str] = {}
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
@@ -411,14 +414,19 @@ async def cmd_debug(message: Message) -> None:
         return
 
     parts = message.text.split(maxsplit=1)
-    symbol = parts[1].strip() if len(parts) > 1 else None
+    raw_symbol = parts[1].strip() if len(parts) > 1 else None
 
-    if not symbol:
-        pairs = pairs_cache.get_cached()
-        if not pairs:
-            await message.answer("Сначала обновите кэш пар (/start → выбор пары).")
-            return
-        symbol = pairs[0]["symbol"]
+    if raw_symbol:
+        symbol = raw_symbol
+        _last_pair[message.from_user.id] = symbol   # update memory
+    else:
+        symbol = _last_pair.get(message.from_user.id)
+        if not symbol:
+            pairs = pairs_cache.get_cached()
+            if not pairs:
+                await message.answer("Сначала выберите пару через меню, чтобы /debug запомнил её.")
+                return
+            symbol = pairs[0]["symbol"]
 
     await message.answer(f"🔬 Запускаю анализ <code>{symbol}</code>...", parse_mode="HTML")
 
@@ -823,6 +831,9 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
 
     symbol = callback.data.split(":", 1)[1]
     pair_label = _label_for_symbol(symbol)
+
+    # Remember this pair for /debug (no-arg shortcut)
+    _last_pair[callback.from_user.id] = symbol
 
     # Quick hint from cache (pure computation, no browser/network calls)
     recommended_sec: int | None = None
