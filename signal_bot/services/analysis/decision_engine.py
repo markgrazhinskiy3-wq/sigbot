@@ -281,7 +281,7 @@ def run_decision_engine(
                 "early_reject": res.debug.get("early_reject"),
                 "conditions": conds,
             }
-            if res.direction in ("BUY", "SELL") and pct >= 0.55 and res.confidence > 10:
+            if res.direction in ("BUY", "SELL") and pct >= 0.37 and res.confidence > 10:
                 fired.append(res)
         return fired
 
@@ -388,9 +388,9 @@ def run_decision_engine(
     if raised_threshold:
         min_threshold = 70
     elif used_tier == "secondary":
-        min_threshold = 58
+        min_threshold = 52   # secondary: was 58, now 52 — allow valid fallback setups
     else:
-        min_threshold = 52
+        min_threshold = 48   # primary: was 52, now 48 — allow normal signals
 
     if conf_raw < min_threshold:
         return _no_signal(

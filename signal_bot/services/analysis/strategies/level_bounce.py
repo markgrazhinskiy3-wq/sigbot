@@ -61,7 +61,7 @@ def level_bounce_strategy(
     base_conf = 0.0
     reason = "Уровень не найден или нет паттерна"
 
-    if best_buy[0] > best_sell[0] and best_buy[1] >= 4:
+    if best_buy[0] > best_sell[0] and best_buy[1] >= 3:
         direction      = "BUY"
         conditions_met = best_buy[1]
         base_conf      = best_buy[0]
@@ -73,7 +73,7 @@ def level_bounce_strategy(
         if ind.stoch_k < 25 and ind.stoch_k > ind.stoch_k_prev:
             base_conf += 3
 
-    elif best_sell[0] > best_buy[0] and best_sell[1] >= 4:
+    elif best_sell[0] > best_buy[0] and best_sell[1] >= 3:
         direction      = "SELL"
         conditions_met = best_sell[1]
         base_conf      = best_sell[0]
@@ -195,13 +195,13 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_res_pct:.2f}%")
 
-        # Confidence: conditions-driven + pattern quality bonus
-        conf = (met / _TOTAL) * 85
+        # Confidence: anchored curve (3→45, 4→53, 5→61, 6→69, 7→77) + pattern quality bonus
+        conf = 45 + max(0, met - 3) * 8
         if pat.pattern == "pin_bar":     conf += pat.quality * 8
         elif pat.pattern == "engulfing": conf += pat.quality * 6
         elif pat.pattern == "hammer":    conf += pat.quality * 5
 
-        if conf > best[0] and met >= 4:
+        if conf > best[0] and met >= 3:
             best = (conf, met, " | ".join(parts), touch_count)
             best_conds = conds
 
@@ -294,13 +294,13 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_sup_pct:.2f}%")
 
-        # Confidence: conditions-driven + pattern quality bonus
-        conf = (met / _TOTAL) * 85
+        # Confidence: anchored curve (3→45, 4→53, 5→61, 6→69, 7→77) + pattern quality bonus
+        conf = 45 + max(0, met - 3) * 8
         if pat.pattern == "pin_bar":     conf += pat.quality * 8
         elif pat.pattern == "engulfing": conf += pat.quality * 6
         elif pat.pattern == "hammer":    conf += pat.quality * 5
 
-        if conf > best[0] and met >= 4:
+        if conf > best[0] and met >= 3:
             best = (conf, met, " | ".join(parts), touch_count)
             best_conds = conds
 
