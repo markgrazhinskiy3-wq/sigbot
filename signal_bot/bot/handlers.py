@@ -14,7 +14,7 @@ from db.database import (
     add_or_get_user, get_status, set_status,
     list_all, list_pending, list_approved,
     save_signal_outcome, get_user_stats, get_strategy_stats, get_pair_stats,
-    get_daily_admin_stats,
+    get_daily_admin_stats, get_performance_report,
     get_all_admin_ids, get_all_admins, add_admin, remove_admin,
 )
 from services.access_service import notify_admin_new_user, check_access
@@ -65,6 +65,32 @@ def _cancel_monitor(user_id: int) -> None:
     task = _monitor_tasks.pop(user_id, None)
     if task and not task.done():
         task.cancel()
+
+
+def _confidence_band(conf_raw: float | None) -> str:
+    """Map raw confidence (0-100) to a readable band label."""
+    if conf_raw is None:
+        return "unknown"
+    if conf_raw >= 88:
+        return "88+"
+    if conf_raw >= 80:
+        return "80-87"
+    if conf_raw >= 70:
+        return "70-79"
+    if conf_raw >= 58:
+        return "58-69"
+    return "52-57"
+
+
+def _extract_signal_meta(details: dict) -> dict:
+    """Extract performance-tracking metadata from signal details dict."""
+    conf_raw = details.get("confidence_raw")
+    return {
+        "market_mode":     details.get("market_mode"),
+        "used_tier":       details.get("debug", {}).get("used_tier"),
+        "confidence_raw":  conf_raw,
+        "confidence_band": _confidence_band(conf_raw),
+    }
 
 
 async def _monitor_pair(
@@ -146,11 +172,13 @@ async def _monitor_pair(
         signal_price = d.get("debug", {}).get("last_close")
         strategy     = d.get("primary_strategy")
         if signal_price:
+            meta = _extract_signal_meta(d)
             outcome_id = await save_signal_outcome(
                 user_id=chat_id, symbol=symbol, pair_label=pair_label,
                 direction=signal.direction, confidence=signal.confidence,
                 strategy=strategy, expiration_sec=exp,
                 signal_price=signal_price,
+                **meta,
             )
             asyncio.create_task(track_outcome(
                 bot=bot, chat_id=chat_id, outcome_id=outcome_id,
@@ -737,6 +765,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
             strategy     = d.get("primary_strategy")
 
             if signal_price:
+                meta = _extract_signal_meta(d)
                 outcome_id = await save_signal_outcome(
                     user_id        = callback.from_user.id,
                     symbol         = symbol,
@@ -746,6 +775,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                     strategy       = strategy,
                     expiration_sec = expiration_sec,
                     signal_price   = signal_price,
+                    **meta,
                 )
                 asyncio.create_task(track_outcome(
                     bot            = callback.bot,
@@ -1034,6 +1064,93 @@ async def cmd_daystats(message: Message) -> None:
             )
 
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+# ─── /report ─────────────────────────────────────────────────────────────────
+
+@router.message(Command("report"))
+async def cmd_report(message: Message) -> None:
+    """Admin-only: performance breakdown by strategy/mode/tier/expiry/confidence."""
+    if not _is_admin(message.from_user.id):
+        return
+
+    # Parse optional days arg: /report 7  or  /report 30
+    args  = (message.text or "").split()
+    days: int | None = None
+    if len(args) >= 2:
+        try:
+            days = int(args[1])
+        except ValueError:
+            pass
+
+    rows = await get_performance_report(days=days)
+
+    if not rows:
+        period = f"последние {days} дн." if days else "всё время"
+        await message.answer(
+            f"📋 <b>Performance Report</b> ({period})\n\nДанных пока нет.",
+            parse_mode="HTML",
+        )
+        return
+
+    _STRAT_LABEL = {
+        "ema_bounce":        "EMA Bounce",
+        "level_bounce":      "Level Bounce",
+        "squeeze_breakout":  "Squeeze BO",
+        "micro_breakout":    "Micro BO",
+        "rsi_reversal":      "RSI Rev",
+        "divergence":        "Divergence",
+        "unknown":           "Unknown",
+    }
+
+    period_label = f"последние {days} дн." if days else "всё время"
+    lines = [f"📋 <b>Performance Report</b> ({period_label})\n"]
+
+    # Group rows by strategy
+    from itertools import groupby
+    for strat, strat_rows in groupby(rows, key=lambda r: r["strategy"]):
+        strat_rows = list(strat_rows)
+        s_total = sum(r["total"] for r in strat_rows)
+        s_wins  = sum(r["wins"]  for r in strat_rows)
+        s_loss  = sum(r["losses"] for r in strat_rows)
+        s_wr    = f"{round(s_wins / (s_wins + s_loss) * 100, 1)}%" if (s_wins + s_loss) > 0 else "—"
+        label   = _STRAT_LABEL.get(strat, strat)
+        lines.append(f"\n<b>{label}</b>  [{s_total} сиг  {s_wins}W/{s_loss}L  {s_wr}]")
+
+        # Group by mode × tier
+        def _mode_tier(r: dict) -> tuple:
+            return (r["market_mode"], r["used_tier"])
+
+        for (mode, tier), group in groupby(strat_rows, key=_mode_tier):
+            group = list(group)
+            g_wins = sum(r["wins"]  for r in group)
+            g_loss = sum(r["losses"] for r in group)
+            g_tot  = sum(r["total"] for r in group)
+            g_wr   = f"{round(g_wins / (g_wins + g_loss) * 100, 1)}%" if (g_wins + g_loss) > 0 else "—"
+            tier_label = {"primary": "1st", "secondary": "2nd"}.get(tier or "", tier or "?")
+            lines.append(f"  {mode or '?'} [{tier_label}]  {g_tot} сиг  {g_wins}W/{g_loss}L  {g_wr}")
+
+            # Detail rows: expiry + confidence band
+            for r in group:
+                band = r["confidence_band"]
+                exp  = f"{r['expiration_sec'] // 60}м" if r["expiration_sec"] else "?"
+                wr   = f"{r['win_rate']}%" if r["win_rate"] is not None else "—"
+                lines.append(
+                    f"    {exp}  ⭐{band}  {r['total']}сиг  {r['wins']}W/{r['losses']}L  {wr}"
+                )
+
+    # Split into chunks to respect Telegram's 4096-char message limit
+    LIMIT = 4000
+    chunk, length = [], 0
+    for line in lines:
+        length += len(line) + 1
+        if length > LIMIT:
+            await message.answer("\n".join(chunk), parse_mode="HTML")
+            chunk, length = [line], len(line) + 1
+        else:
+            chunk.append(line)
+    if chunk:
+        await message.answer("\n".join(chunk), parse_mode="HTML")
 
 
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────

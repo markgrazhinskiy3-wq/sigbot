@@ -53,6 +53,22 @@ async def init_db() -> None:
             )
             """
         )
+        # ── Migration: add performance-tracking columns if missing ──────────────
+        # SQLite does not support ADD COLUMN IF NOT EXISTS, so we try each.
+        _new_cols = [
+            ("market_mode",     "TEXT"),
+            ("used_tier",       "TEXT"),
+            ("confidence_raw",  "REAL"),
+            ("confidence_band", "TEXT"),
+        ]
+        for col, dtype in _new_cols:
+            try:
+                await db.execute(
+                    f"ALTER TABLE signal_outcomes ADD COLUMN {col} {dtype}"
+                )
+            except Exception:
+                pass  # column already exists
+
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -147,6 +163,10 @@ async def save_signal_outcome(
     strategy: str | None,
     expiration_sec: int,
     signal_price: float,
+    market_mode: str | None = None,
+    used_tier: str | None = None,
+    confidence_raw: float | None = None,
+    confidence_band: str | None = None,
 ) -> int:
     """Save a new pending signal. Returns the row id."""
     now = datetime.utcnow().isoformat()
@@ -155,11 +175,13 @@ async def save_signal_outcome(
             """
             INSERT INTO signal_outcomes
                 (user_id, symbol, pair_label, direction, confidence,
-                 strategy, expiration_sec, signal_price, outcome, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                 strategy, expiration_sec, signal_price, outcome, created_at,
+                 market_mode, used_tier, confidence_raw, confidence_band)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
             """,
             (user_id, symbol, pair_label, direction, confidence,
-             strategy, expiration_sec, signal_price, now),
+             strategy, expiration_sec, signal_price, now,
+             market_mode, used_tier, confidence_raw, confidence_band),
         )
         await db.commit()
         return cursor.lastrowid
@@ -321,6 +343,63 @@ async def get_pair_stats(user_id: int, limit: int = 5) -> list[dict]:
                     "winrate":    round(w / (w + l) * 100) if (w + l) > 0 else None,
                 })
             return result
+
+
+async def get_performance_report(days: int | None = None) -> list[dict]:
+    """
+    Admin report: win/loss grouped by strategy × market_mode × used_tier ×
+    expiration × confidence_band.  Only rows with at least 1 resolved outcome.
+
+    Args:
+        days: if set, restrict to last N calendar days (UTC).
+              If None, covers all time.
+
+    Returns list of dicts, each with:
+        strategy, market_mode, used_tier, expiration_sec,
+        confidence_band, total, wins, losses, win_rate (0-100 float or None)
+    """
+    where = "outcome IN ('win', 'loss')"
+    params: list = []
+    if days:
+        where += " AND created_at >= datetime('now', ?)"
+        params.append(f"-{days} days")
+
+    query = f"""
+        SELECT
+            COALESCE(strategy,        'unknown') AS strategy,
+            COALESCE(market_mode,     'unknown') AS market_mode,
+            COALESCE(used_tier,       'unknown') AS used_tier,
+            expiration_sec,
+            COALESCE(confidence_band, 'unknown') AS confidence_band,
+            COUNT(*)                                              AS total,
+            SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END)   AS wins,
+            SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END)   AS losses
+        FROM signal_outcomes
+        WHERE {where}
+        GROUP BY strategy, market_mode, used_tier, expiration_sec, confidence_band
+        ORDER BY strategy, market_mode, used_tier, expiration_sec, confidence_band
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+
+    result = []
+    for r in rows:
+        w = r["wins"]  or 0
+        l = r["losses"] or 0
+        result.append({
+            "strategy":        r["strategy"],
+            "market_mode":     r["market_mode"],
+            "used_tier":       r["used_tier"],
+            "expiration_sec":  r["expiration_sec"],
+            "confidence_band": r["confidence_band"],
+            "total":           r["total"],
+            "wins":            w,
+            "losses":          l,
+            "win_rate":        round(w / (w + l) * 100, 1) if (w + l) > 0 else None,
+        })
+    return result
 
 
 async def get_strategy_stats(user_id: int) -> list[dict]:
