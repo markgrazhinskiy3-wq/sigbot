@@ -96,8 +96,7 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
         builder.row(
             InlineKeyboardButton(
                 text=sig.pair,
-                # recpair: goes directly to signal (uses cache, skips expiry picker)
-                callback_data=f"recpair:{sig.symbol}:{sig.expiration_sec}",
+                callback_data=f"pair:{sig.symbol}",
             )
         )
     builder.row(
