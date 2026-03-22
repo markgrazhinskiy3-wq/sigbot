@@ -68,8 +68,10 @@ _MODE_STRATEGIES: dict[str, dict] = {
     "RANGE": {
         # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
         # RSI Reversal allowed here only — range is its natural habitat
+        # squeeze_breakout + micro_breakout in secondary so they appear in debug
+        # and can fire on rare breakout setups; both self-reject if conditions unmet
         "primary":   ["level_bounce", "ema_bounce"],
-        "secondary": ["divergence", "rsi_reversal"],
+        "secondary": ["divergence", "rsi_reversal", "squeeze_breakout", "micro_breakout"],
     },
     "VOLATILE": {
         # Micro Breakout only allowed here where ATR is high enough
@@ -397,10 +399,8 @@ def run_decision_engine(
     # After 2 consecutive losses: both thresholds raise to 70.
     if raised_threshold:
         min_threshold = 70
-    elif used_tier == "secondary":
-        min_threshold = 46   # secondary: allow borderline fallback setups
     else:
-        min_threshold = 46   # primary: 4-met + mode mult(50%) = 47.2 → needs ≤46 threshold
+        min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
 
     if conf_raw < min_threshold:
         return _no_signal(

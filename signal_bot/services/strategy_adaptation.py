@@ -31,6 +31,9 @@ ALL_STRATEGIES = [
     "divergence",
 ]
 
+# Strategies that can never be fully DISABLED — worst case is WEAKENED.
+_PROTECTED_STRATEGIES: set[str] = {"ema_bounce"}
+
 _MULTIPLIERS = {
     "ACTIVE":    1.0,
     "WEAKENED":  0.85,
@@ -176,6 +179,9 @@ async def update_strategy_statuses() -> None:
                     new_s = "WEAKENED"
                 else:
                     new_s = "DISABLED"
+                # Protected strategies can never be fully disabled
+                if new_s == "DISABLED" and name in _PROTECTED_STRATEGIES:
+                    new_s = "WEAKENED"
                 _set_status(name, new_s, winrate, total)
                 logger.info(
                     "Strategy %s probation ended: %d/%d wins → %s",
@@ -210,6 +216,14 @@ async def update_strategy_statuses() -> None:
                 )
             else:
                 target = "DISABLED"
+
+        # Protected strategies can never be fully disabled — floor is WEAKENED
+        if target == "DISABLED" and name in _PROTECTED_STRATEGIES:
+            target = "WEAKENED"
+            logger.info(
+                "Strategy %s winrate=%.0f%% — protected, setting WEAKENED not DISABLED",
+                name, winrate * 100
+            )
 
         _set_status(name, target, winrate, total)
 
