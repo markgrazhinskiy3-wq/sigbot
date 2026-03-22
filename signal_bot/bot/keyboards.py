@@ -72,6 +72,12 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
     )
     builder.row(
         InlineKeyboardButton(
+            text="🔔 Включить мониторинг",
+            callback_data=f"monitor:start:{symbol}:{expiration_sec}",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
             text="📊 Рекомендуемые пары",
             callback_data="action:recommended_pairs",
         )
@@ -135,6 +141,21 @@ def signal_result_keyboard(symbol: str, expiration_sec: int = 0) -> InlineKeyboa
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
+def monitoring_active_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup:
+    """Keyboard shown while monitoring is active — lets user stop it."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="⏹ Остановить мониторинг",
+            callback_data=f"monitor:stop:{symbol}:{expiration_sec}",
+        )
+    )
     builder.row(
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
     )

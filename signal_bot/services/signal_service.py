@@ -119,9 +119,7 @@ def format_signal_message(signal: SignalResponse) -> str:
         elif reject:
             lines.append(f"\n<i>{html.escape(str(reject))}</i>")
         lines.append("")
-        lines.append("🤖 <b>Мониторинг запущен.</b> Бот будет проверять эту пару каждые 25 секунд и пришлёт уведомление как только появится сигнал.")
-        lines.append("")
-        lines.append("<i>Нажмите «Назад», чтобы выбрать другую пару.</i>")
+        lines.append("Нажмите <b>«Включить мониторинг»</b>, чтобы бот сам уведомил вас когда появится сигнал, или <b>«Попробовать снова»</b> для повторной проверки прямо сейчас.")
         return "\n".join(lines)
 
     if signal.direction == "BUY":

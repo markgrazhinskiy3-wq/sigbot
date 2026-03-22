@@ -473,6 +473,66 @@ async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("monitor:start:"))
+async def cb_monitor_start(callback: CallbackQuery) -> None:
+    """User manually pressed 'Enable monitoring' button."""
+    from bot.keyboards import monitoring_active_keyboard
+    if not await _check_access(callback):
+        return
+
+    parts = callback.data.split(":", 3)
+    symbol = parts[2]
+    expiration_sec = int(parts[3])
+    pair_label = _label_for_symbol(symbol)
+    user_id = callback.from_user.id
+
+    _cancel_monitor(user_id)
+    task = asyncio.create_task(
+        _monitor_pair(
+            bot=callback.bot,
+            chat_id=user_id,
+            symbol=symbol,
+            pair_label=pair_label,
+            expiration_sec=expiration_sec,
+        )
+    )
+    _monitor_tasks[user_id] = task
+
+    await callback.message.edit_text(
+        f"🔔 <b>Мониторинг запущен — {pair_label}</b>\n\n"
+        f"Бот проверяет пару каждые 25 секунд (до 5 минут).\n"
+        f"Как только появится сигнал — пришлёт уведомление автоматически.\n\n"
+        f"<i>Нажмите «Остановить», чтобы отменить мониторинг.</i>",
+        parse_mode="HTML",
+        reply_markup=monitoring_active_keyboard(symbol, expiration_sec),
+    )
+    await callback.answer("🔔 Мониторинг запущен")
+
+
+@router.callback_query(F.data.startswith("monitor:stop:"))
+async def cb_monitor_stop(callback: CallbackQuery) -> None:
+    """User manually pressed 'Stop monitoring' button."""
+    from bot.keyboards import no_signal_keyboard
+    if not await _check_access(callback):
+        return
+
+    parts = callback.data.split(":", 3)
+    symbol = parts[2]
+    expiration_sec = int(parts[3])
+    pair_label = _label_for_symbol(symbol)
+    user_id = callback.from_user.id
+
+    _cancel_monitor(user_id)
+
+    await callback.message.edit_text(
+        f"⏹ <b>Мониторинг остановлен — {pair_label}</b>\n\n"
+        f"Вы можете запросить сигнал вручную или выбрать другую пару.",
+        parse_mode="HTML",
+        reply_markup=no_signal_keyboard(symbol, expiration_sec),
+    )
+    await callback.answer("Мониторинг остановлен")
+
+
 def _label_for_symbol(symbol: str) -> str:
     """
     Return the clean pair name (without payout %) for use in analysis messages.
@@ -597,21 +657,6 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
             else signal_result_keyboard(symbol, expiration_sec)
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-
-        # ── Start monitoring if no signal ──────────────────────────────────────
-        if signal.direction == "NO_SIGNAL":
-            user_id = callback.from_user.id
-            _cancel_monitor(user_id)
-            task = asyncio.create_task(
-                _monitor_pair(
-                    bot=callback.bot,
-                    chat_id=user_id,
-                    symbol=symbol,
-                    pair_label=pair_label,
-                    expiration_sec=expiration_sec,
-                )
-            )
-            _monitor_tasks[user_id] = task
 
         # ── Save to DB & start result watcher ─────────────────────────────────
         if signal.direction in ("BUY", "SELL"):
