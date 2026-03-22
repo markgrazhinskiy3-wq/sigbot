@@ -24,7 +24,7 @@ from services.signal_service import get_signal, format_signal_message
 from services.candle_cache import is_warm_up_done
 from services.outcome_tracker import track_outcome
 from services.analysis.asset_scanner import (
-    scan_all_pairs, format_scan_output, get_scan_cache, TradabilityResult,
+    scan_all_pairs, scan_pairs_fresh, format_scan_output, get_scan_cache, TradabilityResult,
 )
 import services.pairs_cache as pairs_cache
 
@@ -944,26 +944,7 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
-    cached_results, cache_age = get_scan_cache()
-    if cached_results is not None:
-        age_str = f"{int(cache_age)}с"
-        await callback.answer(f"📋 Скан {age_str} назад")
-        text    = format_scan_output(cached_results, scan_age_sec=cache_age)
-        text   += f"\n\n<i>Последнее сканирование: {age_str} назад</i>"
-        try:
-            await callback.message.edit_text(
-                text, parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard(cached_results),
-            )
-        except TelegramBadRequest:
-            pass
-        return
-
-    await callback.answer("📊 Сканирую пары...")
-    await callback.message.edit_text(
-        "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
-        parse_mode="HTML",
-    )
+    await callback.answer("🔄 Сканирую рынок...")
 
     try:
         if not is_warm_up_done():
@@ -976,23 +957,26 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
             )
             return
 
+        await callback.message.edit_text(
+            "🔄 <b>Сканирую рынок...</b>",
+            parse_mode="HTML",
+        )
+
         pairs_map = _build_pairs_map()
-        results   = scan_all_pairs(pairs_map)
+        results   = await scan_pairs_fresh(pairs_map)
 
         if not results:
             await callback.message.edit_text(
                 "⚠️ <b>Подходящих пар не найдено</b>\n\n"
-                "Рынок сейчас в неопределённом состоянии.\n"
-                "Можно попробовать выбрать пару вручную.\n\n"
                 "<i>Нажмите «Обновить» через 1–2 минуты.</i>",
                 parse_mode="HTML",
                 reply_markup=recommended_pairs_keyboard([]),
             )
             return
 
-        text = format_scan_output(results)
         await callback.message.edit_text(
-            text, parse_mode="HTML",
+            "📊 <b>Рекомендованные пары</b>",
+            parse_mode="HTML",
             reply_markup=recommended_pairs_keyboard(results),
         )
 

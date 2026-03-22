@@ -439,6 +439,66 @@ def calculate_tradability(symbol: str, pair: str, candles: list[dict]) -> Tradab
         return None
 
 
+# ── scan_pairs_fresh ──────────────────────────────────────────────────────────
+
+async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]:
+    """
+    Real-time scan: refresh all pairs via WS, run full strategy engine,
+    return pairs where at least one strategy met >= 3 conditions (good market).
+    Sorted by quality score (higher = better), max MAX_PAIRS.
+    """
+    import asyncio
+    from services.candle_cache import _refresh_all_via_ws, get_cached
+    from services.strategy_engine import calculate_signal
+
+    symbols = list(pairs_map.keys())
+
+    # 1. Force fresh WS fetch for all pairs
+    await _refresh_all_via_ws(symbols)
+
+    results: list[TradabilityResult] = []
+
+    for symbol in symbols:
+        candles = get_cached(symbol)
+        if not candles or len(candles) < 30:
+            continue
+        try:
+            result = await calculate_signal(candles)
+        except Exception as exc:
+            logger.warning("Engine failed for %s: %s", symbol, exc)
+            continue
+
+        # Find best conditions_met across all strategies
+        strategies: dict = result.debug.get("strategies", {})
+        max_met = 0
+        for sd in strategies.values():
+            if sd.get("skipped") or sd.get("early_reject"):
+                continue
+            met = sd.get("conditions_met", 0)
+            if met > max_met:
+                max_met = met
+
+        # Skip pairs where market has no structure (all strategies met < 3 conditions)
+        if max_met < 3:
+            continue
+
+        # Quality score: conditions_met drives score; bonus if signal is ready now
+        quality_score = max_met * 10
+        if result.direction in ("BUY", "SELL"):
+            quality_score += 20
+
+        label = pairs_map.get(symbol, symbol)
+        results.append(TradabilityResult(
+            symbol=symbol,
+            pair=label,
+            score=quality_score,
+            mode=result.market_mode,
+        ))
+
+    results.sort(key=lambda r: r.score, reverse=True)
+    return results[:MAX_PAIRS]
+
+
 # ── scan_all_pairs ────────────────────────────────────────────────────────────
 
 def scan_all_pairs(pairs_map: dict[str, str]) -> list[TradabilityResult]:
