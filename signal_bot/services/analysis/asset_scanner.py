@@ -468,8 +468,13 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
             logger.warning("Engine failed for %s: %s", symbol, exc)
             continue
 
+        # result.details contains the full debug breakdown
+        details: dict = result.details if isinstance(result.details, dict) else {}
+        debug: dict = details.get("debug", {})
+        direction: str = result.direction  # "BUY" | "SELL" | "NO_SIGNAL"
+
         # Find best conditions_met across all strategies
-        strategies: dict = result.debug.get("strategies", {})
+        strategies: dict = debug.get("strategies", {})
         max_met = 0
         for sd in strategies.values():
             if sd.get("skipped") or sd.get("early_reject"):
@@ -484,15 +489,16 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
 
         # Quality score: conditions_met drives score; bonus if signal is ready now
         quality_score = max_met * 10
-        if result.direction in ("BUY", "SELL"):
+        if direction in ("BUY", "SELL"):
             quality_score += 20
 
+        market_mode = details.get("market_mode") or debug.get("mode", "")
         label = pairs_map.get(symbol, symbol)
         results.append(TradabilityResult(
             symbol=symbol,
             pair=label,
             score=quality_score,
-            mode=result.market_mode,
+            mode=market_mode,
         ))
 
     results.sort(key=lambda r: r.score, reverse=True)
