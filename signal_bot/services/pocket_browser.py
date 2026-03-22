@@ -939,7 +939,11 @@ def _ticks_to_candles(ticks: list, period: int = 60) -> list[dict]:
             try:
                 ts = float(tick[0])
                 price = float(tick[1])
+                if ts <= 0 or price <= 0:
+                    continue          # skip malformed ticks with zero/negative values
                 bucket = int(ts // period) * period
+                if bucket <= 0:
+                    continue          # skip zero-bucket (would break store_merge check)
                 buckets[bucket].append(price)
             except (ValueError, TypeError):
                 continue

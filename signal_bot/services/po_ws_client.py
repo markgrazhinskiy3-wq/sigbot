@@ -296,15 +296,16 @@ async def _fetch_symbol(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_frames(binary_frames: list[tuple[str, bytes]], asset: str) -> list[dict]:
-    """Reuse the existing binary frame parser from pocket_browser."""
+    """Reuse the existing binary frame parser from pocket_browser.
+    Uses period=15 (same as browser warm-up) so timestamps align for cache merge."""
     if not binary_frames:
         return []
     try:
-        # Signature: (binary_frames, count, symbol, period)
         return _candles_from_binary_frames(
             binary_frames,
-            count=1000,           # return all available candles
+            count=1000,
             symbol=f"#{asset}",
+            period=15,            # match browser warm-up period for correct merge
         )
     except Exception as e:
         logger.warning("Binary frame parsing failed for %s: %s", asset, e)

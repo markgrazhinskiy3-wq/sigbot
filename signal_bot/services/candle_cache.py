@@ -83,20 +83,27 @@ def store_merge(symbol: str, new_candles: list[dict]) -> bool:
     """
     if not new_candles:
         return False
-    # Check if candles have timestamps
-    if not new_candles[0].get("time"):
+
+    # Filter out candles with zero/missing timestamps before merge
+    new_with_time  = [c for c in new_candles  if c.get("time", 0) > 0]
+    if not new_with_time:
         store(symbol, new_candles)
         return True
 
     existing = _cache.get(symbol)
-    if not existing or not existing.candles or not existing.candles[0].get("time"):
-        # No existing data or old format → full replace
+    if not existing or not existing.candles:
+        store(symbol, new_candles)
+        return True
+
+    old_with_time = [c for c in existing.candles if c.get("time", 0) > 0]
+    if not old_with_time:
+        # Existing cache has no timestamps — full replace with new data
         store(symbol, new_candles)
         return True
 
     # Merge by time: existing + new, deduplicated, newest wins for overlap
-    by_time: dict[int, dict] = {c["time"]: c for c in existing.candles}
-    for c in new_candles:
+    by_time: dict[int, dict] = {c["time"]: c for c in old_with_time}
+    for c in new_with_time:
         by_time[c["time"]] = c   # new data takes precedence
 
     merged = sorted(by_time.values(), key=lambda c: c["time"])
