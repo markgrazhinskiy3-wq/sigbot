@@ -20,6 +20,14 @@ from bot.keyboards import after_result_keyboard
 logger = logging.getLogger(__name__)
 
 _STRATEGY_LABELS = {
+    # new engine strategies
+    "ema_bounce":       "Отскок от EMA",
+    "squeeze_breakout": "Пробой сжатия",
+    "level_bounce":     "Отскок от уровня",
+    "rsi_reversal":     "Разворот RSI",
+    "micro_breakout":   "Пробой уровня",
+    "divergence":       "Дивергенция",
+    # legacy (old engine)
     "impulse":  "Импульс по тренду",
     "bounce":   "Отскок от уровня",
     "breakout": "Ложный пробой",

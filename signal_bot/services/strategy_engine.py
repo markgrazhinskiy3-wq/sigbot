@@ -109,6 +109,8 @@ def calculate_signal(
             "candles_clean": len(df),
             "order":         val.order,
             "avg_body_pct":  round(val.avg_body_pct, 5),
+            # last_close is used by outcome_tracker to determine WIN/LOSS
+            "last_close":    val.last_close,
         }
     }
 
