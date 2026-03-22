@@ -11,9 +11,11 @@ import config
 from db.database import (
     add_or_get_user, get_status, set_status,
     list_all, list_pending, list_approved,
+    save_signal_outcome, get_user_stats, get_strategy_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
+from services.result_watcher import schedule_result_watcher
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
@@ -488,6 +490,36 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
+        # ── Save to DB & start result watcher ─────────────────────────────────
+        if signal.direction in ("BUY", "SELL"):
+            d = signal.details if isinstance(signal.details, dict) else {}
+            signal_price = d.get("debug", {}).get("last_close")
+            strategy     = d.get("primary_strategy")
+
+            outcome_id: int | None = None
+            if signal_price:
+                outcome_id = await save_signal_outcome(
+                    user_id        = callback.from_user.id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    confidence     = signal.confidence,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                )
+
+            schedule_result_watcher(
+                bot            = callback.bot,
+                chat_id        = callback.from_user.id,
+                symbol         = symbol,
+                pair_label     = pair_label,
+                expiration_sec = expiration_sec,
+                direction      = signal.direction,
+                details        = d,
+                outcome_id     = outcome_id,
+            )
+
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
         await callback.message.edit_text(
@@ -511,3 +543,57 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
+
+
+# ─── /stats ──────────────────────────────────────────────────────────────────
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message) -> None:
+    user_id = message.from_user.id
+    status = await get_status(user_id)
+    if status != "approved":
+        await message.answer("❌ У вас нет доступа к боту.")
+        return
+
+    stats    = await get_user_stats(user_id)
+    by_strat = await get_strategy_stats(user_id)
+
+    total   = stats["total"]
+    wins    = stats["wins"]
+    losses  = stats["losses"]
+    pending = stats["pending"]
+    winrate = stats["winrate"]
+
+    if total == 0:
+        await message.answer(
+            "📊 <b>Ваша статистика</b>\n\n"
+            "Пока нет завершённых сигналов.\n"
+            "Запросите первый сигнал — результат появится здесь автоматически.",
+            parse_mode="HTML",
+        )
+        return
+
+    wr_str = f"{winrate}%" if winrate is not None else "—"
+
+    lines = [
+        "📊 <b>Ваша статистика</b>\n",
+        f"Всего сигналов:  <b>{total}</b>",
+        f"✅ Прибыльных:   <b>{wins}</b>",
+        f"❌ Убыточных:    <b>{losses}</b>",
+        f"⏳ В процессе:   <b>{pending}</b>",
+        f"🎯 Точность:     <b>{wr_str}</b>",
+    ]
+
+    if by_strat:
+        _strat_names = {
+            "impulse":  "Импульс",
+            "bounce":   "Отскок",
+            "breakout": "Лож. пробой",
+        }
+        lines.append("\n<b>По стратегиям:</b>")
+        for s in by_strat:
+            name = _strat_names.get(s["strategy"], s["strategy"])
+            wr   = f"{s['winrate']}%" if s["winrate"] is not None else "—"
+            lines.append(f"  {name}: {s['wins']}W / {s['losses']}L  ({wr})")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")

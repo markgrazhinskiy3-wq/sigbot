@@ -24,6 +24,25 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS signal_outcomes (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id        INTEGER NOT NULL,
+                symbol         TEXT NOT NULL,
+                pair_label     TEXT NOT NULL,
+                direction      TEXT NOT NULL,
+                confidence     INTEGER,
+                strategy       TEXT,
+                expiration_sec INTEGER NOT NULL,
+                signal_price   REAL NOT NULL,
+                result_price   REAL,
+                outcome        TEXT NOT NULL DEFAULT 'pending',
+                created_at     TEXT NOT NULL,
+                resolved_at    TEXT
+            )
+            """
+        )
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -105,3 +124,110 @@ async def list_approved() -> list[dict]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+
+# ── Signal outcome tracking ───────────────────────────────────────────────────
+
+async def save_signal_outcome(
+    user_id: int,
+    symbol: str,
+    pair_label: str,
+    direction: str,
+    confidence: int,
+    strategy: str | None,
+    expiration_sec: int,
+    signal_price: float,
+) -> int:
+    """Save a new pending signal. Returns the row id."""
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO signal_outcomes
+                (user_id, symbol, pair_label, direction, confidence,
+                 strategy, expiration_sec, signal_price, outcome, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (user_id, symbol, pair_label, direction, confidence,
+             strategy, expiration_sec, signal_price, now),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def resolve_outcome(outcome_id: int, result_price: float, outcome: str) -> None:
+    """Update a pending signal with actual result. outcome: 'win' | 'loss' | 'error'"""
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE signal_outcomes
+            SET result_price = ?, outcome = ?, resolved_at = ?
+            WHERE id = ?
+            """,
+            (result_price, outcome, now, outcome_id),
+        )
+        await db.commit()
+
+
+async def get_user_stats(user_id: int) -> dict:
+    """Return win/loss stats for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN outcome = 'pending' THEN 1 ELSE 0 END) as pending
+            FROM signal_outcomes
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            total, wins, losses, pending = row or (0, 0, 0, 0)
+            total   = total   or 0
+            wins    = wins    or 0
+            losses  = losses  or 0
+            pending = pending or 0
+            winrate = round(wins / (wins + losses) * 100) if (wins + losses) > 0 else None
+            return {
+                "total":   total,
+                "wins":    wins,
+                "losses":  losses,
+                "pending": pending,
+                "winrate": winrate,
+            }
+
+
+async def get_strategy_stats(user_id: int) -> list[dict]:
+    """Return win/loss breakdown by strategy for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT
+                strategy,
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses
+            FROM signal_outcomes
+            WHERE user_id = ? AND outcome IN ('win', 'loss')
+            GROUP BY strategy
+            ORDER BY total DESC
+            """,
+            (user_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            result = []
+            for r in rows:
+                w, l = (r["wins"] or 0), (r["losses"] or 0)
+                result.append({
+                    "strategy": r["strategy"] or "unknown",
+                    "total":    r["total"],
+                    "wins":     w,
+                    "losses":   l,
+                    "winrate":  round(w / (w + l) * 100) if (w + l) > 0 else None,
+                })
+            return result
