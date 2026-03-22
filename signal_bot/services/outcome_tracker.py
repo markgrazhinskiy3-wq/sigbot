@@ -16,6 +16,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from db.database import resolve_outcome
 from services.pocket_browser import get_candles
+from bot.keyboards import after_result_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,12 @@ async def track_outcome(
             f"Изменение:   {pct:.3f}%\n"
         )
 
-        await bot.send_message(chat_id, text, parse_mode="HTML")
+        await bot.send_message(
+            chat_id,
+            text,
+            parse_mode="HTML",
+            reply_markup=after_result_keyboard(symbol),
+        )
         logger.info(
             "Outcome tracked: %s | %s %s | entry=%.6f result=%.6f | %s",
             pair_label, direction, exp_label, signal_price, result_price, outcome.upper(),
