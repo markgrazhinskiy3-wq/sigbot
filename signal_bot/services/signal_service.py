@@ -19,16 +19,13 @@ class SignalResponse:
     symbol: str = ""     # raw symbol e.g. "#AUDCAD_otc"
 
 
-async def scan_best_signal(expiration_sec: int, pairs_map: dict[str, str]) -> SignalResponse | None:
+async def scan_all_signals(pairs_map: dict[str, str]) -> list[SignalResponse]:
     """
-    Scan all cached pairs and return the best BUY/SELL signal (highest confidence).
-    `pairs_map` is {symbol: label}. Returns None if no signal found on any pair.
+    Scan all cached pairs and return a list of BUY/SELL signals sorted by confidence desc.
+    `pairs_map` is {symbol: label}. Returns empty list if no signals found.
     """
     symbols = get_cached_symbols()
-    if not symbols:
-        return None
-
-    best: SignalResponse | None = None
+    results: list[SignalResponse] = []
     for symbol in symbols:
         label = pairs_map.get(symbol, symbol)
         candles = await get_candles(symbol, count=80)
@@ -37,17 +34,16 @@ async def scan_best_signal(expiration_sec: int, pairs_map: dict[str, str]) -> Si
         result: SignalResult = calculate_signal(candles)
         if result.direction not in ("BUY", "SELL"):
             continue
-        resp = SignalResponse(
+        results.append(SignalResponse(
             direction=result.direction,
             confidence=result.confidence,
             details=result.details,
             pair=label,
-            expiration_sec=expiration_sec,
+            expiration_sec=0,
             symbol=symbol,
-        )
-        if best is None or result.confidence > best.confidence:
-            best = resp
-    return best
+        ))
+    results.sort(key=lambda r: r.confidence, reverse=True)
+    return results
 
 
 async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> SignalResponse:

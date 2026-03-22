@@ -16,12 +16,13 @@ from db.database import (
     save_signal_outcome, get_user_stats, get_strategy_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
-from services.signal_service import get_signal, scan_best_signal, format_signal_message
+from services.signal_service import get_signal, scan_all_signals, format_signal_message
 from services.outcome_tracker import track_outcome
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
+    recommended_pairs_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -531,74 +532,58 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
 
 
-# ─── Scan best signal across all cached pairs ────────────────────────────────
+# ─── Recommended pairs ───────────────────────────────────────────────────────
 
-@router.callback_query(F.data.startswith("action:scan_best:"))
-async def cb_scan_best(callback: CallbackQuery) -> None:
+def _build_pairs_map() -> dict[str, str]:
+    pairs_map = {p["symbol"]: p.get("name") or p["label"].split("|")[0].strip()
+                 for p in pairs_cache.get_cached()}
+    for p in config.OTC_PAIRS:
+        if p["symbol"] not in pairs_map:
+            pairs_map[p["symbol"]] = p["label"]
+    return pairs_map
+
+
+@router.callback_query(F.data == "action:recommended_pairs")
+async def cb_recommended_pairs(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
-    expiration_sec = int(callback.data.split(":")[-1])
-    await callback.answer("🔍 Ищу лучший сигнал...")
+    await callback.answer("📊 Сканирую пары...")
     await callback.message.edit_text(
-        "🔍 <b>Сканирую все пары...</b>\n\nИщу лучший сигнал прямо сейчас.",
+        "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
         parse_mode="HTML",
     )
 
     try:
-        pairs_map = {p["symbol"]: p.get("name") or p["label"].split("|")[0].strip()
-                     for p in pairs_cache.get_cached()}
-        for p in config.OTC_PAIRS:
-            if p["symbol"] not in pairs_map:
-                pairs_map[p["symbol"]] = p["label"]
+        pairs_map = _build_pairs_map()
+        signals = await scan_all_signals(pairs_map)
 
-        signal = await scan_best_signal(expiration_sec, pairs_map)
-
-        if signal is None:
+        if not signals:
             await callback.message.edit_text(
-                "⚠️ <b>Сигнал не найден</b>\n\n"
-                "Рынок сейчас неопределённый — все пары показывают смешанные сигналы.\n\n"
-                "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+                "⚠️ <b>Рекомендуемых пар нет</b>\n\n"
+                "Сейчас на всех парах нет чёткого сигнала — рынок неопределённый.\n\n"
+                "<i>Подождите 1–2 минуты и нажмите «Обновить».</i>",
                 parse_mode="HTML",
-                reply_markup=no_signal_keyboard("", expiration_sec),
+                reply_markup=recommended_pairs_keyboard([]),
             )
             return
 
-        text = format_signal_message(signal)
-        kb = signal_result_keyboard(signal.symbol or signal.pair)
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        lines = ["📊 <b>Пары с сигналами прямо сейчас:</b>\n"]
+        for sig in signals:
+            arrow = "⬆️ BUY" if sig.direction == "BUY" else "⬇️ SELL"
+            bar = "🟩" * sig.confidence + "⬜" * (5 - sig.confidence)
+            lines.append(f"{arrow}  <b>{sig.pair}</b>  {bar}")
 
-        if signal.direction in ("BUY", "SELL"):
-            d = signal.details if isinstance(signal.details, dict) else {}
-            signal_price = d.get("debug", {}).get("last_close")
-            strategy     = d.get("primary_strategy")
-            symbol = signal.symbol or signal.pair
+        lines.append("\n<i>Переключитесь на нужную пару в Pocket Option, затем нажмите на неё ниже.</i>")
 
-            if signal_price:
-                outcome_id = await save_signal_outcome(
-                    user_id        = callback.from_user.id,
-                    symbol         = symbol,
-                    pair_label     = signal.pair,
-                    direction      = signal.direction,
-                    confidence     = signal.confidence,
-                    strategy       = strategy,
-                    expiration_sec = expiration_sec,
-                    signal_price   = signal_price,
-                )
-                asyncio.create_task(track_outcome(
-                    bot            = callback.bot,
-                    chat_id        = callback.from_user.id,
-                    outcome_id     = outcome_id,
-                    symbol         = symbol,
-                    pair_label     = signal.pair,
-                    direction      = signal.direction,
-                    strategy       = strategy,
-                    expiration_sec = expiration_sec,
-                    signal_price   = signal_price,
-                ))
+        await callback.message.edit_text(
+            "\n".join(lines),
+            parse_mode="HTML",
+            reply_markup=recommended_pairs_keyboard(signals),
+        )
 
     except Exception as e:
-        logger.exception("scan_best error: %s", e)
+        logger.exception("recommended_pairs error: %s", e)
         await callback.message.edit_text(
             "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
             parse_mode="HTML",

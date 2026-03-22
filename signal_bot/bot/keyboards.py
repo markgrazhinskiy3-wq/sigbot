@@ -12,6 +12,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📈 Получить сигнал", callback_data="action:get_signal"),
     )
     builder.row(
+        InlineKeyboardButton(text="📊 Рекомендуемые пары", callback_data="action:recommended_pairs"),
+    )
+    builder.row(
         InlineKeyboardButton(text="🔁 Перезапустить бота", callback_data="action:restart_bot"),
     )
     return builder.as_markup()
@@ -61,12 +64,36 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
-            text="🔍 Найти лучший сигнал",
-            callback_data=f"action:scan_best:{expiration_sec}",
+            text="📊 Рекомендуемые пары",
+            callback_data="action:recommended_pairs",
         )
     )
     builder.row(
-        InlineKeyboardButton(text="📊 Выбрать другую пару", callback_data="action:get_signal"),
+        InlineKeyboardButton(text="🔀 Выбрать другую пару", callback_data="action:get_signal"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
+    )
+    return builder.as_markup()
+
+
+def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
+    """
+    Keyboard with pairs that currently have a BUY/SELL signal.
+    Each button shows direction + pair name, clicking opens expiration picker.
+    signals: list of SignalResponse sorted by confidence desc.
+    """
+    builder = InlineKeyboardBuilder()
+    for sig in signals:
+        arrow = "⬆️" if sig.direction == "BUY" else "⬇️"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{arrow} {sig.pair}",
+                callback_data=f"pair:{sig.symbol}",
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(text="🔄 Обновить", callback_data="action:recommended_pairs"),
     )
     builder.row(
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
@@ -90,8 +117,8 @@ def signal_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(
-            text="🔀 Сменить пару",
-            callback_data="action:get_signal",
+            text="📊 Рекомендуемые пары",
+            callback_data="action:recommended_pairs",
         )
     )
     builder.row(
@@ -114,11 +141,11 @@ def after_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(
             text="🔄 Следующий сигнал",
-            callback_data=f"pair:{symbol}",  # re-uses pair handler → shows expiration picker
+            callback_data=f"pair:{symbol}",
         )
     )
     builder.row(
-        InlineKeyboardButton(text="📊 Выбрать пару", callback_data="action:get_signal"),
+        InlineKeyboardButton(text="📊 Рекомендуемые пары", callback_data="action:recommended_pairs"),
     )
     builder.row(
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
