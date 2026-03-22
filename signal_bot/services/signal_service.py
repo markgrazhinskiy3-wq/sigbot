@@ -71,6 +71,8 @@ def _conf_label(confidence: int) -> str:
         return "высокая"
     if confidence >= 3:
         return "средняя"
+    if confidence >= 2:
+        return "умеренная"
     return "низкая"
 
 

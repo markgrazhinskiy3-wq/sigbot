@@ -570,9 +570,9 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
 
         lines = ["📊 <b>Пары с сигналами прямо сейчас:</b>\n"]
         for sig in signals:
-            arrow = "⬆️ BUY" if sig.direction == "BUY" else "⬇️ SELL"
+            dot = "🟢 BUY" if sig.direction == "BUY" else "🔴 SELL"
             bar = "🟩" * sig.confidence + "⬜" * (5 - sig.confidence)
-            lines.append(f"{arrow}  <b>{sig.pair}</b>  {bar}")
+            lines.append(f"{dot}  <b>{sig.pair}</b>  {bar}")
 
         lines.append("\n<i>Переключитесь на нужную пару в Pocket Option, затем нажмите на неё ниже.</i>")
 

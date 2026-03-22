@@ -85,10 +85,9 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     for sig in signals:
-        arrow = "⬆️" if sig.direction == "BUY" else "⬇️"
         builder.row(
             InlineKeyboardButton(
-                text=f"{arrow} {sig.pair}",
+                text=sig.pair,
                 callback_data=f"pair:{sig.symbol}",
             )
         )

@@ -447,11 +447,11 @@ def _no_signal(
 def _to_5(score: float) -> int:
     """
     Map confidence → 1–5 display scale.
-    Any signal that passes the moderate threshold (≥58) shows at least 2/5.
+    Any signal that passes MODERATE_THRESHOLD (≥52) shows at least 2/5.
     1/5 is reserved for signals that didn't pass (shouldn't appear in user messages).
     """
     if score >= 85: return 5
     if score >= 75: return 4
-    if score >= 67: return 3
-    if score >= 58: return 2   # moderate signal — valid, but not strong
+    if score >= 65: return 3
+    if score >= 52: return 2   # moderate signal — valid, shows 2/5
     return 1                   # below threshold — no signal
