@@ -1,0 +1,259 @@
+Нужно доработать только analysis engine в текущем проекте.
+Telegram-бот, доступы, админка, база данных и интерфейс не трогать.
+
+Цель:
+Повысить качество сигналов, но не убить их количество.
+Главный принцип:
+Лучше no-signal, чем слабый сигнал, но без overblocking.
+
+Текущая логика уже рабочая, поэтому не нужно переписывать всё с нуля.
+Нужно улучшить именно decision logic и scoring.
+
+====================================
+1. REGIME-BASED PRIORITY ДЛЯ PRIMARY PATTERNS
+====================================
+
+Сейчас три primary pattern:
+- impulse_pullback
+- level_bounce
+- false_breakout
+
+Нужно не давать им одинаково конкурировать в любом рынке.
+Вместо этого сделать regime-based priority:
+
+- if regime = uptrend or downtrend:
+  impulse_pullback gets priority boost
+  level_bounce and false_breakout get penalty, but are still allowed if setup is very strong
+
+- if regime = range:
+  level_bounce and false_breakout get priority boost
+  impulse_pullback gets penalty, but is still allowed only if very strong
+
+- if regime = weak_trend:
+  all three are allowed, but weak setups get penalty
+
+- if regime = chaotic_noise:
+  always no signal
+
+Важно:
+Не делать жесткий полный запрет по regime, кроме chaotic_noise.
+Нужно использовать boosts and penalties, чтобы сигналы не исчезли совсем.
+
+====================================
+2. PRE-FILTER КАЧЕСТВА РЫНКА ДО SCORING
+====================================
+
+Перед расчетом confidence добавить market quality pre-filter.
+
+Если рынок грязный, не нужно досчитывать сигнал дальше.
+
+Проверять:
+- слишком маленькие тела последних свечей
+- хаотичное чередование направлений
+- длинные тени в обе стороны
+- отсутствие читаемой структуры
+- слишком сжатую волатильность
+
+Если market quality слишком плохой:
+- direction = none
+- signal_quality = none
+- reject_reason = "low market quality"
+
+====================================
+3. УСИЛИТЬ РОЛЬ LEVEL ANALYSIS
+====================================
+
+Для экспирации 1–2 минуты уровни важнее индикаторов.
+Сейчас уровни недовешены.
+
+Изменить влияние:
+- level analysis: 12–15%
+- indicator confirmation: 3–5%
+
+Также улучшить логику уровней:
+- BUY near strong resistance -> hard reject
+- SELL near strong support -> hard reject
+- moderate proximity to opposite level -> soft penalty
+- safe distance -> no penalty
+
+Использовать уровни как зоны, а не как одну цену.
+
+====================================
+4. СНИЗИТЬ РОЛЬ ИНДИКАТОРОВ
+====================================
+
+EMA, RSI, Stochastic, Momentum должны быть только подтверждением.
+
+Индикаторы:
+- не должны создавать сигнал сами
+- не должны спасать слабый price action setup
+- могут:
+  - немного усиливать confidence
+  - немного ослаблять confidence
+  - в сильном конфликте давать conflict flag
+
+Нужно использовать их как confirmation layer, not as primary source.
+
+====================================
+5. РАЗДЕЛИТЬ HARD REJECT И SOFT PENALTY
+====================================
+
+Сейчас штрафы линейно вычитаются из confidence.
+Нужно разделить их на два типа.
+
+Hard reject:
+- regime = chaotic_noise
+- no clear primary pattern
+- price too close to strong opposite level
+- BUY and SELL difference < 5
+- strong signal directly against strong trend
+- very low market quality
+
+Soft penalty:
+- weak_trend
+- partial pattern
+- neutral candles
+- compressed volatility
+- moderate proximity to opposite level
+- neutral indicators
+- weak momentum confirmation
+
+Hard reject:
+-> immediately no signal
+
+Soft penalty:
+-> only lowers confidence
+
+====================================
+6. СУЗИТЬ ЗОНУ MODERATE / NORMAL
+====================================
+
+Сейчас moderate слишком широкая.
+Нужно сузить диапазон.
+
+Новая схема:
+- strong >= 70
+- normal = 56 to 69
+- below 56 = no signal
+
+Дополнительно:
+- if BUY and SELL difference < 5 -> no signal
+- if BUY and SELL difference is between 5 and 8 -> allow normal only
+- if BUY and SELL difference > 8 -> allow normal or strong
+
+====================================
+7. ОБНОВИТЬ FORMULA / WEIGHTS
+====================================
+
+Сделать веса примерно такими:
+
+- primary price action patterns: 55-60%
+- candle strength: 15%
+- market regime: 10%
+- level analysis: 12-15%
+- indicator confirmation: 3-5%
+
+Если удобно, можно использовать:
+confidence =
+  pa_score * 0.58 +
+  candle_strength * 0.15 +
+  regime_score * 0.10 +
+  level_score * 0.12 +
+  indicator_score * 0.05
+
+====================================
+8. ОБНОВИТЬ LOGIC OF PRIMARY PATTERN SELECTION
+====================================
+
+Сейчас:
+pa_score = best_strategy * 80% + average_of_three * 20%
+
+Нужно улучшить это с учетом regime priority.
+
+Например:
+- give boost to regime-compatible patterns
+- apply penalty to regime-mismatched patterns
+- then compute best + blended average
+
+Важно:
+Сигнал должен рождаться из сильного primary pattern.
+Среднее не должно слишком вытягивать слабые setups.
+
+====================================
+9. ОСТАВИТЬ ЧАСТОТУ СИГНАЛОВ, НО УБРАТЬ МУСОР
+====================================
+
+Важно не сделать engine слишком жестким.
+Поэтому:
+- не блокировать все несовпадения
+- оставлять только несколько настоящих hard reject
+- всё остальное делать через penalties
+
+Нужен баланс:
+- fewer bad signals
+- but still enough signals
+
+====================================
+10. ОБНОВИТЬ OUTPUT ANALYSIS RESULT
+====================================
+
+Аналитический модуль должен возвращать:
+
+- direction: buy / sell / none
+- signal_quality: strong / normal / none
+- confidence
+- primary_strategy
+- regime
+- reasons
+- soft_penalties
+- hard_conflicts
+- reject_reason
+
+Пример:
+{
+  "direction": "buy",
+  "signal_quality": "strong",
+  "confidence": 74,
+  "primary_strategy": "level_bounce",
+  "regime": "range",
+  "reasons": [
+    "confirmed bounce from support zone",
+    "clean bullish candle pressure",
+    "enough distance to resistance"
+  ],
+  "soft_penalties": [
+    "weak indicator confirmation"
+  ],
+  "hard_conflicts": [],
+  "reject_reason": null
+}
+
+====================================
+11. DEBUG OUTPUT
+====================================
+
+В debug mode показывать:
+- какой regime определился
+- какой primary pattern победил
+- какой boost / penalty был применен
+- какие soft penalties применились
+- какой hard reject сработал, если сигнал отклонен
+- final confidence breakdown
+
+====================================
+12. ВАЖНО
+====================================
+
+Не переписывать весь проект.
+Показать только обновленные analysis-related files.
+
+Нужно:
+- обновить decision logic
+- обновить scoring logic
+- сохранить рабочую частоту сигналов
+- снизить количество мусорных входов
+
+Покажи:
+1. какие файлы нужно изменить
+2. полный код обновленных файлов
+3. краткое объяснение новой логики

@@ -1,33 +1,50 @@
 """
-Signal Scoring Engine — v5
+Signal Scoring Engine — v6
 
 HARD REJECT → NO_SIGNAL:
-  - chaotic_noise
-  - ни один primary pattern не достиг PARTIAL_MATCH_MIN
-  - impulse прямо против сильного тренда
-  - цена слишком близко к противоположному уровню (< 0.05%)
-  - BUY и SELL практически в паритете
+  - chaotic_noise (regime)
+  - low market quality pre-filter (dirty candles, no structure)
+  - no primary pattern (both sides < PARTIAL_MATCH_MIN after regime-adj)
+  - impulse directly against strong trend
+  - BUY near strong resistance / SELL near strong support
+  - BUY/SELL parity gap < 5
 
-SOFT PENALTY → снижает confidence:
-  - weak_trend: -8
-  - контртрендовый сигнал (bounce/breakout дозволен): -10
-  - умеренная близость к уровню (0.05–0.3%): -5
-  - нейтральные свечи: -5
-  - нейтральные индикаторы: -4
-  - только partial_match (нет full match): -8
-  - boлатильность сжата: -4
+SOFT PENALTY → lowers confidence:
+  - partial match only (no full match): -8
+  - weak_trend: -6
+  - counter-trend entry: -10
+  - moderate proximity to opposite level: -5
+  - neutral candles: -5
+  - compressed volatility: -4
+  - neutral indicators: -3
+  - regime-pattern mismatch (non-preferred pattern wins): -6
 
-УРОВНИ СИГНАЛА:
+SIGNAL LEVELS:
   - confidence >= 70 → strong
-  - confidence >= 58 → moderate
-  - confidence <  58 → NO_SIGNAL
+  - confidence >= 56 → normal
+  - confidence <  56 → NO_SIGNAL
+
+BUY/SELL PARITY:
+  - gap < 5  → hard reject
+  - gap 5-8  → allow at most "normal" quality
+  - gap > 8  → allow strong or normal
+
+REGIME-BASED PATTERN PRIORITY:
+  - uptrend/downtrend: impulse +15, bounce/breakout -10 (if score < 70)
+  - range: bounce/breakout +15, impulse -10 (if score < FULL_MATCH_MIN)
+  - weak_trend: no boost, mismatch gets soft penalty
+  - chaotic_noise: always NO_SIGNAL
+
+FORMULA:
+  confidence = pa_score*0.58 + candle*0.15 + regime*0.10 + level*0.12 + indicator*0.05
 
 RECOMMENDED EXPIRATION:
-  - level_bounce / false_breakout    → 1m
-  - impulse в чётком тренде          → 2m
-  - weak setup / range               → 1m (default)
+  - level_bounce / false_breakout → 1m
+  - impulse in clear trend         → 2m
+  - weak setup / range             → 1m
 """
 import logging
+import numpy as np
 import pandas as pd
 from typing import Any
 
@@ -42,17 +59,20 @@ from .false_breakout         import false_breakout_strategy
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-FULL_MATCH_MIN    = 50.0   # primary score → "matched" (strong candidate)
-PARTIAL_MATCH_MIN = 30.0   # primary score → "partial_match" (moderate candidate)
-STRONG_THRESHOLD  = 70.0   # final confidence → strong signal
-MODERATE_THRESHOLD= 52.0   # final confidence → moderate signal
+FULL_MATCH_MIN    = 50.0   # raw pattern score → "full match"
+PARTIAL_MATCH_MIN = 30.0   # raw pattern score → "partial match"
+STRONG_THRESHOLD  = 70.0   # final confidence → strong
+NORMAL_THRESHOLD  = 56.0   # final confidence → normal (was 52 / "moderate")
 
-# Counter-trend: bounce/breakout minimum to allow trade against trend
+# Level proximity (buy/sell score from level_analysis)
+LEVEL_HARD_BLOCK  = 8      # score < 8 → hard reject (< 0.02% distance)
+LEVEL_MEDIUM      = 38     # score < 38 → soft penalty (< 0.15% distance)
+
+# Market quality pre-filter
+MARKET_QUALITY_MIN = 30.0  # below this → hard reject
+
+# Counter-trend minimum (bounce/breakout only)
 COUNTER_TREND_MIN = 55.0
-
-# Level proximity thresholds (level_analysis buy/sell score)
-LEVEL_TOO_CLOSE   = 8      # < 0.05% — hard reject
-LEVEL_MEDIUM      = 35     # 0.05–0.3% — soft penalty
 
 
 def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
@@ -64,41 +84,55 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
             debug={"candles_count": n, "reject_reason": "too_few_candles"}
         )
 
-    # ── 1. Run all modules ────────────────────────────────────────────────────
-    regime     = market_regime_analysis(df)
+    # ── 1. Run market regime & candle modules first (used in pre-filter) ───────
+    regime  = market_regime_analysis(df)
+    candles = candle_strength_analysis(df)
+
+    # ── 2. HARD REJECT: chaotic noise ─────────────────────────────────────────
+    if regime.regime == "chaotic_noise":
+        debug = {"candles_count": n, "regime": regime.regime,
+                 "reject_reason": "chaotic_noise"}
+        return _no_signal(f"Хаотичный рынок: {regime.explanation}",
+                          regime=regime.regime, debug=debug,
+                          hard_conflicts=["Хаотичный рынок"])
+
+    # ── 3. HARD REJECT: market quality pre-filter ──────────────────────────────
+    mq_score, mq_reason = _market_quality_check(df)
+    if mq_score < MARKET_QUALITY_MIN:
+        debug = {"candles_count": n, "regime": regime.regime,
+                 "market_quality": round(mq_score, 1),
+                 "reject_reason": "low_market_quality"}
+        return _no_signal(f"Низкое качество рынка: {mq_reason}",
+                          regime=regime.regime, debug=debug,
+                          hard_conflicts=[f"Низкое качество рынка ({mq_score:.0f})"])
+
+    # ── 4. Run remaining modules ───────────────────────────────────────────────
     levels     = level_analysis(df)
-    candles    = candle_strength_analysis(df)
     indicators = indicator_confirmation(df)
     impulse    = impulse_pullback_strategy(df)
     bounce     = level_bounce_strategy(df, levels.supports, levels.resistances)
     fbreak     = false_breakout_strategy(df, levels.supports, levels.resistances)
 
-    # ── 2. Primary pattern assessment per direction ───────────────────────────
-    def _assess(imp_s, bnc_s, fb_s):
-        """Return (best_score, best_name, is_full_match, is_partial_match)."""
-        raw = {"impulse": imp_s, "bounce": bnc_s, "breakout": fb_s}
-        best_name  = max(raw, key=raw.__getitem__)
-        best_score = raw[best_name]
-        full_match    = best_score >= FULL_MATCH_MIN
-        partial_match = best_score >= PARTIAL_MATCH_MIN
-        # Blended: best 80% + average 20%
-        # Gives strong weight to the one good pattern rather than averaging into zero
-        avg     = (imp_s + bnc_s + fb_s) / 3
-        blended = best_score * 0.80 + avg * 0.20
-        return blended, best_name, best_score, full_match, partial_match
+    # ── 5. Regime-aware primary pattern assessment ─────────────────────────────
+    pa_buy,  pa_buy_name,  pa_buy_raw,  buy_full,  buy_partial,  buy_boosts  = \
+        _assess_with_regime(
+            impulse.buy_score,  bounce.buy_score,  fbreak.buy_score,
+            regime.regime
+        )
+    pa_sell, pa_sell_name, pa_sell_raw, sell_full, sell_partial, sell_boosts = \
+        _assess_with_regime(
+            impulse.sell_score, bounce.sell_score, fbreak.sell_score,
+            regime.regime
+        )
 
-    pa_buy,  pa_buy_name,  pa_buy_raw,  buy_full,  buy_partial  = _assess(
-        impulse.buy_score,  bounce.buy_score,  fbreak.buy_score
-    )
-    pa_sell, pa_sell_name, pa_sell_raw, sell_full, sell_partial = _assess(
-        impulse.sell_score, bounce.sell_score, fbreak.sell_score
-    )
-
-    # ── 3. Debug skeleton ─────────────────────────────────────────────────────
+    # ── 6. Debug skeleton ─────────────────────────────────────────────────────
     debug: dict[str, Any] = {
-        "candles_count": n,
-        "regime": regime.regime,
-        "last_close": round(float(df["close"].iloc[-1]), 6),
+        "candles_count":     n,
+        "regime":            regime.regime,
+        "market_quality":    round(mq_score, 1),
+        "last_close":        round(float(df["close"].iloc[-1]), 6),
+        "regime_boosts_buy": buy_boosts,
+        "regime_boosts_sell": sell_boosts,
         "modules": {
             "impulse_pullback": {
                 "buy": round(impulse.buy_score, 1),
@@ -136,26 +170,19 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
                 "reason": indicators.explanation,
             },
         },
-        "pa_buy":        round(pa_buy, 1),
-        "pa_sell":       round(pa_sell, 1),
-        "pa_buy_name":   pa_buy_name,
-        "pa_sell_name":  pa_sell_name,
-        "pa_buy_raw":    round(pa_buy_raw, 1),
-        "pa_sell_raw":   round(pa_sell_raw, 1),
-        "buy_full":      buy_full,
-        "sell_full":     sell_full,
-        "buy_partial":   buy_partial,
-        "sell_partial":  sell_partial,
+        "pa_buy":       round(pa_buy, 1),
+        "pa_sell":      round(pa_sell, 1),
+        "pa_buy_name":  pa_buy_name,
+        "pa_sell_name": pa_sell_name,
+        "pa_buy_raw":   round(pa_buy_raw, 1),
+        "pa_sell_raw":  round(pa_sell_raw, 1),
+        "buy_full":     buy_full,
+        "sell_full":    sell_full,
+        "buy_partial":  buy_partial,
+        "sell_partial": sell_partial,
     }
 
-    # ── 4. HARD REJECT: chaotic noise ─────────────────────────────────────────
-    if regime.regime == "chaotic_noise":
-        debug["reject_reason"] = "chaotic_noise"
-        return _no_signal(f"Хаотичный рынок: {regime.explanation}",
-                          regime=regime.regime, debug=debug,
-                          hard_conflicts=["Хаотичный рынок"])
-
-    # ── 5. HARD REJECT: no primary pattern at all ─────────────────────────────
+    # ── 7. HARD REJECT: no primary pattern ────────────────────────────────────
     if not buy_partial and not sell_partial:
         debug["reject_reason"] = "no_primary_pattern"
         debug["reject_detail"] = (
@@ -168,64 +195,41 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
             hard_conflicts=["Нет primary pattern"]
         )
 
-    # ── 6. Choose direction ───────────────────────────────────────────────────
-    # RULE: prefer trend-aligned direction first.
-    # Only fall back to score comparison in range/weak_trend.
-    # This prevents the engine from picking a counter-trend direction just because
-    # it scored slightly higher, then blocking it, and returning NO_SIGNAL
-    # despite the trend-aligned direction being perfectly valid.
-    def _pick_direction() -> str:
-        if regime.regime == "uptrend":
-            if buy_partial: return "BUY"       # trend-aligned first
-            if sell_partial: return "SELL"
-        elif regime.regime == "downtrend":
-            if sell_partial: return "SELL"      # trend-aligned first
-            if buy_partial: return "BUY"
-        else:
-            # range / weak_trend → pick by highest score
-            if buy_partial and (not sell_partial or pa_buy >= pa_sell):
-                return "BUY"
-        return "SELL"
-
-    direction = _pick_direction()
-
-    if direction == "BUY":
-        pa_score     = pa_buy
-        pa_name      = pa_buy_name
-        pa_raw       = pa_buy_raw
-        is_full      = buy_full
-        is_partial   = buy_partial
-        level_ok     = levels.buy_score
-        level_opp    = levels.sell_score
-        candle_s     = candles.buy_score
-        ind_s        = indicators.buy_score
-        opp_fb       = fbreak.sell_score
-        opp_pa_raw   = pa_sell_raw
-        opp_pa_name  = pa_sell_name
-        ct_bounce    = bounce.buy_score
-        ct_breakout  = fbreak.buy_score
-    else:
-        pa_score     = pa_sell
-        pa_name      = pa_sell_name
-        pa_raw       = pa_sell_raw
-        is_full      = sell_full
-        is_partial   = sell_partial
-        level_ok     = levels.sell_score
-        level_opp    = levels.buy_score
-        candle_s     = candles.sell_score
-        ind_s        = indicators.sell_score
-        opp_fb       = fbreak.buy_score
-        opp_pa_raw   = pa_buy_raw
-        opp_pa_name  = pa_buy_name
-        ct_bounce    = bounce.sell_score
-        ct_breakout  = fbreak.sell_score
-
-    is_buy = direction == "BUY"
+    # ── 8. Choose direction (trend-aware) ──────────────────────────────────────
+    direction = _pick_direction(
+        regime.regime, buy_partial, sell_partial, pa_buy, pa_sell
+    )
     debug["direction_candidate"] = direction
+    is_buy = direction == "BUY"
 
-    # ── 7. Regime-specific rules ──────────────────────────────────────────────
+    # Assign directional scores
+    if is_buy:
+        pa_score, pa_name, pa_raw = pa_buy, pa_buy_name, pa_buy_raw
+        is_full, is_partial       = buy_full, buy_partial
+        level_ok, level_opp       = levels.buy_score, levels.sell_score
+        candle_s                  = candles.buy_score
+        ind_s                     = indicators.buy_score
+        regime_s                  = regime.buy_score
+        opp_fb                    = fbreak.sell_score
+        ct_bounce                 = bounce.buy_score
+        ct_breakout               = fbreak.buy_score
+        opp_pa_raw                = pa_sell_raw
+    else:
+        pa_score, pa_name, pa_raw = pa_sell, pa_sell_name, pa_sell_raw
+        is_full, is_partial       = sell_full, sell_partial
+        level_ok, level_opp       = levels.sell_score, levels.buy_score
+        candle_s                  = candles.sell_score
+        ind_s                     = indicators.sell_score
+        regime_s                  = regime.sell_score
+        opp_fb                    = fbreak.buy_score
+        ct_bounce                 = bounce.sell_score
+        ct_breakout               = fbreak.sell_score
+        opp_pa_raw                = pa_buy_raw
+
     hard_conflicts: list[str] = []
+    soft_penalties: list[str] = []
 
+    # ── 9. Counter-trend rules ────────────────────────────────────────────────
     trend_regimes = {"uptrend", "downtrend"}
     counter_trend = (
         (is_buy  and regime.regime == "downtrend") or
@@ -237,7 +241,6 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         debug["counter_trend_best"] = round(best_ct, 1)
 
         if pa_name == "impulse":
-            # Hard block: never trade impulse against a clear trend
             hard_conflicts.append(
                 f"Импульс против {regime.regime} — запрещено"
             )
@@ -246,37 +249,34 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
                 f"Контртренд при {regime.regime}: отбой/пробой={best_ct:.0f} < {COUNTER_TREND_MIN:.0f}"
             )
 
-    # range + impulse: require full match (not just partial)
+    # Range + weak impulse → hard block
     if regime.regime == "range" and pa_name == "impulse" and not is_full:
         hard_conflicts.append(
-            "Боковой рынок + слабый импульс (partial only) — недостаточно"
+            "Боковой рынок + слабый импульс (partial) — недостаточно"
         )
 
-    # ── 8. Level proximity — 3-state ─────────────────────────────────────────
-    if level_ok < LEVEL_TOO_CLOSE:
+    # ── 10. HARD REJECT: level too close (BUY near resistance / SELL near support)
+    if level_ok < LEVEL_HARD_BLOCK:
         hard_conflicts.append(
-            f"Цена у самого {'сопротивления' if is_buy else 'поддержки'} "
-            f"(score={level_ok:.0f}): {levels.explanation}"
+            f"Цена у {'сопротивления' if is_buy else 'поддержки'} "
+            f"(score={level_ok:.0f} < {LEVEL_HARD_BLOCK}): {levels.explanation}"
         )
 
-    # ── 9. Strong opposite false breakout ─────────────────────────────────────
+    # ── 11. HARD REJECT: strong opposite false breakout ───────────────────────
     if opp_fb >= 65:
-        hard_conflicts.append(
-            f"Ложный пробой против сигнала ({opp_fb:.0f})"
-        )
+        hard_conflicts.append(f"Ложный пробой против сигнала ({opp_fb:.0f})")
 
-    # ── 10. BUY/SELL parity — directional confusion ───────────────────────────
-    # Skip parity check when the chosen direction is trend-aligned:
-    # a SELL in downtrend or BUY in uptrend is valid even if the opposite
-    # direction scored slightly higher (we already preferred trend in step 6).
+    # ── 12. BUY/SELL parity check ─────────────────────────────────────────────
     trend_aligned = (
         (is_buy and regime.regime == "uptrend") or
         (not is_buy and regime.regime == "downtrend")
     )
     gap = abs(pa_buy_raw - pa_sell_raw)
+    debug["pa_gap"] = round(gap, 1)
+
     if gap < 5 and buy_partial and sell_partial and not trend_aligned:
         hard_conflicts.append(
-            f"BUY/SELL в паритете ({pa_buy_raw:.0f} vs {pa_sell_raw:.0f})"
+            f"BUY/SELL в паритете ({pa_buy_raw:.0f} vs {pa_sell_raw:.0f}, gap={gap:.0f})"
         )
 
     debug["hard_conflicts"] = hard_conflicts
@@ -290,35 +290,39 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
             debug=debug
         )
 
-    # ── 11. Confidence base ────────────────────────────────────────────────────
-    # PA carries 60%: one strong pattern should dominate the result.
-    # Secondary factors (candles, levels, regime, indicators) fill the remaining 40%.
-    regime_s = regime.buy_score if is_buy else regime.sell_score
+    # ── 13. Confidence (updated weights: level 12%, indicator 5%) ─────────────
     confidence = (
-        pa_score   * 0.60
+        pa_score  * 0.58
         + candle_s * 0.15
-        + level_ok * 0.08
         + regime_s * 0.10
-        + ind_s    * 0.07
+        + level_ok * 0.12
+        + ind_s    * 0.05
     )
     debug["confidence_base"] = round(confidence, 1)
 
-    # ── 12. Soft penalties ────────────────────────────────────────────────────
-    soft_penalties: list[str] = []
-
+    # ── 14. Soft penalties ────────────────────────────────────────────────────
     if not is_full:
         confidence -= 8.0
         soft_penalties.append("Только partial match (-8)")
 
     if regime.regime == "weak_trend":
-        confidence -= 8.0
-        soft_penalties.append("Слабый тренд (-8)")
+        confidence -= 6.0
+        soft_penalties.append("Слабый тренд (-6)")
 
     if counter_trend:
         confidence -= 10.0
-        soft_penalties.append(f"Контртрендовый вход (-10)")
+        soft_penalties.append("Контртрендовый вход (-10)")
 
-    if LEVEL_TOO_CLOSE <= level_ok < LEVEL_MEDIUM:
+    # Regime-pattern mismatch (non-preferred pattern won)
+    regime_mismatch = (
+        (regime.regime in ("uptrend", "downtrend") and pa_name != "impulse") or
+        (regime.regime == "range" and pa_name == "impulse")
+    )
+    if regime_mismatch:
+        confidence -= 6.0
+        soft_penalties.append(f"Паттерн '{pa_name}' не оптимален для {regime.regime} (-6)")
+
+    if LEVEL_HARD_BLOCK <= level_ok < LEVEL_MEDIUM:
         confidence -= 5.0
         soft_penalties.append(f"Умеренная близость к уровню (-5)")
 
@@ -326,24 +330,26 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         confidence -= 5.0
         soft_penalties.append("Нейтральные свечи (-5)")
 
-    if ind_s < 20:
-        confidence -= 4.0
-        soft_penalties.append("Нейтральные индикаторы (-4)")
-
     if regime.volatility_state == "compressed":
         confidence -= 4.0
         soft_penalties.append("Сжатая волатильность (-4)")
 
+    if ind_s < 20:
+        confidence -= 3.0
+        soft_penalties.append("Нейтральные индикаторы (-3)")
+
     debug["soft_penalties"]   = soft_penalties
     debug["confidence_final"] = round(confidence, 1)
 
-    # ── 13. Signal quality decision ───────────────────────────────────────────
-    if confidence >= STRONG_THRESHOLD:
-        signal_quality = "strong"
-    elif confidence >= MODERATE_THRESHOLD:
-        signal_quality = "moderate"
-    else:
-        debug["reject_reason"] = f"low_confidence ({confidence:.0f} < {MODERATE_THRESHOLD})"
+    # ── 15. Parity soft cap: gap 5-8 → max "normal" even if confidence >= 70 ──
+    parity_cap = False
+    if 5 <= gap < 8 and not trend_aligned:
+        parity_cap = True
+        debug["parity_cap"] = f"gap={gap:.0f} → max normal"
+
+    # ── 16. Signal quality decision ───────────────────────────────────────────
+    if confidence < NORMAL_THRESHOLD:
+        debug["reject_reason"] = f"low_confidence ({confidence:.0f} < {NORMAL_THRESHOLD})"
         return _no_signal(
             f"Слабый сигнал (уверенность {confidence:.0f})",
             regime=regime.regime,
@@ -351,7 +357,12 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
             debug=debug
         )
 
-    # ── 14. Recommended expiration ────────────────────────────────────────────
+    if confidence >= STRONG_THRESHOLD and not parity_cap:
+        signal_quality = "strong"
+    else:
+        signal_quality = "normal"
+
+    # ── 17. Recommended expiration ────────────────────────────────────────────
     if pa_name in ("bounce", "breakout"):
         rec_exp = "1m"
     elif pa_name == "impulse" and regime.regime in ("uptrend", "downtrend"):
@@ -359,7 +370,7 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     else:
         rec_exp = "1m"
 
-    # ── 15. Human reasons ─────────────────────────────────────────────────────
+    # ── 18. Human reasons ─────────────────────────────────────────────────────
     reasons: list[str] = []
     if is_buy:
         if impulse.buy_score  >= PARTIAL_MATCH_MIN: reasons.append(f"Бычий импульс: {impulse.explanation}")
@@ -378,11 +389,11 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     conf5 = _to_5(confidence)
 
     logger.info(
-        "Signal: %s (%s) conf=%.1f→%d/5 | %s=%s(%.0f) | regime=%s | "
-        "full=%s | soft=%d",
+        "Signal: %s (%s) conf=%.1f→%d/5 | %s=%s(raw=%.0f) | regime=%s | "
+        "gap=%.0f | soft=%d | mq=%.0f",
         direction, signal_quality, confidence, conf5,
         pa_name, "FULL" if is_full else "partial", pa_raw,
-        regime.regime, is_full, len(soft_penalties)
+        regime.regime, gap, len(soft_penalties), mq_score
     )
 
     debug["final_decision"] = direction
@@ -414,6 +425,147 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _assess_with_regime(
+    imp_s: float,
+    bnc_s: float,
+    fb_s: float,
+    regime_str: str,
+) -> tuple[float, str, float, bool, bool, dict]:
+    """
+    Assess primary patterns with regime-based boosts/penalties applied
+    before competition. Raw scores are kept for threshold checks.
+
+    Returns:
+        (blended_score, best_name, best_raw, full_match, partial_match, boosts_debug)
+    """
+    adj = {"impulse": imp_s, "bounce": bnc_s, "breakout": fb_s}
+    boosts: dict[str, str] = {}
+
+    if regime_str in ("uptrend", "downtrend"):
+        # Trend: boost impulse, penalize bounce/breakout unless very strong
+        adj["impulse"] = min(100.0, adj["impulse"] + 15.0)
+        boosts["impulse"] = "+15 (trend)"
+        if bnc_s < 70:
+            adj["bounce"] = max(0.0, adj["bounce"] - 10.0)
+            boosts["bounce"] = "-10 (trend)"
+        if fb_s < 70:
+            adj["breakout"] = max(0.0, adj["breakout"] - 10.0)
+            boosts["breakout"] = "-10 (trend)"
+
+    elif regime_str == "range":
+        # Range: boost bounce/breakout, penalize weak impulse
+        adj["bounce"]   = min(100.0, adj["bounce"]   + 15.0)
+        adj["breakout"] = min(100.0, adj["breakout"] + 15.0)
+        boosts["bounce"]   = "+15 (range)"
+        boosts["breakout"] = "+15 (range)"
+        if imp_s < FULL_MATCH_MIN:
+            adj["impulse"] = max(0.0, adj["impulse"] - 10.0)
+            boosts["impulse"] = "-10 (range)"
+
+    # weak_trend: no boosts, but mismatch is caught as soft penalty in main engine
+
+    best_name = max(adj, key=adj.__getitem__)
+    best_adj  = adj[best_name]
+
+    # Raw score (pre-adjustment) for hard-threshold checks
+    raw = {"impulse": imp_s, "bounce": bnc_s, "breakout": fb_s}
+    best_raw = raw[best_name]
+
+    full_match    = best_raw >= FULL_MATCH_MIN
+    partial_match = best_raw >= PARTIAL_MATCH_MIN
+
+    # Blended: adjusted best × 80% + raw average × 20%
+    raw_avg = (imp_s + bnc_s + fb_s) / 3.0
+    blended = best_adj * 0.80 + raw_avg * 0.20
+
+    return blended, best_name, best_raw, full_match, partial_match, boosts
+
+
+def _pick_direction(
+    regime_str: str,
+    buy_partial: bool,
+    sell_partial: bool,
+    pa_buy: float,
+    pa_sell: float,
+) -> str:
+    """Choose signal direction, preferring trend-aligned side first."""
+    if regime_str == "uptrend":
+        if buy_partial:  return "BUY"
+        if sell_partial: return "SELL"
+    elif regime_str == "downtrend":
+        if sell_partial: return "SELL"
+        if buy_partial:  return "BUY"
+    else:
+        if buy_partial and (not sell_partial or pa_buy >= pa_sell):
+            return "BUY"
+    return "SELL"
+
+
+def _market_quality_check(df: pd.DataFrame) -> tuple[float, str]:
+    """
+    Pre-filter: evaluate raw candle quality before running full analysis.
+    Returns (quality_score 0-100, reason_str).
+    Score < MARKET_QUALITY_MIN → hard reject.
+
+    Checks:
+    - avg body ratio (tiny bodies = indecision / no structure)
+    - direction alternation rate (chaotic flip-flopping)
+    - bilateral wicks ratio (big wicks both sides = no conviction)
+    - compressed range (too little movement = noise only)
+    """
+    n = len(df)
+    lookback = min(10, n)
+
+    op = df["open"].values[-lookback:]
+    cl = df["close"].values[-lookback:]
+    hi = df["high"].values[-lookback:]
+    lo = df["low"].values[-lookback:]
+
+    body_abs    = np.abs(cl - op)
+    total_range = hi - lo + 1e-10
+    body_ratio  = body_abs / total_range   # 0=doji, 1=full body
+
+    avg_body_ratio = float(np.mean(body_ratio))
+
+    # Direction alternation
+    dirs = (cl > op).astype(int)
+    changes = int(sum(dirs[i] != dirs[i - 1] for i in range(1, lookback)))
+    alt_rate = changes / max(1, lookback - 1)
+
+    # Bilateral wicks: both upper and lower shadows are large relative to body
+    avg_body = float(np.mean(body_abs)) or 1e-8
+    upper_sh = hi - np.maximum(op, cl)
+    lower_sh = np.minimum(op, cl) - lo
+    avg_upper = float(np.mean(upper_sh))
+    avg_lower = float(np.mean(lower_sh))
+    bilateral_wick = (avg_upper > avg_body * 1.2) and (avg_lower > avg_body * 1.2)
+
+    # Score starts at 100, deduct for bad conditions
+    score = 100.0
+    reasons = []
+
+    # Tiny bodies
+    if avg_body_ratio < 0.15:
+        deduct = (0.15 - avg_body_ratio) / 0.15 * 40.0  # up to -40
+        score -= deduct
+        reasons.append(f"Тела свечей малы ({avg_body_ratio:.2f})")
+
+    # High alternation (chaotic flip-flop without being caught by market_regime chaotic_noise)
+    if alt_rate > 0.65:
+        deduct = (alt_rate - 0.65) / 0.35 * 35.0  # up to -35
+        score -= deduct
+        reasons.append(f"Хаотичное чередование ({alt_rate:.0%})")
+
+    # Both sides have large wicks → indecision / trap candles
+    if bilateral_wick:
+        score -= 20.0
+        reasons.append("Тени с обеих сторон (нет направления)")
+
+    score = max(0.0, score)
+    reason_str = "; ".join(reasons) if reasons else "OK"
+    return score, reason_str
+
+
 def _no_signal(
     reason: str,
     regime: str = "unknown",
@@ -426,32 +578,31 @@ def _no_signal(
     d.setdefault("final_decision", "none")
     d.setdefault("reject_reason", reason)
     return {
-        "direction":              "NO_SIGNAL",
-        "signal_quality":         "none",
-        "confidence":             0.0,
-        "confidence_5":           0,
-        "primary_strategy":       None,
-        "primary_match_type":     None,
-        "regime":                 regime,
-        "recommended_expiration": None,
-        "reasons":                [],
-        "hard_conflicts":         hard_conflicts or [],
-        "soft_penalties":         soft_penalties or [],
-        "reject_reason":          reason,
-        "filters_passed":         False,
-        "module_scores":          {},
-        "debug":                  d,
+        "direction":               "NO_SIGNAL",
+        "signal_quality":          "none",
+        "confidence":              0.0,
+        "confidence_5":            0,
+        "primary_strategy":        None,
+        "primary_match_type":      None,
+        "regime":                  regime,
+        "recommended_expiration":  None,
+        "reasons":                 [],
+        "hard_conflicts":          hard_conflicts or [],
+        "soft_penalties":          soft_penalties or [],
+        "reject_reason":           reason,
+        "filters_passed":          False,
+        "module_scores":           {},
+        "debug":                   d,
     }
 
 
 def _to_5(score: float) -> int:
     """
     Map confidence → 1–5 display scale.
-    Any signal that passes MODERATE_THRESHOLD (≥52) shows at least 2/5.
-    1/5 is reserved for signals that didn't pass (shouldn't appear in user messages).
+    Any passing signal (≥ NORMAL_THRESHOLD=56) shows at least 2/5.
     """
     if score >= 85: return 5
     if score >= 75: return 4
     if score >= 65: return 3
-    if score >= 52: return 2   # moderate signal — valid, shows 2/5
-    return 1                   # below threshold — no signal
+    if score >= 56: return 2   # normal signal
+    return 1                   # below threshold — not shown to users
