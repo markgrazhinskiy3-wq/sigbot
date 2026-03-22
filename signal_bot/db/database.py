@@ -280,6 +280,39 @@ async def get_daily_admin_stats(date_prefix: str) -> dict:
     }
 
 
+async def get_pair_stats(user_id: int, limit: int = 5) -> list[dict]:
+    """Return win/loss breakdown by pair for a user, ordered by winrate desc."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT
+                pair_label,
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses
+            FROM signal_outcomes
+            WHERE user_id = ? AND outcome IN ('win', 'loss')
+            GROUP BY pair_label
+            ORDER BY wins DESC, total DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            result = []
+            for r in rows:
+                w, l = (r["wins"] or 0), (r["losses"] or 0)
+                result.append({
+                    "pair_label": r["pair_label"],
+                    "total":      r["total"],
+                    "wins":       w,
+                    "losses":     l,
+                    "winrate":    round(w / (w + l) * 100) if (w + l) > 0 else None,
+                })
+            return result
+
+
 async def get_strategy_stats(user_id: int) -> list[dict]:
     """Return win/loss breakdown by strategy for a user."""
     async with aiosqlite.connect(DB_PATH) as db:

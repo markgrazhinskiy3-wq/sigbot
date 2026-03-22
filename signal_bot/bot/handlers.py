@@ -13,7 +13,7 @@ import config
 from db.database import (
     add_or_get_user, get_status, set_status,
     list_all, list_pending, list_approved,
-    save_signal_outcome, get_user_stats, get_strategy_stats,
+    save_signal_outcome, get_user_stats, get_strategy_stats, get_pair_stats,
     get_daily_admin_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
@@ -1028,7 +1028,7 @@ async def cmd_stats(message: Message) -> None:
         return
 
     stats    = await get_user_stats(user_id)
-    by_strat = await get_strategy_stats(user_id)
+    by_pair  = await get_pair_stats(user_id, limit=5)
 
     total   = stats["total"]
     wins    = stats["wins"]
@@ -1056,16 +1056,10 @@ async def cmd_stats(message: Message) -> None:
         f"🎯 Точность:     <b>{wr_str}</b>",
     ]
 
-    if by_strat:
-        _strat_names = {
-            "impulse":  "Импульс",
-            "bounce":   "Отскок",
-            "breakout": "Лож. пробой",
-        }
-        lines.append("\n<b>По стратегиям:</b>")
-        for s in by_strat:
-            name = _strat_names.get(s["strategy"], s["strategy"])
-            wr   = f"{s['winrate']}%" if s["winrate"] is not None else "—"
-            lines.append(f"  {name}: {s['wins']}W / {s['losses']}L  ({wr})")
+    if by_pair:
+        lines.append("\n<b>Лучшие пары:</b>")
+        for p in by_pair:
+            wr = f"{p['winrate']}%" if p["winrate"] is not None else "—"
+            lines.append(f"  {p['pair_label']}: {p['wins']}W / {p['losses']}L  ({wr})")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
