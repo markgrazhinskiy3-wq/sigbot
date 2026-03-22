@@ -536,6 +536,25 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 
 # ─── Recommended pairs ───────────────────────────────────────────────────────
 
+def _conf_bar(c: int, total: int = 5) -> str:
+    return "🟩" * min(c, total) + "⬜" * max(0, total - c)
+
+
+def _scan_message(signals: list) -> str:
+    """Format the scan result message with direction + confidence bar per pair."""
+    lines = ["📊 <b>Пары с активными сигналами:</b>\n"]
+    for sig in signals:
+        arrow   = "📈 BUY" if sig.direction == "BUY" else "📉 SELL"
+        bar     = _conf_bar(sig.confidence)
+        quality = sig.details.get("signal_quality", "") if isinstance(sig.details, dict) else ""
+        q_label = " <b>сильный</b>" if quality == "strong" else ""
+        lines.append(f"{arrow}  {sig.pair}  {bar}{q_label}")
+    lines.append(
+        "\n<i>Нажмите на пару → выберите экспирацию → получите точный сигнал.</i>"
+    )
+    return "\n".join(lines)
+
+
 def _build_pairs_map() -> dict[str, str]:
     pairs_map = {p["symbol"]: p.get("name") or p["label"].split("|")[0].strip()
                  for p in pairs_cache.get_cached()}
@@ -579,16 +598,8 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
                 )
             return
 
-        lines = [
-            "📊 <b>Пары с активными сигналами:</b>\n",
-        ]
-        for sig in signals:
-            lines.append(f"• {sig.pair}")
-
-        lines.append("\n<i>Переключитесь на нужную пару в Pocket Option, затем нажмите на неё ниже — сигнал будет рассчитан для выбранного времени экспирации.</i>")
-
         await callback.message.edit_text(
-            "\n".join(lines),
+            _scan_message(signals),
             parse_mode="HTML",
             reply_markup=recommended_pairs_keyboard(signals),
         )
@@ -658,16 +669,8 @@ async def cmd_signal(message: Message) -> None:
                 )
             return
 
-        lines = ["📊 <b>Пары с активными сигналами:</b>\n"]
-        for sig in signals:
-            lines.append(f"• {sig.pair}")
-        lines.append(
-            "\n<i>Переключитесь на нужную пару в Pocket Option, "
-            "затем нажмите на неё ниже — сигнал будет рассчитан для выбранного времени экспирации.</i>"
-        )
-
         await msg.edit_text(
-            "\n".join(lines),
+            _scan_message(signals),
             parse_mode="HTML",
             reply_markup=recommended_pairs_keyboard(signals),
         )

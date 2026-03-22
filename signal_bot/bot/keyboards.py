@@ -80,14 +80,15 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
 def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     """
     Keyboard with pairs that currently have a BUY/SELL signal.
-    Each button shows direction + pair name, clicking opens expiration picker.
+    Each button shows direction arrow + pair name, clicking opens expiration picker.
     signals: list of SignalResponse sorted by confidence desc.
     """
     builder = InlineKeyboardBuilder()
     for sig in signals:
+        arrow = "📈" if sig.direction == "BUY" else "📉"
         builder.row(
             InlineKeyboardButton(
-                text=sig.pair,
+                text=f"{arrow} {sig.pair}",
                 callback_data=f"pair:{sig.symbol}",
             )
         )
