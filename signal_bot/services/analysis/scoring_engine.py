@@ -42,13 +42,13 @@ from .false_breakout         import false_breakout_strategy
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-FULL_MATCH_MIN    = 55.0   # primary score → "matched" (strong candidate)
-PARTIAL_MATCH_MIN = 35.0   # primary score → "partial_match" (moderate candidate)
+FULL_MATCH_MIN    = 50.0   # primary score → "matched" (strong candidate)
+PARTIAL_MATCH_MIN = 30.0   # primary score → "partial_match" (moderate candidate)
 STRONG_THRESHOLD  = 70.0   # final confidence → strong signal
-MODERATE_THRESHOLD= 58.0   # final confidence → moderate signal
+MODERATE_THRESHOLD= 52.0   # final confidence → moderate signal
 
 # Counter-trend: bounce/breakout minimum to allow trade against trend
-COUNTER_TREND_MIN = 58.0
+COUNTER_TREND_MIN = 55.0
 
 # Level proximity thresholds (level_analysis buy/sell score)
 LEVEL_TOO_CLOSE   = 8      # < 0.05% — hard reject
@@ -274,7 +274,7 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
         (not is_buy and regime.regime == "downtrend")
     )
     gap = abs(pa_buy_raw - pa_sell_raw)
-    if gap < 8 and buy_partial and sell_partial and not trend_aligned:
+    if gap < 5 and buy_partial and sell_partial and not trend_aligned:
         hard_conflicts.append(
             f"BUY/SELL в паритете ({pa_buy_raw:.0f} vs {pa_sell_raw:.0f})"
         )

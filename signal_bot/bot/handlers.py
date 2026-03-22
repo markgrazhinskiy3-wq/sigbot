@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Router, F, Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -15,7 +16,7 @@ from db.database import (
     save_signal_outcome, get_user_stats, get_strategy_stats,
 )
 from services.access_service import notify_admin_new_user, check_access
-from services.signal_service import get_signal, format_signal_message
+from services.signal_service import get_signal, scan_best_signal, format_signal_message
 from services.outcome_tracker import track_outcome
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
@@ -530,6 +531,81 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
 
 
+# ─── Scan best signal across all cached pairs ────────────────────────────────
+
+@router.callback_query(F.data.startswith("action:scan_best:"))
+async def cb_scan_best(callback: CallbackQuery) -> None:
+    if not await _check_user_access(callback):
+        return
+
+    expiration_sec = int(callback.data.split(":")[-1])
+    await callback.answer("🔍 Ищу лучший сигнал...")
+    await callback.message.edit_text(
+        "🔍 <b>Сканирую все пары...</b>\n\nИщу лучший сигнал прямо сейчас.",
+        parse_mode="HTML",
+    )
+
+    try:
+        pairs_map = {p["symbol"]: p.get("name") or p["label"].split("|")[0].strip()
+                     for p in pairs_cache.get_cached()}
+        for p in config.OTC_PAIRS:
+            if p["symbol"] not in pairs_map:
+                pairs_map[p["symbol"]] = p["label"]
+
+        signal = await scan_best_signal(expiration_sec, pairs_map)
+
+        if signal is None:
+            await callback.message.edit_text(
+                "⚠️ <b>Сигнал не найден</b>\n\n"
+                "Рынок сейчас неопределённый — все пары показывают смешанные сигналы.\n\n"
+                "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+                parse_mode="HTML",
+                reply_markup=no_signal_keyboard("", expiration_sec),
+            )
+            return
+
+        text = format_signal_message(signal)
+        kb = signal_result_keyboard(signal.symbol or signal.pair)
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+        if signal.direction in ("BUY", "SELL"):
+            d = signal.details if isinstance(signal.details, dict) else {}
+            signal_price = d.get("debug", {}).get("last_close")
+            strategy     = d.get("primary_strategy")
+            symbol = signal.symbol or signal.pair
+
+            if signal_price:
+                outcome_id = await save_signal_outcome(
+                    user_id        = callback.from_user.id,
+                    symbol         = symbol,
+                    pair_label     = signal.pair,
+                    direction      = signal.direction,
+                    confidence     = signal.confidence,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                )
+                asyncio.create_task(track_outcome(
+                    bot            = callback.bot,
+                    chat_id        = callback.from_user.id,
+                    outcome_id     = outcome_id,
+                    symbol         = symbol,
+                    pair_label     = signal.pair,
+                    direction      = signal.direction,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                ))
+
+    except Exception as e:
+        logger.exception("scan_best error: %s", e)
+        await callback.message.edit_text(
+            "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
+            parse_mode="HTML",
+            reply_markup=back_to_menu_keyboard(),
+        )
+
+
 # ─── Restart bot ─────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "action:restart_bot")
@@ -538,11 +614,14 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
         return
 
     await callback.answer("🔁 Готово")
-    await callback.message.edit_text(
-        "✅ <b>Готово.</b>\n\nМожно запрашивать новые сигналы.",
-        parse_mode="HTML",
-        reply_markup=main_menu_keyboard(),
-    )
+    try:
+        await callback.message.edit_text(
+            "✅ <b>Готово.</b>\n\nМожно запрашивать новые сигналы.",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(),
+        )
+    except TelegramBadRequest:
+        pass
 
 
 # ─── /stats ──────────────────────────────────────────────────────────────────

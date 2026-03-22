@@ -61,8 +61,8 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
-            text="🔄 Попробовать снова",
-            callback_data=f"exp:{symbol}:{expiration_sec}",
+            text="🔍 Найти лучший сигнал",
+            callback_data=f"action:scan_best:{expiration_sec}",
         )
     )
     builder.row(

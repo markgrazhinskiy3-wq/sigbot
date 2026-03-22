@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from services.candle_cache import get_candles_cached as get_candles
+from services.candle_cache import get_candles_cached as get_candles, get_cached_symbols
 from services.strategy_engine import calculate_signal, SignalResult
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,38 @@ class SignalResponse:
     details: dict
     pair: str
     expiration_sec: int
+    symbol: str = ""     # raw symbol e.g. "#AUDCAD_otc"
+
+
+async def scan_best_signal(expiration_sec: int, pairs_map: dict[str, str]) -> SignalResponse | None:
+    """
+    Scan all cached pairs and return the best BUY/SELL signal (highest confidence).
+    `pairs_map` is {symbol: label}. Returns None if no signal found on any pair.
+    """
+    symbols = get_cached_symbols()
+    if not symbols:
+        return None
+
+    best: SignalResponse | None = None
+    for symbol in symbols:
+        label = pairs_map.get(symbol, symbol)
+        candles = await get_candles(symbol, count=80)
+        if not candles:
+            continue
+        result: SignalResult = calculate_signal(candles)
+        if result.direction not in ("BUY", "SELL"):
+            continue
+        resp = SignalResponse(
+            direction=result.direction,
+            confidence=result.confidence,
+            details=result.details,
+            pair=label,
+            expiration_sec=expiration_sec,
+            symbol=symbol,
+        )
+        if best is None or result.confidence > best.confidence:
+            best = resp
+    return best
 
 
 async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> SignalResponse:

@@ -41,6 +41,11 @@ _cache: dict[str, _CacheEntry] = {}
 _refresher_task: asyncio.Task | None = None
 
 
+def get_cached_symbols() -> list[str]:
+    """Return all symbols currently present in the cache (fresh or not)."""
+    return list(_cache.keys())
+
+
 def get_cached(symbol: str) -> list[dict] | None:
     """
     Return cached candles for symbol if they are still fresh, else None.
