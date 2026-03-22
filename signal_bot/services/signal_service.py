@@ -111,15 +111,17 @@ def format_signal_message(signal: SignalResponse) -> str:
         lines = [
             f"🔍 <b>{html.escape(signal.pair)}</b>",
             "",
-            f"⚠️ <b>Сигнал не найден</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
-            "Условия входа не выполнены — лучше пропустить.",
+            f"⏳ <b>Сигнал ещё не сформировался</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
+            "Условия благоприятные, но конкретной точки входа пока нет.",
         ]
         if hard and hard[0]:
             lines.append(f"\n<i>🚫 {html.escape(str(hard[0]))}</i>")
         elif reject:
             lines.append(f"\n<i>{html.escape(str(reject))}</i>")
         lines.append("")
-        lines.append("<i>Попробуйте другую пару или подождите немного.</i>")
+        lines.append("🤖 <b>Мониторинг запущен.</b> Бот будет проверять эту пару каждые 25 секунд и пришлёт уведомление как только появится сигнал.")
+        lines.append("")
+        lines.append("<i>Нажмите «Назад», чтобы выбрать другую пару.</i>")
         return "\n".join(lines)
 
     if signal.direction == "BUY":

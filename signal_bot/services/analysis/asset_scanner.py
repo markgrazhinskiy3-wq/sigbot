@@ -480,8 +480,10 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
     now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
     lines = [
-        "🔍 <b>Рекомендуемые пары</b>",
+        "📋 <b>Пары с благоприятными условиями</b>",
         f"⏰ {now_str}",
+        "",
+        "<i>Это не готовые сигналы — бот оценил рыночные условия. После выбора пары запустится мониторинг: бот пришлёт уведомление когда появится конкретный сигнал.</i>",
         "",
     ]
 
@@ -496,7 +498,7 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
         if ress: level_parts.append(f"R: {ress[0]['price']:.5g}")
         level_str = ("📐 Уровни: " + " | ".join(level_parts)) if level_parts else ""
 
-        lines.append(f"<b>{i}. {r.pair}</b> — ⭐ {r.score}/100")
+        lines.append(f"<b>{i}. {r.pair}</b> — условия {r.score}/100")
         lines.append(f"📊 Рынок: {mode_str}")
         lines.append(f"🎯 Стратегии: {strategies_str}")
         if level_str:
@@ -505,5 +507,5 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
             lines.append(f"💡 {r.explanation}")
         lines.append("")
 
-    lines.append("<i>Выберите пару ниже — бот загрузит свежие данные и найдёт сигнал.</i>")
+    lines.append("👇 <b>Выберите пару для запуска мониторинга:</b>")
     return "\n".join(lines)
