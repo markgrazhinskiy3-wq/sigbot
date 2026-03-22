@@ -488,24 +488,8 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
     ]
 
     for i, r in enumerate(results, 1):
-        strategies_str = ", ".join(r.applicable_strategies) if r.applicable_strategies else "—"
-        mode_str       = _mode_label_ru(r.mode)
+        lines.append(f"{i}. <b>{r.pair}</b>")
 
-        sups = r.levels.get("supports",    [])
-        ress = r.levels.get("resistances", [])
-        level_parts = []
-        if sups: level_parts.append(f"S: {sups[0]['price']:.5g}")
-        if ress: level_parts.append(f"R: {ress[0]['price']:.5g}")
-        level_str = ("📐 Уровни: " + " | ".join(level_parts)) if level_parts else ""
-
-        lines.append(f"<b>{i}. {r.pair}</b> — условия {r.score}/100")
-        lines.append(f"📊 Рынок: {mode_str}")
-        lines.append(f"🎯 Стратегии: {strategies_str}")
-        if level_str:
-            lines.append(level_str)
-        if r.explanation:
-            lines.append(f"💡 {r.explanation}")
-        lines.append("")
-
+    lines.append("")
     lines.append("👇 <b>Выберите пару для запуска мониторинга:</b>")
     return "\n".join(lines)
