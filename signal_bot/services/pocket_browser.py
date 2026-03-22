@@ -810,12 +810,16 @@ async def _get_candles_impl(symbol: str, count: int = 60) -> list[dict]:
     def handle_ws(ws):
         if "po.market" not in ws.url:
             return
+        logger.info("[WS] Connected: %s", ws.url)
         def on_msg(msg):
-            if isinstance(msg, str) and msg.startswith("451-"):
-                try:
-                    last_event[0] = json.loads(msg[4:])[0]
-                except Exception:
-                    pass
+            if isinstance(msg, str):
+                if msg.startswith("451-"):
+                    try:
+                        last_event[0] = json.loads(msg[4:])[0]
+                    except Exception:
+                        pass
+                elif len(msg) < 300:
+                    logger.debug("[WS] text frame: %s", msg[:200])
             elif isinstance(msg, bytes) and last_event[0]:
                 binary_frames.append((last_event[0], msg))
         ws.on("framereceived", on_msg)
