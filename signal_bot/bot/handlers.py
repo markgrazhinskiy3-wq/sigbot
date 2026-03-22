@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import Router, F, Bot
@@ -15,7 +16,7 @@ from db.database import (
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
-from services.result_watcher import schedule_result_watcher
+from services.outcome_tracker import track_outcome
 import services.pairs_cache as pairs_cache
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
@@ -496,7 +497,6 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
             signal_price = d.get("debug", {}).get("last_close")
             strategy     = d.get("primary_strategy")
 
-            outcome_id: int | None = None
             if signal_price:
                 outcome_id = await save_signal_outcome(
                     user_id        = callback.from_user.id,
@@ -508,17 +508,17 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                     expiration_sec = expiration_sec,
                     signal_price   = signal_price,
                 )
-
-            schedule_result_watcher(
-                bot            = callback.bot,
-                chat_id        = callback.from_user.id,
-                symbol         = symbol,
-                pair_label     = pair_label,
-                expiration_sec = expiration_sec,
-                direction      = signal.direction,
-                details        = d,
-                outcome_id     = outcome_id,
-            )
+                asyncio.create_task(track_outcome(
+                    bot            = callback.bot,
+                    chat_id        = callback.from_user.id,
+                    outcome_id     = outcome_id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                ))
 
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
