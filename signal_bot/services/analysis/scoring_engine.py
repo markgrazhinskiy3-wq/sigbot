@@ -259,7 +259,7 @@ def run_scoring_engine(df: pd.DataFrame) -> dict[str, Any]:
     if level_ok < LEVEL_HARD_BLOCK:
         hard_conflicts.append(
             f"Цена у {'сопротивления' if is_buy else 'поддержки'} "
-            f"(score={level_ok:.0f} < {LEVEL_HARD_BLOCK}): {levels.explanation}"
+            f"(score={level_ok:.0f}): {levels.explanation}"
         )
 
     # ── 11. HARD REJECT: strong opposite false breakout ───────────────────────

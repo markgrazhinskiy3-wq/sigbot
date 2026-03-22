@@ -1,3 +1,4 @@
+import html
 import logging
 from dataclasses import dataclass
 
@@ -97,9 +98,9 @@ def format_signal_message(signal: SignalResponse) -> str:
             "Условия входа не выполнены — лучше пропустить.",
         ]
         if hard:
-            lines.append(f"\n<i>🚫 {hard[0]}</i>")
+            lines.append(f"\n<i>🚫 {html.escape(hard[0])}</i>")
         elif reject:
-            lines.append(f"\n<i>{reject}</i>")
+            lines.append(f"\n<i>{html.escape(reject)}</i>")
         lines.append("")
         lines.append("<i>Попробуйте другую пару или подождите немного.</i>")
         return "\n".join(lines)
