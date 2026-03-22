@@ -110,17 +110,20 @@ Utility scripts package. Each script is a `.ts` file in `src/` with a correspond
 ### `signal_bot/` — Pocket Option OTC Signal Bot
 
 Separate standalone Python bot for OTC trading signals on Pocket Option.
+Multi-user, admin-approved, supports 100+ concurrent users via candle cache.
 
-- Entry: `signal_bot/main.py` — initializes SQLite DB, starts polling
-- Config: `signal_bot/config.py` — reads `SIGNAL_BOT_TOKEN`, `ADMIN_USER_ID`, `PO_LOGIN`, `PO_PASSWORD`, `AUTO_TRADE`, `HEADLESS`
-- Database: `signal_bot/db/database.py` — aiosqlite, users table (pending/approved/denied)
+- Entry: `signal_bot/main.py` — initializes SQLite DB, starts cache refresher + polling
+- Config: `signal_bot/config.py` — reads `SIGNAL_BOT_TOKEN`, `ADMIN_USER_ID`, `PO_LOGIN`, `PO_PASSWORD`, `HEADLESS`
+- Database: `signal_bot/db/database.py` — SQLite (aiosqlite), tables: `users`, `signal_outcomes`
 - Services:
+  - `services/pocket_browser.py` — Playwright login to pocketoption.com; candle collection via WebSocket intercept (binary `updateHistoryNewFast` frames); also captures auth credentials for direct WS client. WS auth saved to `po_ws_auth.json`.
+  - `services/po_ws_client.py` — Direct Socket.IO v4 WebSocket client (aiohttp, no browser). Uses auth from `po_ws_auth.json`. Fetches all 10 OTC pairs in one connection in ~3 seconds via `changeSymbol` + `ps` cycling. Background reader task feeds asyncio.Queue; never cancels `ws.receive()`. Used for fast periodic refresh cycles.
+  - `services/candle_cache.py` — In-memory cache (TTL=55s, interval=45s). Warm-up: all 10 pairs via browser (~3-4 min, 43-50 candles each). Refresh cycles: WS client (~3 sec, 13-14 new candles) merged with existing cache by timestamp (preserves full history). Browser fallback if WS returns nothing.
+  - `services/analysis/scoring_engine.py` — Price action analysis engine v5. Candles → pandas DataFrame. Regime detection, trend analysis, PA patterns, indicator confluence (RSI, EMA, Stochastic, BB, MACD). Confidence = PA×0.60+candles×0.15+regime×0.10+levels×0.08+indicators×0.07. Thresholds: strong≥70, moderate≥58.
+  - `services/signal_service.py` — Serves from cache first; falls through to live browser fetch on cache miss.
+  - `services/outcome_tracker.py` — Tracks signal WIN/LOSS. Waits for candle expiry, fetches close price, notifies user.
   - `services/access_service.py` — user registration + admin notification
-  - `services/pocket_browser.py` — Playwright login to pocketoption.com, candle collection via WS intercept, screenshots
-  - `services/strategy_engine.py` — RSI(14), EMA(9/21) с мёртвой зоной ±0.05%, Stochastic(5,3,3), Momentum с мёртвой зоной ±0.05%, Bollinger Bands(20,2) → BUY/SELL/NO_SIGNAL; порог conf≥4/5
-  - `services/signal_service.py` — orchestrates browser + engine, formats signal message
-  - `services/result_watcher.py` — asyncio task, waits N seconds then sends screenshot
-- Bot: `signal_bot/bot/handlers.py` + `keyboards.py` — FSM flow, admin commands (/approve, /deny, /users, /pending, /broadcast)
+- Bot: `signal_bot/bot/handlers.py` + `keyboards.py` — FSM flow, admin commands (/approve, /deny, /users, /pending, /broadcast), /stats (winrate per strategy)
+- Data files: `po_cookies.json` (saved browser cookies), `po_ws_auth.json` (captured WS auth: session + uid)
 - Workflow: "Signal Bot" → `python3 signal_bot/main.py`
 - Requires secrets: `SIGNAL_BOT_TOKEN`, `ADMIN_USER_ID`, `PO_LOGIN`, `PO_PASSWORD`
-- AUTO_TRADE=false by default (analysis only, no real trades)

@@ -1,0 +1,11 @@
+{
+  "ws_url": "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket",
+  "auth": {
+    "session": "qp6hm0ajksjftj78eoerml1d3g",
+    "isDemo": 1,
+    "uid": 86535816,
+    "platform": 2,
+    "isFastHistory": true,
+    "isOptimized": true
+  }
+}

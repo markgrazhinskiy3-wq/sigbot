@@ -55,13 +55,85 @@ def get_cached(symbol: str) -> list[dict] | None:
 
 
 def store(symbol: str, candles: list[dict]) -> None:
-    """Store freshly-fetched candles in the cache."""
-    _cache[symbol] = _CacheEntry(candles=list(candles), fetched_at=time.time())
-    logger.debug("Cache stored: %s (%d candles)", symbol, len(candles))
+    """Full replace: store freshly-fetched candles in the cache."""
+    trimmed = candles[-CANDLE_COUNT:] if len(candles) > CANDLE_COUNT else candles
+    _cache[symbol] = _CacheEntry(candles=list(trimmed), fetched_at=time.time())
+    logger.debug("Cache stored: %s (%d candles)", symbol, len(trimmed))
 
 
-async def _refresh_one(symbol: str) -> bool:
-    """Fetch candles for one symbol and update the cache. Returns True on success."""
+def store_merge(symbol: str, new_candles: list[dict]) -> bool:
+    """
+    Merge `new_candles` into the existing cache entry (by `time` key).
+    New candles that overlap with the cache are updated in-place;
+    newer candles are appended; older history from cache is preserved.
+    Falls back to full replace if either side lacks timestamps.
+    Returns True if cache was updated, False if new_candles was empty.
+    """
+    if not new_candles:
+        return False
+    # Check if candles have timestamps
+    if not new_candles[0].get("time"):
+        store(symbol, new_candles)
+        return True
+
+    existing = _cache.get(symbol)
+    if not existing or not existing.candles or not existing.candles[0].get("time"):
+        # No existing data or old format → full replace
+        store(symbol, new_candles)
+        return True
+
+    # Merge by time: existing + new, deduplicated, newest wins for overlap
+    by_time: dict[int, dict] = {c["time"]: c for c in existing.candles}
+    for c in new_candles:
+        by_time[c["time"]] = c   # new data takes precedence
+
+    merged = sorted(by_time.values(), key=lambda c: c["time"])
+    trimmed = merged[-CANDLE_COUNT:] if len(merged) > CANDLE_COUNT else merged
+    _cache[symbol] = _CacheEntry(candles=trimmed, fetched_at=time.time())
+    logger.debug(
+        "Cache merged: %s (%d existing + %d new = %d total)",
+        symbol, len(existing.candles), len(new_candles), len(trimmed),
+    )
+    return True
+
+
+async def _refresh_all_via_ws(symbols: list[str]) -> tuple[int, list[str]]:
+    """
+    Fetch candles for all symbols in one WebSocket connection.
+    Merges new candles with existing cache (preserves history).
+    Returns (ok_count, fallback_needed) where fallback_needed are symbols
+    that got NO candles from WS (need browser fallback).
+    """
+    from services.po_ws_client import fetch_all_pairs, is_available
+    if not is_available():
+        return 0, list(symbols)
+
+    try:
+        async with asyncio.timeout(60):
+            results = await fetch_all_pairs(symbols)
+        ok = 0
+        fallback = []
+        for symbol in symbols:
+            candles = results.get(symbol, [])
+            if candles:
+                store_merge(symbol, candles)
+                ok += 1
+            else:
+                # No WS data — need browser if cache is also empty/stale
+                entry = _cache.get(symbol)
+                if not entry:
+                    fallback.append(symbol)
+        return ok, fallback
+    except TimeoutError:
+        logger.error("WS refresh timed out after 60s")
+        return 0, list(symbols)
+    except Exception as e:
+        logger.error("WS refresh failed: %s", e)
+        return 0, list(symbols)
+
+
+async def _refresh_one_browser(symbol: str) -> bool:
+    """Fallback: fetch candles via browser (used until WS auth is captured)."""
     from services.pocket_browser import _get_candles_impl, _get_lock
     try:
         async with asyncio.timeout(90):
@@ -70,44 +142,70 @@ async def _refresh_one(symbol: str) -> bool:
         if candles:
             store(symbol, candles)
             return True
-        logger.warning("Cache refresh returned empty candles for %s", symbol)
+        logger.warning("Browser cache refresh returned empty candles for %s", symbol)
         return False
     except TimeoutError:
-        logger.error("Cache refresh timed out for %s", symbol)
+        logger.error("Browser cache refresh timed out for %s", symbol)
         return False
     except Exception as e:
-        logger.error("Cache refresh failed for %s: %s", symbol, e)
+        logger.error("Browser cache refresh failed for %s: %s", symbol, e)
         return False
 
 
 async def _refresher_loop(pairs: list[str]) -> None:
     """
-    Continuously refresh all pairs in rotation.
-    Sleeps REFRESH_INTERVAL seconds between full cycles.
+    Continuously refresh all pairs.
+    - Phase 1 (startup): browser-based, one pair at a time (until WS auth captured)
+    - Phase 2 (steady-state): direct WebSocket, all pairs in one connection (~5 sec/cycle)
     """
+    from services.po_ws_client import is_available as ws_available
+
     logger.info(
         "Candle cache refresher started — %d pairs, TTL=%ds, interval=%ds",
         len(pairs), CACHE_TTL, REFRESH_INTERVAL,
     )
 
-    # Stagger initial load: refresh all pairs once before entering the cycle
-    logger.info("Initial cache warm-up: loading %d pairs...", len(pairs))
+    # Initial warm-up:
+    # 1. Load ALL pairs via browser to build full history (50+ candles each)
+    #    — this provides the baseline data for quality signal analysis.
+    # 2. Simultaneously, first browser load captures WS auth for future cycles.
+    # WS is NOT used for initial warm-up (it only gives 13-14 candles).
+    logger.info("Initial cache warm-up (browser, %d pairs)...", len(pairs))
     for symbol in pairs:
-        await _refresh_one(symbol)
-    logger.info("Cache warm-up complete.")
+        ok = await _refresh_one_browser(symbol)
+        if ok:
+            entry = _cache.get(symbol)
+            logger.info(
+                "Warm-up: %s cached (%d candles)",
+                symbol,
+                len(entry.candles) if entry else 0,
+            )
+    logger.info("Cache warm-up complete. WS auth available: %s", ws_available())
 
     while True:
         await asyncio.sleep(REFRESH_INTERVAL)
         cycle_start = time.time()
-        ok = 0
-        for symbol in pairs:
-            if await _refresh_one(symbol):
-                ok += 1
-        elapsed = round(time.time() - cycle_start, 1)
-        logger.info(
-            "Cache refresh cycle: %d/%d pairs updated in %.1fs",
-            ok, len(pairs), elapsed,
-        )
+
+        if ws_available():
+            ok, fallback = await _refresh_all_via_ws(pairs)
+            # Browser fallback for pairs with insufficient candles from WS
+            for sym in fallback:
+                if await _refresh_one_browser(sym):
+                    ok += 1
+            elapsed = round(time.time() - cycle_start, 1)
+            logger.info(
+                "Cache refresh: %d/%d pairs (WS+fallback) in %.1fs",
+                ok, len(pairs), elapsed,
+            )
+        else:
+            ok = 0
+            for symbol in pairs:
+                if await _refresh_one_browser(symbol):
+                    ok += 1
+            elapsed = round(time.time() - cycle_start, 1)
+            logger.info(
+                "Browser cache refresh: %d/%d pairs in %.1fs", ok, len(pairs), elapsed
+            )
 
 
 def start_refresher(pairs: list[dict] | None = None) -> None:

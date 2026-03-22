@@ -33,7 +33,19 @@ def _get_lock() -> asyncio.Lock:
 SCREENSHOTS_DIR = Path(os.path.dirname(__file__)).parent / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
-COOKIES_PATH = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
+COOKIES_PATH  = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
+WS_AUTH_PATH  = Path(os.path.dirname(__file__)).parent / "po_ws_auth.json"
+
+
+def _save_ws_auth(ws_url: str, auth_payload: dict) -> None:
+    """Persist the auth payload captured from the browser's WS handshake."""
+    try:
+        data = {"ws_url": ws_url, "auth": auth_payload}
+        with open(WS_AUTH_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+        logger.info("WS auth saved → %s (uid=%s)", WS_AUTH_PATH, auth_payload.get("uid"))
+    except Exception as e:
+        logger.warning("Could not save WS auth: %s", e)
 
 
 def _load_saved_cookies() -> list[dict] | None:
@@ -811,6 +823,16 @@ async def _get_candles_impl(symbol: str, count: int = 60) -> list[dict]:
         if "po.market" not in ws.url:
             return
         logger.info("[WS] Connected: %s", ws.url)
+        def on_sent(msg):
+            if isinstance(msg, str) and len(msg) < 500:
+                logger.debug("[WS→SERVER] %s", msg[:400])
+                # Capture auth payload for direct WS client
+                if msg.startswith('42["auth"'):
+                    try:
+                        payload = json.loads(msg[2:])[1]
+                        _save_ws_auth(ws.url, payload)
+                    except Exception:
+                        pass
         def on_msg(msg):
             if isinstance(msg, str):
                 if msg.startswith("451-"):
@@ -819,9 +841,10 @@ async def _get_candles_impl(symbol: str, count: int = 60) -> list[dict]:
                     except Exception:
                         pass
                 elif len(msg) < 300:
-                    logger.debug("[WS] text frame: %s", msg[:200])
+                    logger.debug("[WS←SERVER] %s", msg[:200])
             elif isinstance(msg, bytes) and last_event[0]:
                 binary_frames.append((last_event[0], msg))
+        ws.on("framesent", on_sent)
         ws.on("framereceived", on_msg)
 
     page.on("websocket", handle_ws)
@@ -925,9 +948,10 @@ def _ticks_to_candles(ticks: list, period: int = 60) -> list[dict]:
         prices = buckets[bucket]
         if prices:
             candles.append({
-                "open": prices[0],
-                "high": max(prices),
-                "low": min(prices),
+                "time":  bucket,
+                "open":  prices[0],
+                "high":  max(prices),
+                "low":   min(prices),
                 "close": prices[-1],
             })
     return candles
