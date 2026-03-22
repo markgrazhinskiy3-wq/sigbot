@@ -487,10 +487,14 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
         if max_met < 3:
             continue
 
-        # Quality score: conditions_met drives score; bonus if signal is ready now
-        quality_score = max_met * 10
+        # Quality score: use engine confidence for accurate ranking.
+        # For BUY/SELL: use confidence_raw (above threshold, most reliable).
+        # For NO_SIGNAL: use conf_after_multipliers from debug (computed but below
+        # threshold) — still reflects real market quality for ranking purposes.
         if direction in ("BUY", "SELL"):
-            quality_score += 20
+            quality_score = int(result.details.get("confidence_raw", max_met * 10))
+        else:
+            quality_score = int(debug.get("conf_after_multipliers", max_met * 10))
 
         market_mode = details.get("market_mode") or debug.get("mode", "")
         label = pairs_map.get(symbol, symbol)
