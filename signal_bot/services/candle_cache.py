@@ -37,7 +37,7 @@ CANDLE_COUNT: int = 200
 # Minimum minutes of accumulation before signals are allowed.
 # After startup the cache has ~55 bars (13 min); we wait until enough WS cycles
 # have run to build a meaningful history for indicator quality.
-DATA_READY_MINUTES: int = 10
+DATA_READY_MINUTES: int = 2
 
 
 class _CacheEntry(NamedTuple):
