@@ -15,7 +15,6 @@ from aiogram import Bot
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from db.database import resolve_outcome
-from services.candle_cache import get_candles_cached as get_candles
 from bot.keyboards import after_result_keyboard
 
 logger = logging.getLogger(__name__)
@@ -45,9 +44,23 @@ async def track_outcome(
     try:
         await asyncio.sleep(expiration_sec + 5)
 
-        candles = await get_candles(symbol, count=5)
+        # Try WS first (fast, no browser), fall back to cache
+        candles = []
+        try:
+            from services.po_ws_client import fetch_all_pairs, is_available
+            if is_available():
+                async with asyncio.timeout(15):
+                    ws_result = await fetch_all_pairs([symbol])
+                candles = ws_result.get(symbol, [])
+        except Exception as ws_err:
+            logger.debug("WS price fetch for outcome failed: %s — using cache", ws_err)
+
         if not candles:
-            raise ValueError("No candles returned")
+            from services.candle_cache import get_cached
+            candles = get_cached(symbol) or []
+
+        if not candles:
+            raise ValueError("No candles available for outcome check")
 
         result_price = float(candles[-1]["close"])
 

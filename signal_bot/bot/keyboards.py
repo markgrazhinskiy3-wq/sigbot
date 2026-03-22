@@ -100,14 +100,21 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def signal_result_keyboard(symbol: str) -> InlineKeyboardMarkup:
+def signal_result_keyboard(symbol: str, expiration_sec: int = 0) -> InlineKeyboardMarkup:
     """
     Keyboard shown after a BUY/SELL signal.
+    - "Открываю сделку": starts the outcome timer from THIS moment (accurate entry)
     - Next signal: re-opens the expiration picker for the same pair
-    - Change pair: goes back to pair list
     - Main menu
     """
     builder = InlineKeyboardBuilder()
+    if expiration_sec > 0:
+        builder.row(
+            InlineKeyboardButton(
+                text="🟢 Открываю сделку",
+                callback_data=f"start_trade:{symbol}:{expiration_sec}",
+            )
+        )
     builder.row(
         InlineKeyboardButton(
             text="🔄 Следующий сигнал",
