@@ -485,6 +485,91 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("recpair:"))
+async def cb_recommended_pair_signal(callback: CallbackQuery) -> None:
+    """
+    Handles tap on a pair from the recommended pairs list.
+    Uses CACHED candles so the result matches exactly what the scan showed.
+    Bypasses the expiration picker — expiry comes from the engine hint.
+    """
+    if not await _check_user_access(callback):
+        return
+
+    _, symbol, sec_str = callback.data.split(":", 2)
+    expiration_sec = int(sec_str)
+    pair_label = _label_for_symbol(symbol)
+
+    await callback.answer("⏳ Анализирую рынок...")
+    await callback.message.edit_text(
+        f"🔄 <b>Анализирую {pair_label}...</b>\n\nПодождите, собираю данные.",
+        parse_mode="HTML",
+    )
+
+    try:
+        from services.candle_cache import get_cached
+        from services.strategy_engine import calculate_signal
+        from services.signal_service import SignalResponse, format_signal_message
+
+        candles = get_cached(symbol)
+        if not candles:
+            # Cache miss — fall back to live fetch
+            signal = await get_signal(symbol, pair_label, expiration_sec)
+        else:
+            result = calculate_signal(candles)
+            signal = SignalResponse(
+                direction      = result.direction,
+                confidence     = result.confidence,
+                details        = result.details,
+                pair           = pair_label,
+                expiration_sec = expiration_sec,
+                symbol         = symbol,
+            )
+
+        text = format_signal_message(signal)
+        kb = (
+            no_signal_keyboard(symbol, expiration_sec)
+            if signal.direction == "NO_SIGNAL"
+            else signal_result_keyboard(symbol, expiration_sec)
+        )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+        # Save to DB & start result watcher
+        if signal.direction in ("BUY", "SELL"):
+            d = signal.details if isinstance(signal.details, dict) else {}
+            signal_price = d.get("debug", {}).get("last_close")
+            strategy     = d.get("primary_strategy")
+            if signal_price:
+                outcome_id = await save_signal_outcome(
+                    user_id        = callback.from_user.id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    confidence     = signal.confidence,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                )
+                asyncio.create_task(track_outcome(
+                    bot            = callback.bot,
+                    chat_id        = callback.from_user.id,
+                    outcome_id     = outcome_id,
+                    symbol         = symbol,
+                    pair_label     = pair_label,
+                    direction      = signal.direction,
+                    strategy       = strategy,
+                    expiration_sec = expiration_sec,
+                    signal_price   = signal_price,
+                ))
+
+    except Exception as e:
+        logger.exception("Recommended pair signal error: %s", e)
+        await callback.message.edit_text(
+            "❌ <b>Ошибка анализа</b>\n\nПопробуйте позже.",
+            parse_mode="HTML",
+            reply_markup=back_to_menu_keyboard(),
+        )
+
+
 @router.callback_query(F.data.startswith("exp:"))
 async def cb_expiration_selected(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
