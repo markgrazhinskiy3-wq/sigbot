@@ -26,6 +26,16 @@ async def init_db() -> None:
         )
         await db.execute(
             """
+            CREATE TABLE IF NOT EXISTS admins (
+                user_id    INTEGER PRIMARY KEY,
+                username   TEXT,
+                added_by   INTEGER NOT NULL,
+                added_at   TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS signal_outcomes (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id        INTEGER NOT NULL,
@@ -343,3 +353,48 @@ async def get_strategy_stats(user_id: int) -> list[dict]:
                     "winrate":  round(w / (w + l) * 100) if (w + l) > 0 else None,
                 })
             return result
+
+
+# ── Admin management ────────────────────────────────────────────────────────────
+
+async def get_all_admin_ids() -> set[int]:
+    """Return set of all assigned admin user_ids (excludes main admin from config)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT user_id FROM admins") as cursor:
+            rows = await cursor.fetchall()
+            return {r["user_id"] for r in rows}
+
+
+async def get_all_admins() -> list[dict]:
+    """Return full list of assigned admins with details."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT user_id, username, added_by, added_at FROM admins ORDER BY added_at"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def add_admin(user_id: int, username: str | None, added_by: int) -> bool:
+    """Add an admin. Returns False if already exists."""
+    now = datetime.utcnow().isoformat()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO admins (user_id, username, added_by, added_at) VALUES (?, ?, ?, ?)",
+                (user_id, username or "", added_by, now),
+            )
+            await db.commit()
+        return True
+    except aiosqlite.IntegrityError:
+        return False
+
+
+async def remove_admin(user_id: int) -> bool:
+    """Remove an admin. Returns False if not found."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+        await db.commit()
+        return cursor.rowcount > 0

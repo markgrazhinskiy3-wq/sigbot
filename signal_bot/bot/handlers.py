@@ -15,6 +15,7 @@ from db.database import (
     list_all, list_pending, list_approved,
     save_signal_outcome, get_user_stats, get_strategy_stats, get_pair_stats,
     get_daily_admin_stats,
+    get_all_admin_ids, get_all_admins, add_admin, remove_admin,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
@@ -36,9 +37,27 @@ from bot.keyboards import (
 logger = logging.getLogger(__name__)
 router = Router()
 
+# ── Admin cache ────────────────────────────────────────────────────────────────
+# In-memory set of assigned admin IDs (loaded at startup, updated on add/remove).
+# Main admin (config.ADMIN_USER_ID) is always admin regardless of this set.
+_extra_admin_ids: set[int] = set()
+
+
+async def load_admin_cache() -> None:
+    """Load assigned admin IDs from DB into memory. Call once at startup."""
+    global _extra_admin_ids
+    _extra_admin_ids = await get_all_admin_ids()
+    logger.info("Admin cache loaded: %d extra admin(s)", len(_extra_admin_ids))
+
+
+def _is_main_admin(user_id: int) -> bool:
+    """True only for the primary admin (configured via ADMIN_USER_ID env)."""
+    return user_id == config.ADMIN_USER_ID
+
 
 def _is_admin(user_id: int) -> bool:
-    return user_id == config.ADMIN_USER_ID
+    """True for main admin OR any assigned admin."""
+    return user_id == config.ADMIN_USER_ID or user_id in _extra_admin_ids
 
 
 def _cancel_monitor(user_id: int) -> None:
@@ -1014,6 +1033,102 @@ async def cmd_daystats(message: Message) -> None:
                 f"  {p['pair_label']}: {p['total']} сиг  {p['wins']}W/{p['losses']}L  ({wr})"
             )
 
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+# ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────
+
+@router.message(Command("addadmin"))
+async def cmd_addadmin(message: Message) -> None:
+    if not _is_main_admin(message.from_user.id):
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip().lstrip("-").isdigit():
+        await message.answer(
+            "Использование: <code>/addadmin &lt;user_id&gt;</code>\n"
+            "user_id можно узнать через @userinfobot",
+            parse_mode="HTML",
+        )
+        return
+
+    target_id = int(args[1].strip())
+
+    if target_id == config.ADMIN_USER_ID:
+        await message.answer("Это уже главный администратор.")
+        return
+
+    # Try to find username from users table
+    import aiosqlite as _aio
+    username = None
+    async with _aio.connect(config.DB_PATH) as db:
+        db.row_factory = _aio.Row
+        async with db.execute("SELECT username FROM users WHERE user_id = ?", (target_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                username = row["username"] or None
+
+    ok = await add_admin(target_id, username, added_by=message.from_user.id)
+    if ok:
+        _extra_admin_ids.add(target_id)
+        name_str = f"@{username}" if username else str(target_id)
+        await message.answer(f"✅ {name_str} ({target_id}) назначен администратором.")
+        logger.info("Admin added: %s by %s", target_id, message.from_user.id)
+    else:
+        await message.answer(f"⚠️ Пользователь {target_id} уже является администратором.")
+
+
+@router.message(Command("removeadmin"))
+async def cmd_removeadmin(message: Message) -> None:
+    if not _is_main_admin(message.from_user.id):
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip().lstrip("-").isdigit():
+        await message.answer(
+            "Использование: <code>/removeadmin &lt;user_id&gt;</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    target_id = int(args[1].strip())
+
+    if target_id == config.ADMIN_USER_ID:
+        await message.answer("Нельзя удалить главного администратора.")
+        return
+
+    ok = await remove_admin(target_id)
+    if ok:
+        _extra_admin_ids.discard(target_id)
+        await message.answer(f"✅ Пользователь {target_id} удалён из администраторов.")
+        logger.info("Admin removed: %s by %s", target_id, message.from_user.id)
+    else:
+        await message.answer(f"⚠️ Пользователь {target_id} не найден в списке администраторов.")
+
+
+@router.message(Command("admins"))
+async def cmd_admins(message: Message) -> None:
+    if not _is_main_admin(message.from_user.id):
+        return
+
+    admins = await get_all_admins()
+    if not admins:
+        await message.answer(
+            "👥 <b>Администраторы</b>\n\n"
+            "Назначенных администраторов нет.\n"
+            "Добавить: <code>/addadmin &lt;user_id&gt;</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    lines = ["👥 <b>Администраторы</b>\n"]
+    for a in admins:
+        name = f"@{a['username']}" if a.get("username") else str(a["user_id"])
+        date = (a.get("added_at") or "")[:10]
+        lines.append(f"• {name} (<code>{a['user_id']}</code>) — с {date}")
+
+    lines.append(f"\nВсего: {len(admins)}")
+    lines.append("Удалить: <code>/removeadmin &lt;user_id&gt;</code>")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 

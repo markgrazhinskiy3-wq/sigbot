@@ -14,7 +14,7 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeCha
 
 import config
 from db.database import init_db
-from bot.handlers import router
+from bot.handlers import router, load_admin_cache
 from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
 from services.strategy_adaptation import initialize as init_strategy_adaptation
@@ -65,7 +65,10 @@ async def _setup_commands(bot: Bot) -> None:
         BotCommand(command="users",     description="👥 Список всех пользователей"),
         BotCommand(command="broadcast", description="📢 Рассылка"),
         BotCommand(command="debug",     description="🔬 Debug анализа пары"),
-        BotCommand(command="daystats", description="📅 Статистика всех сигналов за сегодня"),
+        BotCommand(command="daystats",     description="📅 Статистика всех сигналов за сегодня"),
+        BotCommand(command="addadmin",     description="➕ Назначить администратора"),
+        BotCommand(command="removeadmin",  description="➖ Снять администратора"),
+        BotCommand(command="admins",       description="👥 Список администраторов"),
     ]
 
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
@@ -86,6 +89,9 @@ async def main() -> None:
 
     logger.info("Initializing Signal Bot database...")
     await init_db()
+
+    logger.info("Loading admin cache...")
+    await load_admin_cache()
 
     logger.info("Initializing strategy adaptation module...")
     await init_strategy_adaptation()
