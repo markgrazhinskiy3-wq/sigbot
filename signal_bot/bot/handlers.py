@@ -533,7 +533,7 @@ async def cmd_debug(message: Message) -> None:
         "",
         "🔗 <b>Контекст MTF</b>",
         f"  1m EMA:   {'↑' if cup else '↓' if cdn else '—'}",
-        f"  Macro:    {mnot}",
+        f"  Macro:    {html.escape(str(mnot))}",
     ]
 
     # ── Per-strategy breakdown ───────────────────────────────────────────────
@@ -598,7 +598,7 @@ async def cmd_debug(message: Message) -> None:
         lines.append(f"❌ <b>NO_SIGNAL</b>")
         lines.append(f"  Причина: {html.escape(str(reject))}")
         if conf_r is not None and thresh is not None:
-            lines.append(f"  conf={conf_r} < порог={thresh}")
+            lines.append(f"  conf={conf_r} &lt; порог={thresh}")
 
     # ── Trade history from DB ─────────────────────────────────────────────────
     history = await get_pair_outcomes(symbol, limit=15)
