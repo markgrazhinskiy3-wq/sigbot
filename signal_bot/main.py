@@ -17,6 +17,7 @@ from db.database import init_db
 from bot.handlers import router
 from services.pocket_browser import close_browser
 from services.candle_cache import start_refresher
+import services.pairs_cache as pairs_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,9 +88,20 @@ async def main() -> None:
 
     logger.info("Starting Pocket Option Signal Bot")
 
-    # Start candle cache — warms up all pairs in background so signal requests
-    # are served instantly from cache instead of opening a browser per user.
-    start_refresher()
+    # Fetch live OTC pairs from PocketOption (payout ≥ 80%).
+    # This runs BEFORE candle warm-up so the refresher gets the real list.
+    # Falls back to config.OTC_PAIRS automatically if browser fetch fails.
+    logger.info("Fetching live OTC pairs from PocketOption (payout ≥ 80%%)...")
+    try:
+        live_pairs = await pairs_cache.refresh(force=True)
+        logger.info("Live pairs loaded: %d pairs", len(live_pairs))
+    except Exception as e:
+        logger.warning("Could not fetch live pairs, using static config: %s", e)
+        live_pairs = None   # start_refresher will fall back to config.OTC_PAIRS
+
+    # Start candle cache — warms up all live pairs in background so signal
+    # requests are served instantly from cache instead of opening a browser per user.
+    start_refresher(pairs=live_pairs)
 
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,
