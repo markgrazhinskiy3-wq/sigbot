@@ -51,8 +51,8 @@ def ema_bounce_strategy(
     if n < 8:
         return _none("Мало данных")
 
-    # Hard reject: dead market
-    if ind.atr_ratio < 0.4:
+    # Hard reject: dead market (EMA bounces work in mild volatility, so lower bar than breakouts)
+    if ind.atr_ratio < 0.35:
         return _none("ATR мёртвый — рынок стоит")
 
     price    = close[-1]
@@ -120,11 +120,11 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if int(np.sum((ema5_arr > ema13_arr) & (ema13_arr > ema21_arr))) >= 4:
         met += 1; parts.append("EMA выровнены вверх")
 
-    # 2. Price low touched EMA(13) zone — tightened to ±0.02% (was ±0.05%)
-    ema13_zone = ind.ema13 * 1.0002
+    # 2. Price low touched EMA(13) zone — ±0.04% (OTC spreads make ±0.02% too tight)
+    ema13_zone = ind.ema13 * 1.0004
     touched_ema13 = any(float(low[-i]) <= ema13_zone for i in range(1, min(4, n)))
     if touched_ema13:
-        met += 1; parts.append("Коснулась EMA13 (±0.02%)")
+        met += 1; parts.append("Коснулась EMA13 (±0.04%)")
 
     # 3. Candle closed ABOVE EMA(13)
     if close[-1] > ind.ema13:

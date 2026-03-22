@@ -43,8 +43,8 @@ def divergence_strategy(
     if n < 15:
         return _none("Мало данных для дивергенции")
 
-    # Hard reject: dead market
-    if ind.atr_ratio < 0.4:
+    # Divergence works in moderate conditions — lower bar than breakouts
+    if ind.atr_ratio < 0.35:
         return _none("ATR мёртвый — рынок стоит")
 
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8

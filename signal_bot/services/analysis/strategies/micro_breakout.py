@@ -42,9 +42,9 @@ def micro_breakout_strategy(
     if n < 10:
         return _none("Мало данных")
 
-    # Hard reject: dead market — breakouts need energy
-    if ind.atr_ratio < 0.4:
-        return _none("ATR мёртвый — рынок стоит")
+    # Hard reject: micro breakouts need strong VOLATILE conditions
+    if ind.atr_ratio < 0.55:
+        return _none("ATR недостаточный для микропробоя")
 
     avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 

@@ -1,6 +1,6 @@
 """
 Strategy Engine — entry point for signal calculation.
-Validates candles, resamples to 5-min, then runs the full decision engine.
+Validates candles, resamples to 1-min and 5-min, then runs the full decision engine.
 """
 import logging
 import sys, os
@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.analysis.candle_validator import validate_and_fix
 from services.analysis.decision_engine  import run_decision_engine, EngineResult
-from services.candle_cache              import resample_to_5m
+from services.candle_cache              import resample_to_1m, resample_to_5m
 from services.strategy_adaptation      import update_strategy_statuses
 from dataclasses import dataclass
 
@@ -71,17 +71,28 @@ async def calculate_signal(
         n_raw, len(df), val.order, val.last_close, val.avg_body_pct
     )
 
-    # ── Resample to 5-min ──────────────────────────────────────────────────────
+    # ── Resample 15s → 1-min (intermediate context) ───────────────────────────
+    df1m_ctx = None
+    try:
+        import pandas as pd
+        candles_1m = resample_to_1m(candles)
+        if len(candles_1m) >= 5:
+            df1m_ctx = pd.DataFrame(candles_1m)
+            for col in ("open", "high", "low", "close"):
+                df1m_ctx[col] = df1m_ctx[col].astype(float)
+            logger.debug("1-min candles: %d", len(df1m_ctx))
+    except Exception as e:
+        logger.warning("1-min resampling failed: %s", e)
+
+    # ── Resample 15s → 5-min (macro context) ─────────────────────────────────
     df5m = None
     try:
+        import pandas as pd
         candles_5m = resample_to_5m(candles)
         if len(candles_5m) >= 4:
-            import pandas as pd
             df5m = pd.DataFrame(candles_5m)
-            df5m["open"]  = df5m["open"].astype(float)
-            df5m["high"]  = df5m["high"].astype(float)
-            df5m["low"]   = df5m["low"].astype(float)
-            df5m["close"] = df5m["close"].astype(float)
+            for col in ("open", "high", "low", "close"):
+                df5m[col] = df5m[col].astype(float)
             logger.debug("5-min candles: %d", len(df5m))
     except Exception as e:
         logger.warning("5-min resampling failed: %s", e)
@@ -90,6 +101,7 @@ async def calculate_signal(
     eng: EngineResult = run_decision_engine(
         df1m=df,
         df5m=df5m,
+        df1m_ctx=df1m_ctx,
         raised_threshold=raised_threshold,
     )
 

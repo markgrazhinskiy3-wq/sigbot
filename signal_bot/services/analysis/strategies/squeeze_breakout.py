@@ -42,9 +42,9 @@ def squeeze_breakout_strategy(
     if n < 15:
         return _none("Мало данных")
 
-    # Hard reject: dead market — breakouts need energy
-    if ind.atr_ratio < 0.4:
-        return _none("ATR мёртвый — рынок стоит")
+    # Squeeze breakouts need real energy to follow through
+    if ind.atr_ratio < 0.50:
+        return _none("ATR слишком мал для пробоя")
 
     price    = close[-1]
     avg_body_30 = float(np.mean(np.abs(close[-min(30, n):] - open_[-min(30, n):]))) or 1e-8

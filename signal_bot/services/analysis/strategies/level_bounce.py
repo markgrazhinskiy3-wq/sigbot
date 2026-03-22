@@ -44,7 +44,8 @@ def level_bounce_strategy(
         return _none("Мало данных")
 
     # Hard reject: dead market
-    if ind.atr_ratio < 0.4:
+    # Level bounces work even in calmer markets — lower ATR bar than breakouts
+    if ind.atr_ratio < 0.30:
         return _none("ATR мёртвый — рынок стоит")
 
     price    = float(close[-1])

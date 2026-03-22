@@ -288,6 +288,35 @@ async def refresh_pair_now(symbol: str) -> list[dict]:
     return []
 
 
+def resample_to_1m(candles_15s: list[dict]) -> list[dict]:
+    """
+    Resample 15-second candles into 1-minute candles.
+    Groups by 1-minute bucket (time // 60 * 60).
+    Returns list sorted oldest → newest.
+    Typically produces ~10-14 bars from 50 fifteen-second bars.
+    """
+    from collections import defaultdict
+    groups: dict[int, list[dict]] = defaultdict(list)
+    for c in candles_15s:
+        t = c.get("time", 0)
+        if t <= 0:
+            continue
+        bucket = (t // 60) * 60
+        groups[bucket].append(c)
+
+    result = []
+    for bucket in sorted(groups.keys()):
+        g = groups[bucket]
+        result.append({
+            "time":  bucket,
+            "open":  g[0]["open"],
+            "high":  max(c["high"] for c in g),
+            "low":   min(c["low"]  for c in g),
+            "close": g[-1]["close"],
+        })
+    return result
+
+
 def resample_to_5m(candles_1m: list[dict]) -> list[dict]:
     """
     Resample 1-minute candles into 5-minute candles.

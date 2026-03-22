@@ -48,27 +48,31 @@ logger = logging.getLogger(__name__)
 
 
 # ── Mode → strategy routing ───────────────────────────────────────────────────
-# primary strategies fire first; if none fires, secondary are tried
+# PRIMARY strategies run first.  Secondary strategies run ONLY if no primary fires.
+# RSI Reversal is secondary everywhere — it confirms, not initiates.
+# Micro Breakout → VOLATILE primary only (needs ATR ≥ 0.55).
 _MODE_STRATEGIES: dict[str, dict] = {
     "TRENDING_UP": {
         "primary":   ["ema_bounce", "squeeze_breakout"],
-        "secondary": ["rsi_reversal", "divergence"],
+        "secondary": ["level_bounce", "divergence", "rsi_reversal"],
     },
     "TRENDING_DOWN": {
         "primary":   ["ema_bounce", "squeeze_breakout"],
-        "secondary": ["rsi_reversal", "divergence"],
+        "secondary": ["level_bounce", "divergence", "rsi_reversal"],
     },
     "RANGE": {
-        "primary":   ["level_bounce", "rsi_reversal"],
-        "secondary": ["divergence", "ema_bounce"],
+        # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
+        "primary":   ["level_bounce", "ema_bounce"],
+        "secondary": ["divergence", "rsi_reversal"],
     },
     "VOLATILE": {
+        # Micro Breakout only allowed here where ATR is high enough
         "primary":   ["micro_breakout", "squeeze_breakout"],
-        "secondary": ["rsi_reversal", "divergence"],
+        "secondary": ["level_bounce", "divergence"],
     },
     "SQUEEZE": {
-        "primary":   ["squeeze_breakout"],
-        "secondary": ["ema_bounce", "micro_breakout"],
+        "primary":   ["squeeze_breakout", "ema_bounce"],
+        "secondary": ["divergence", "rsi_reversal"],
     },
 }
 
@@ -101,14 +105,16 @@ class EngineResult:
 def run_decision_engine(
     df1m: pd.DataFrame,
     df5m: pd.DataFrame | None = None,
-    raised_threshold: bool = False,    # True = after 2 losses, min conf=70
+    df1m_ctx: pd.DataFrame | None = None,   # 1-min resampled from 15s — middle-tier context
+    raised_threshold: bool = False,          # True = after 2 losses, min conf=70
 ) -> EngineResult:
     """
-    Full 4-layer analysis pipeline.
+    Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
 
     Args:
-        df1m: 1-minute OHLC DataFrame, oldest→newest, min 20 rows recommended
-        df5m: 5-minute OHLC DataFrame (optional, from resample_to_5m)
+        df1m:       15-sec OHLC DataFrame (entry timing), oldest→newest, min 20 rows
+        df5m:       5-min resampled OHLC (macro context, optional)
+        df1m_ctx:   1-min resampled OHLC (intermediate context, optional)
         raised_threshold: if True, minimum confidence is raised to 70
     """
     n = len(df1m)
@@ -137,59 +143,76 @@ def run_decision_engine(
         levels = LevelSet([], [], [], [], 0.0, 0.0, 0.0, 0.0)
 
     # ── Layer 3: Strategies ───────────────────────────────────────────────────
-    routing   = _MODE_STRATEGIES.get(mode_obj.mode, _MODE_STRATEGIES["RANGE"])
-    all_strats = routing["primary"] + routing["secondary"]
+    routing = _MODE_STRATEGIES.get(mode_obj.mode, _MODE_STRATEGIES["RANGE"])
 
-    ctx_up   = mode_obj.trend_up   or (df5m is not None and len(df5m) >= 5 and
-                                        float(df5m["close"].ewm(span=5, adjust=False).mean().iloc[-1]) >
-                                        float(df5m["close"].ewm(span=21, adjust=False).mean().iloc[-1]))
-    ctx_down = mode_obj.trend_down or (df5m is not None and len(df5m) >= 5 and
-                                        float(df5m["close"].ewm(span=5, adjust=False).mean().iloc[-1]) <
-                                        float(df5m["close"].ewm(span=21, adjust=False).mean().iloc[-1]))
+    # ── Multi-timeframe context ───────────────────────────────────────────────
+    # 1m context (from resampled 1-min candles) — prevents 15s micro-noise dominating
+    ctx_up_1m = ctx_dn_1m = False
+    if df1m_ctx is not None and len(df1m_ctx) >= 5:
+        e3  = float(df1m_ctx["close"].ewm(span=3,  adjust=False).mean().iloc[-1])
+        e8  = float(df1m_ctx["close"].ewm(span=8,  adjust=False).mean().iloc[-1])
+        ctx_up_1m = e3 > e8
+        ctx_dn_1m = e3 < e8
 
-    candidates = []
-    debug_strategies = {}
+    # 5m context (macro bias)
+    ctx_up_5m = ctx_dn_5m = False
+    if df5m is not None and len(df5m) >= 5:
+        e5  = float(df5m["close"].ewm(span=5,  adjust=False).mean().iloc[-1])
+        e21 = float(df5m["close"].ewm(span=21, adjust=False).mean().iloc[-1])
+        ctx_up_5m = e5 > e21
+        ctx_dn_5m = e5 < e21
 
-    for name in all_strats:
-        fn = _STRATEGY_FNS.get(name)
-        if fn is None:
-            continue
+    # Strong confirmation = both 1m and 5m agree (used for bonus)
+    # Weak confirmation  = mode or at least one timeframe (used as context flag)
+    ctx_up = (ctx_up_1m and ctx_up_5m) or (mode_obj.trend_up   and (ctx_up_1m or ctx_up_5m))
+    ctx_down = (ctx_dn_1m and ctx_dn_5m) or (mode_obj.trend_down and (ctx_dn_1m or ctx_dn_5m))
 
-        # Strategy adaptation: skip DISABLED strategies entirely
-        if not is_strategy_enabled(name):
-            debug_strategies[name] = {"status": "DISABLED", "skipped": True}
-            continue
+    debug_strategies: dict = {}
 
-        try:
-            kwargs = dict(
-                df=df1m, ind=ind, levels=levels,
-                ctx_trend_up=ctx_up, ctx_trend_down=ctx_down
-            )
-            if name in ("level_bounce", "divergence"):
-                kwargs["mode"] = mode_obj.mode
-            res = fn(**kwargs)
-        except Exception as e:
-            logger.warning("Strategy %s failed: %s", name, e)
-            continue
+    def _run_batch(names: list[str]) -> list:
+        """Run a list of strategy names, return fired candidates."""
+        fired = []
+        for name in names:
+            fn = _STRATEGY_FNS.get(name)
+            if fn is None:
+                continue
+            if not is_strategy_enabled(name):
+                debug_strategies[name] = {"status": "DISABLED", "skipped": True}
+                continue
+            try:
+                kwargs = dict(df=df1m, ind=ind, levels=levels,
+                              ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
+                if name in ("level_bounce", "divergence"):
+                    kwargs["mode"] = mode_obj.mode
+                res = fn(**kwargs)
+            except Exception as e:
+                logger.warning("Strategy %s failed: %s", name, e)
+                continue
 
-        # Strategy adaptation: apply confidence multiplier (WEAKENED/PROBATION penalty)
-        multiplier = _get_multiplier(name)
-        if multiplier != 1.0:
-            res.confidence = res.confidence * multiplier
+            multiplier = _get_multiplier(name)
+            if multiplier != 1.0:
+                res.confidence = res.confidence * multiplier
 
-        pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
-        debug_strategies[name] = {
-            "direction": res.direction,
-            "confidence": round(res.confidence, 1),
-            "conditions_met": res.conditions_met,
-            "total": res.total_conditions,
-            "pct": round(pct * 100),
-            "adaptation_multiplier": multiplier,
-        }
+            pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
+            debug_strategies[name] = {
+                "direction": res.direction,
+                "confidence": round(res.confidence, 1),
+                "conditions_met": res.conditions_met,
+                "total": res.total_conditions,
+                "pct": round(pct * 100),
+                "adaptation_multiplier": multiplier,
+                "tier": "primary" if name in routing["primary"] else "secondary",
+            }
+            if res.direction in ("BUY", "SELL") and pct >= 0.55 and res.confidence > 10:
+                fired.append(res)
+        return fired
 
-        # Must meet ≥ 55% of conditions and have a real direction
-        if res.direction in ("BUY", "SELL") and pct >= 0.55 and res.confidence > 10:
-            candidates.append(res)
+    # PRIMARY first; secondaries only if no primary fires
+    candidates = _run_batch(routing["primary"])
+    used_tier = "primary"
+    if not candidates:
+        candidates = _run_batch(routing["secondary"])
+        used_tier = "secondary"
 
     if not candidates:
         return _no_signal(
@@ -221,16 +244,23 @@ def run_decision_engine(
 
     # ── Layer 4: Multipliers ───────────────────────────────────────────────────
 
-    # 4a. 5-min context confirmation / penalty
+    # 4a. Multi-timeframe context confirmation / penalty
+    # Bonus requires BOTH 1m and 5m to agree (strong confirmation).
+    # Penalty applied only when both timeframes oppose signal (true counter-trend).
+    ctx_up_strong  = ctx_up_1m  and ctx_up_5m
+    ctx_dn_strong  = ctx_dn_1m  and ctx_dn_5m
+    ctx_up_any     = ctx_up_1m  or  ctx_up_5m  or mode_obj.trend_up
+    ctx_dn_any     = ctx_dn_1m  or  ctx_dn_5m  or mode_obj.trend_down
+
     if direction == "BUY":
-        if ctx_up:
-            conf_raw += 10    # 5-min confirms
-        elif ctx_down:
-            conf_raw *= 0.82  # counter-trend penalty (softer)
+        if ctx_up_strong:
+            conf_raw += 7     # capped: both 1m+5m confirm (was +10)
+        elif ctx_dn_strong:
+            conf_raw *= 0.82  # both timeframes oppose — counter-trend penalty
     else:  # SELL
-        if ctx_down:
-            conf_raw += 10
-        elif ctx_up:
+        if ctx_dn_strong:
+            conf_raw += 7
+        elif ctx_up_strong:
             conf_raw *= 0.82
 
     # 4b. Market mode strength multiplier
@@ -252,7 +282,8 @@ def run_decision_engine(
         return _no_signal(
             f"Уверенность {conf_raw:.0f} < порог {min_threshold}",
             {"mode": mode_obj.mode, "conf_raw": round(conf_raw, 1),
-             "strategy": best.strategy_name, "strategies": debug_strategies}
+             "strategy": best.strategy_name, "strategies": debug_strategies,
+             "used_tier": used_tier}
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────
@@ -287,6 +318,9 @@ def run_decision_engine(
             "mode_debug": mode_obj.debug,
             "ctx_up": ctx_up,
             "ctx_down": ctx_down,
+            "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
+            "ctx_up_5m": ctx_up_5m, "ctx_dn_5m": ctx_dn_5m,
+            "used_tier": used_tier,
             "strategies": debug_strategies,
             "best_strategy": best.strategy_name,
             "conf_before_multipliers": round(best.confidence, 1),
