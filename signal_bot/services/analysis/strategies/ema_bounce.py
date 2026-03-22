@@ -193,7 +193,7 @@ def _hard_reject_buy(ind: Indicators, levels: LevelSet, price: float) -> bool:
     """True = do NOT generate BUY signal."""
     if ind.rsi > 78:
         return True
-    if levels.dist_to_res_pct < 0.08:
+    if levels.dist_to_res_pct < 0.05:
         return True
     return False
 
@@ -201,7 +201,7 @@ def _hard_reject_buy(ind: Indicators, levels: LevelSet, price: float) -> bool:
 def _hard_reject_sell(ind: Indicators, levels: LevelSet, price: float) -> bool:
     if ind.rsi < 22:
         return True
-    if levels.dist_to_sup_pct < 0.08:
+    if levels.dist_to_sup_pct < 0.05:
         return True
     return False
 

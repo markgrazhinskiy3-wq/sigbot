@@ -187,8 +187,8 @@ def run_decision_engine(
             "adaptation_multiplier": multiplier,
         }
 
-        # Must meet ≥ 60% of conditions and have a real direction
-        if res.direction in ("BUY", "SELL") and pct >= 0.60 and res.confidence > 10:
+        # Must meet ≥ 55% of conditions and have a real direction
+        if res.direction in ("BUY", "SELL") and pct >= 0.55 and res.confidence > 10:
             candidates.append(res)
 
     if not candidates:
@@ -226,18 +226,18 @@ def run_decision_engine(
         if ctx_up:
             conf_raw += 10    # 5-min confirms
         elif ctx_down:
-            conf_raw *= 0.75  # counter-trend penalty
+            conf_raw *= 0.82  # counter-trend penalty (softer)
     else:  # SELL
         if ctx_down:
             conf_raw += 10
         elif ctx_up:
-            conf_raw *= 0.75
+            conf_raw *= 0.82
 
     # 4b. Market mode strength multiplier
     mode_str_m = mode_obj.strength / 100.0   # 0-1
     # Only apply if confidence is moderate (don't destroy already-great signals)
     if conf_raw < 75:
-        conf_raw = conf_raw * (0.7 + 0.3 * mode_str_m)
+        conf_raw = conf_raw * (0.78 + 0.22 * mode_str_m)
 
     # 4c. Hard floor: if after all multipliers conf < 60% of raw → apply ×0.60
     floor_conf = best.confidence * 0.60

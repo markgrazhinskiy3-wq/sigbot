@@ -196,9 +196,9 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
 def _rsi_extreme_bars(close, open_, ind: Indicators, side: str, lookback: int) -> int:
     """How many of the last `lookback` bars had RSI in extreme territory."""
     if side == "buy":
-        return 1 if ind.rsi < 25 else 0
+        return 1 if ind.rsi < 30 else 0
     else:
-        return 1 if ind.rsi > 75 else 0
+        return 1 if ind.rsi > 70 else 0
 
 
 def _past_rsi_val(close, open_, n, bars_ago):
