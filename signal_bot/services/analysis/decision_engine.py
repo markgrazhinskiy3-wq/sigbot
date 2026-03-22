@@ -490,13 +490,11 @@ def run_decision_engine(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _pick_expiry(strategy: str, quality: str) -> str:
-    """Bounce/breakout → 1m, trend → 2m, moderate → 2m."""
-    if strategy in ("level_bounce", "rsi_reversal", "divergence"):
+    """Bounce/breakout → 1m, trend-follow → 2m."""
+    if strategy in ("level_bounce", "rsi_reversal", "divergence", "ema_bounce"):
         return "1m"
     if strategy in ("squeeze_breakout", "micro_breakout"):
         return "1m"
-    if quality == "moderate":
-        return "2m"
     return "2m"
 
 

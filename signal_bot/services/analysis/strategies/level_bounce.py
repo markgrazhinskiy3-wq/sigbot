@@ -141,20 +141,8 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if c2:
             met += 1; parts.append("Касание зоны")
 
-        # 3. Reversal pattern — textbook OR simple fallback (opposite candle / wick rejection / 2 small candles)
+        # 3. Reversal pattern — only named patterns count (pin_bar / engulfing / hammer)
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
-        fallback_rev = False
-        if pat.pattern == "none":
-            last_bull  = float(close[-1]) > float(open_[-1])
-            tot_range  = float(high[-1]) - float(low[-1])
-            lower_wick = min(float(close[-1]), float(open_[-1])) - float(low[-1])
-            bull_count = sum(1 for i in range(1, min(3, n)) if float(close[-i]) > float(open_[-i]))
-            if last_bull:                                                # (a) simple bullish candle
-                fallback_rev = True
-            elif tot_range > 0 and lower_wick / tot_range > 0.55:       # (b) long lower wick rejection
-                fallback_rev = True
-            elif bull_count >= 2:                                        # (c) two small bullish candles
-                fallback_rev = True
         reversal_found = pat.pattern not in (None, "none", "")
         conds["reversal_pattern"] = reversal_found
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
@@ -242,19 +230,8 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         if c2:
             met += 1; parts.append("Касание зоны")
 
+        # 3. Reversal pattern — only named patterns count (pin_bar / engulfing / hammer)
         pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
-        fallback_rev = False
-        if pat.pattern == "none":
-            last_bear  = float(close[-1]) < float(open_[-1])
-            tot_range  = float(high[-1]) - float(low[-1])
-            upper_wick = float(high[-1]) - max(float(close[-1]), float(open_[-1]))
-            bear_count = sum(1 for i in range(1, min(3, n)) if float(close[-i]) < float(open_[-i]))
-            if last_bear:                                                # (a) simple bearish candle
-                fallback_rev = True
-            elif tot_range > 0 and upper_wick / tot_range > 0.55:       # (b) long upper wick rejection
-                fallback_rev = True
-            elif bear_count >= 2:                                        # (c) two small bearish candles
-                fallback_rev = True
         reversal_found = pat.pattern not in (None, "none", "")
         conds["reversal_pattern"] = reversal_found
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]

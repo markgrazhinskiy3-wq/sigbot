@@ -152,14 +152,12 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     if c7:
         met += 1; parts.append("EMA5 поворачивает вверх")
 
-    # Hard reject: shadow > 60% of body or running into strong resistance (relaxed from 50%)
+    # Penalty: shadow > 60% of body or running into strong resistance
     upper_shadow_body = upper_shadow / (curr_body + 1e-10)
     if upper_shadow_body > 0.6:
         met = max(0, met - 2)   # heavy penalty
     if levels.dist_to_res_pct < 0.05:
         met = max(0, met - 2)
-    if ind.rsi > 82:
-        met = 0   # exhausted
 
     return met, parts, conds
 
@@ -216,8 +214,6 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
         met = max(0, met - 2)
     if levels.dist_to_sup_pct < 0.05:
         met = max(0, met - 2)
-    if ind.rsi < 18:
-        met = 0
 
     return met, parts, conds
 
