@@ -141,8 +141,6 @@ def format_signal_message(signal: SignalResponse) -> str:
         f"📊 Сигнал: <b>{dir_label}</b>",
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
     ]
-    if mode_lbl:
-        lines.append(f"🏷 Режим: {mode_lbl}")
     lines.append(f"⏱ Экспирация: <b>{expiry}</b>")
     lines.append("")
 
@@ -291,9 +289,6 @@ def format_result_caption(
 
     elif strategy == "divergence":
         reasons.append("📐 Дивергенция: цена и индикаторы расходятся — разворот ожидается")
-
-    if mode_lbl:
-        reasons.append(f"🏷 Режим рынка: {mode_lbl}")
 
     reasons_text = "\n".join(reasons) if reasons else "• Большинство факторов сошлись в одном направлении"
 
