@@ -157,11 +157,7 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
                 fallback_rev = True
         conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
-        if pat.pattern == "none" and not fallback_rev:
-            # No reversal signal at all — skip this level
-            if met > best[1]:
-                best_conds = conds
-            continue
+        # Score reversal condition — do NOT skip remaining conditions if absent
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
         elif pat.pattern == "engulfing":
@@ -170,6 +166,7 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
         elif fallback_rev:
             met += 1; parts.append("Разворотный признак ↑")
+        # No reversal → condition 3 = False, but conditions 4-7 still checked below
 
         # 4. Current candle closed ABOVE support
         c4 = float(close[-1]) > zone_lo
@@ -261,10 +258,7 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
                 fallback_rev = True
         conds["reversal_pattern"] = pat.pattern != "none" or fallback_rev
         conds["pattern_type"] = pat.pattern   # type: ignore[assignment]
-        if pat.pattern == "none" and not fallback_rev:
-            if met > best[1]:
-                best_conds = conds
-            continue
+        # Score reversal condition — do NOT skip remaining conditions if absent
         if pat.pattern == "pin_bar":
             met += 1; parts.append(f"Пин-бар (кач={pat.quality:.1f})")
         elif pat.pattern == "engulfing":
@@ -273,6 +267,7 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
             met += 1; parts.append(f"Молот (кач={pat.quality:.1f})")
         elif fallback_rev:
             met += 1; parts.append("Разворотный признак ↓")
+        # No reversal → condition 3 = False, but conditions 4-7 still checked below
 
         c4 = float(close[-1]) < zone_hi
         conds["close_below_resistance"] = c4

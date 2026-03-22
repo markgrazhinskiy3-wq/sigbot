@@ -1,0 +1,122 @@
+CRITICAL FIX: All strategies use early-return pattern
+that kills signals. Must change to score-all-conditions.
+
+CURRENT BROKEN PATTERN (in every strategy file):
+
+  def strategy(df, ind, levels, ...):
+    met = 0
+    total = 8
+    
+    # Check condition 1
+    if ema_aligned:
+      met += 1
+    
+    # Check condition 2  
+    if price_near_ema:
+      met += 1
+    
+    # Check condition 3
+    if rsi_ok:
+      met += 1
+    
+    # Condition 4 — HARD REJECT
+    if not stoch_turning:
+      return StrategyResult("NONE", 0, 0, total, "...")
+      # ← EVERYTHING STOPS HERE
+      # ← conditions 5,6,7,8 NEVER checked
+      # ← met is RESET TO 0 even though 3 passed
+    
+    met += 1
+    # ... conditions 5-8 never reached
+
+FIX — CHECK ALL CONDITIONS, THEN DECIDE:
+
+  def strategy(df, ind, levels, ...):
+    met = 0
+    total = 8
+    parts = []
+
+    # ── Condition 1: EMA aligned ──
+    if ema5 > ema13 > ema21:
+      met += 1
+      parts.append("✅ ema_aligned")
+    else:
+      parts.append("❌ ema_aligned")
+
+    # ── Condition 2: Price near EMA ──
+    if price_near_ema13:
+      met += 1
+      parts.append("✅ price_near_ema")
+    else:
+      parts.append("❌ price_near_ema")
+
+    # ── Condition 3: RSI ok ──
+    if 30 < rsi < 70:
+      met += 1
+      parts.append("✅ rsi_ok")
+    else:
+      parts.append("❌ rsi_ok")
+
+    # ── Condition 4: Stoch turning ──
+    if stoch_k > stoch_k_prev:
+      met += 1
+      parts.append("✅ stoch_turning")
+    else:
+      parts.append("❌ stoch_turning")
+
+    # ── Condition 5: ... ──
+    # ── Condition 6: ... ──
+    # ── Condition 7: ... ──
+    # ── Condition 8: ... ──
+    # ALL conditions checked. No early returns.
+
+    # ── Only AFTER all conditions: decide ──
+    if met < 4:  # minimum threshold
+      return StrategyResult("NONE", 0, met, total,
+        f"Only {met}/{total}: " + "; ".join(parts))
+
+    # Calculate confidence
+    confidence = ... (based on met/total)
+    
+    return StrategyResult(direction, confidence,
+      met, total, "; ".join(parts))
+
+APPLY THIS PATTERN TO ALL 6 STRATEGY FILES:
+  - ema_bounce.py
+  - rsi_reversal.py
+  - level_bounce.py
+  - squeeze_breakout.py
+  - micro_breakout.py
+  - divergence.py
+
+RULES:
+  1. Every condition is checked regardless of others
+  2. No early returns in the middle of condition checks
+  3. met counter counts ALL passed conditions
+  4. Decision happens AFTER all conditions evaluated
+  5. Keep existing condition logic — just remove
+     the early returns between them
+
+ONLY 2 EXCEPTIONS where early return is OK:
+
+  A) At the very START — basic sanity checks:
+     if len(df) < 20: return NONE  # not enough data
+     if atr < min_atr: return NONE  # market dead
+
+  B) Direction not determined:
+     After all conditions, if direction unclear
+     (no buy or sell lean) → return NONE
+
+  These are PRE-checks, not mid-condition rejects.
+
+KEEP the minimum conditions per strategy:
+  8-condition strategies: need ≥ 4
+  7-condition strategies: need ≥ 4
+  5-condition strategies: need ≥ 3
+
+DO NOT change:
+  - What each condition checks
+  - Confidence calculation formula
+  - Strategy function signatures
+  - StrategyResult format
+  - How strategies are called from decision_engine

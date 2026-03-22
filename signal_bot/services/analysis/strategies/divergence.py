@@ -161,20 +161,19 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
     conds["rsi_higher_at_lower_price"] = rsi2 > rsi1
     conds["rsi_diff_significant"] = rsi_diff >= 5
 
-    if rsi_diff < 5 or rsi2 < rsi1:
-        return 0, 0.0, [], conds
-
+    # Score ALL conditions — no early return here
     met = 0
     parts = []
 
-    # 1. Two price lows, second lower — already checked above
+    # 1. Two price lows, second lower — already verified above (pre-check)
     met += 1; parts.append(f"Бычья дивергенция: цена {low2:.5f} < {low1:.5f}")
 
     # 2. RSI at second low > RSI at first low
-    met += 1; parts.append(f"RSI: {rsi2:.0f} > {rsi1:.0f} (рост при падении цены)")
+    if rsi2 > rsi1:
+        met += 1; parts.append(f"RSI: {rsi2:.0f} > {rsi1:.0f} (рост при падении цены)")
 
     # 3. RSI difference > 5
-    if rsi_diff > 5:
+    if rsi_diff >= 5:
         met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
     # 4. Bullish candle appeared after second low
@@ -231,16 +230,19 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     conds["rsi_lower_at_higher_price"] = rsi2 < rsi1
     conds["rsi_diff_significant"] = rsi_diff >= 5
 
-    if rsi_diff < 5 or rsi2 >= rsi1:
-        return 0, 0.0, [], conds
-
+    # Score ALL conditions — no early return here
     met = 0
     parts = []
 
+    # 1. Two price highs, second higher — already verified above (pre-check)
     met += 1; parts.append(f"Медвежья дивергенция: цена {high2:.5f} > {high1:.5f}")
-    met += 1; parts.append(f"RSI: {rsi2:.0f} < {rsi1:.0f} (падение при росте цены)")
 
-    if rsi_diff > 5:
+    # 2. RSI at second high < RSI at first high
+    if rsi2 < rsi1:
+        met += 1; parts.append(f"RSI: {rsi2:.0f} < {rsi1:.0f} (падение при росте цены)")
+
+    # 3. RSI difference > 5
+    if rsi_diff >= 5:
         met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
     c4_bear = n > abs_i2 and close[-1] < open_[-1]
