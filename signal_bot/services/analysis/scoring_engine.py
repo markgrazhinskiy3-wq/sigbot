@@ -407,16 +407,38 @@ def _pick_direction(
     pa_buy: float,
     pa_sell: float,
 ) -> str:
-    """Choose signal direction, preferring trend-aligned side first."""
+    """
+    Choose signal direction.
+    Trend-aligned side is preferred, but if the opposite side leads by ≥15 points
+    it overrides the trend bias — a strong counter-trend pattern wins.
+    """
+    COUNTER_OVERRIDE = 15.0   # opposite side must beat trend side by this margin
+
     if regime_str == "uptrend":
-        if buy_partial:  return "BUY"
-        if sell_partial: return "SELL"
-    elif regime_str == "downtrend":
-        if sell_partial: return "SELL"
-        if buy_partial:  return "BUY"
-    else:
-        if buy_partial and (not sell_partial or pa_buy >= pa_sell):
+        # Counter-trend SELL override: only if SELL score significantly dominates
+        if sell_partial and (pa_sell - pa_buy) >= COUNTER_OVERRIDE:
+            return "SELL"
+        if buy_partial:
             return "BUY"
+        if sell_partial:
+            return "SELL"
+
+    elif regime_str == "downtrend":
+        # Counter-trend BUY override: only if BUY score significantly dominates
+        if buy_partial and (pa_buy - pa_sell) >= COUNTER_OVERRIDE:
+            return "BUY"
+        if sell_partial:
+            return "SELL"
+        if buy_partial:
+            return "BUY"
+
+    else:
+        # No clear trend: pick the stronger side
+        if buy_partial and sell_partial:
+            return "BUY" if pa_buy >= pa_sell else "SELL"
+        if buy_partial:
+            return "BUY"
+
     return "SELL"
 
 

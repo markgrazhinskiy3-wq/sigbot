@@ -1,13 +1,13 @@
 """
-Impulse + Pullback Strategy — relaxed v3
-Detects: dominant directional move → any pullback → resumption.
+Impulse + Pullback Strategy — v4
+Detects: dominant directional move → pullback → resumption candle.
 
-Changes from v2:
-  - Requires only 2+ bars in direction (not 3-5 strict consecutive)
-  - Pullback allowed to be up to 80% of impulse size (was 85%)
-  - Confirmation: any bar resuming direction (even tiny)
-  - Partial match: returns score > 0 even for weak/incomplete patterns
-  - Scan window: last 45 bars
+Changes from v3:
+  - Scan window: last 25 bars only (not 45) — stale patterns are irrelevant
+  - Confirmation: bar must CLOSE in direction (not just "not strongly against")
+  - Dominant-direction fallback: capped at 24 (below PARTIAL_MATCH_MIN=30),
+    so it can only reinforce a real pattern, never create a standalone signal
+  - Dominant-direction thresholds raised: 70% bars + last 6 bars 4/6+ + last bar in direction
 """
 import numpy as np
 import pandas as pd
@@ -38,15 +38,15 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
     body = cl - op
     body_abs = np.abs(body)
 
-    # Use recent average body (last 20 bars or all)
     window = min(20, n)
     avg_body = float(np.mean(body_abs[-window:])) or 1e-8
 
-    scan_start = max(0, n - 45)
+    scan_start = max(0, n - 25)   # only last 25 bars
     best_bull = _find_pattern(body, body_abs, avg_body, "bull", scan_start, n)
     best_bear = _find_pattern(body, body_abs, avg_body, "bear", scan_start, n)
 
-    # Also run a simple "dominant direction" check as fallback
+    # Dominant direction fallback — capped at 24 (below PARTIAL_MATCH_MIN=30)
+    # Can boost a real but weak pattern; cannot create a standalone partial match
     if best_bull is None or best_bull < 20:
         dom_bull = _dominant_direction_score(body, body_abs, "bull", scan_start, n)
         best_bull = max(best_bull or 0, dom_bull)
@@ -95,13 +95,13 @@ def _find_pattern(
     n: int,
 ) -> float | None:
     """
-    Relaxed impulse+pullback+confirmation scan.
+    Impulse + pullback + confirmation scan over last 25 bars.
+    Confirmation bar MUST close in the signal direction.
     Returns best score (0-100) or None.
     """
     sign = 1 if side == "bull" else -1
     best: float | None = None
 
-    # Need at least: impulse(2) + pullback(1) + confirm(1) = 4 bars
     for imp_start in range(start, n - 3):
         # ── Impulse: 2-6 bars in direction ───────────────────────────────
         imp_count = 0
@@ -119,8 +119,8 @@ def _find_pattern(
         imp_end = imp_start + imp_count
         imp_avg = imp_size / imp_count
 
-        # Impulse must be meaningful (>= 50% of avg body — very relaxed)
-        if imp_avg < avg_body * 0.5:
+        # Impulse must be meaningful (>= 60% of avg body)
+        if imp_avg < avg_body * 0.6:
             continue
 
         # ── Pullback: 1-3 bars in opposite direction ─────────────────────
@@ -139,29 +139,26 @@ def _find_pattern(
 
         pb_avg = pb_size / pb_count
 
-        # Pullback must be weaker than impulse (< 100% — very relaxed, was 85%)
-        if pb_avg >= imp_avg * 1.0:
+        # Pullback must be weaker than impulse
+        if pb_avg >= imp_avg * 0.95:
             continue
 
-        # ── Confirmation: any bar resuming direction ─────────────────────
+        # ── Confirmation: bar must CLOSE in signal direction ─────────────
         conf_idx = pb_start + pb_count
         if conf_idx >= n:
             continue
 
-        # Confirmation: close in direction OR half-size body in direction
         conf_body = body[conf_idx]
-        confirmed = sign * conf_body > 0 or sign * conf_body > -avg_body * 0.3
-
-        if not confirmed:
+        if sign * conf_body <= 0:   # must close in direction — no doji/neutral allowed
             continue
 
         # ── Score ─────────────────────────────────────────────────────────
-        impulse_q   = min(1.0, imp_avg / (avg_body * 1.2))   # how strong impulse
-        pullback_q  = max(0.0, 1.0 - (pb_avg / imp_avg))     # how weak pullback
-        recency     = 1.0 - (n - conf_idx - 1) / max(1, n - start)  # recent = better
-        conf_bonus  = 0.15 if sign * conf_body > 0 else 0.0
+        impulse_q  = min(1.0, imp_avg / (avg_body * 1.2))
+        pullback_q = max(0.0, 1.0 - (pb_avg / imp_avg))
+        recency    = 1.0 - (n - conf_idx - 1) / max(1, n - start)
+        conf_bonus = 0.15 if sign * conf_body > avg_body * 0.3 else 0.0
 
-        raw = (impulse_q * 0.40 + pullback_q * 0.25 + recency * 0.25 + conf_bonus) * 100
+        raw   = (impulse_q * 0.40 + pullback_q * 0.25 + recency * 0.25 + conf_bonus) * 100
         score = float(min(100.0, max(0.0, raw)))
 
         if best is None or score > best:
@@ -178,29 +175,31 @@ def _dominant_direction_score(
     n: int,
 ) -> float:
     """
-    Fallback: checks if recent bars are predominantly in direction.
-    Returns partial score 0-45.
+    Fallback: checks if recent bars are strongly and consistently in direction.
+    Capped at 24 — cannot create a partial match on its own (PARTIAL_MATCH_MIN=30).
+    Requires: 70%+ of bars in direction, last 6 bars 4/6+ in direction, last bar in direction.
     """
     sign = 1 if side == "bull" else -1
     recent = body[start:]
-    if len(recent) < 4:
+    if len(recent) < 6:
         return 0.0
 
-    in_dir  = np.sum(sign * recent > 0)
-    total   = len(recent)
-    ratio   = in_dir / total
+    in_dir = np.sum(sign * recent > 0)
+    total  = len(recent)
+    ratio  = in_dir / total
 
-    if ratio < 0.55:
+    if ratio < 0.70:
         return 0.0
 
-    # Check recent 4 bars bias
-    last4 = body[-4:]
-    last4_dir = np.sum(sign * last4 > 0)
-    last4_ratio = last4_dir / 4
-
-    if last4_ratio < 0.5:
+    # Last 6 bars: need 4+ in direction
+    last6 = body[-6:]
+    last6_dir = int(np.sum(sign * last6 > 0))
+    if last6_dir < 4:
         return 0.0
 
-    # Score based on dominance strength
-    dominance = (ratio - 0.55) / 0.45   # 0 at 55%, 1 at 100%
-    return float(min(45.0, dominance * 45.0 + last4_ratio * 15.0))
+    # Last bar must be in direction
+    if sign * body[-1] <= 0:
+        return 0.0
+
+    dominance = (ratio - 0.70) / 0.30   # 0 at 70%, 1 at 100%
+    return float(min(24.0, dominance * 20.0 + (last6_dir / 6) * 10.0))
