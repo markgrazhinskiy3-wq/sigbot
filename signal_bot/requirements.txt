@@ -2,7 +2,7 @@ aiogram==3.13.1
 playwright==1.48.0
 aiosqlite==0.20.0
 pandas==2.2.3
-pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@development
+pandas-ta
 python-dotenv==1.0.1
 aiofiles==24.1.0
 numpy==1.26.4
