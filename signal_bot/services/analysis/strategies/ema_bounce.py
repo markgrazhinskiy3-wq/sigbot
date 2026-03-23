@@ -75,8 +75,8 @@ def ema_bounce_strategy(
     if buy_wins and buy_met >= _MIN_MET:
         direction      = "BUY"
         conditions_met = buy_met
-        # Anchored curve: 4→35, 5→45, 6→55, 7→65, 8→75
-        base_conf      = 35 + max(0, buy_met - 4) * 10
+        # Anchored curve: 4→40, 5→50, 6→60, 7→70, 8→80
+        base_conf      = 40 + max(0, buy_met - 4) * 10
         reason         = " | ".join(buy_parts)
         # Precision touch bonus (very close to EMA13 — within 0.01%)
         if abs(low[-1] - ind.ema13) / price < 0.0001:
@@ -91,8 +91,8 @@ def ema_bounce_strategy(
     elif sell_wins and sell_met >= _MIN_MET:
         direction      = "SELL"
         conditions_met = sell_met
-        # Same anchored curve as buy side: 4→35, 5→45, 6→55, 7→65, 8→75
-        base_conf      = 35 + max(0, sell_met - 4) * 10
+        # Same anchored curve as buy side: 4→40, 5→50, 6→60, 7→70, 8→80
+        base_conf      = 40 + max(0, sell_met - 4) * 10
         reason         = " | ".join(sell_parts)
         if abs(high[-1] - ind.ema13) / price < 0.0001:
             base_conf += 5

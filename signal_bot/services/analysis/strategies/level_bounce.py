@@ -179,8 +179,8 @@ def _evaluate_support(close, open_, high, low, n, price, avg_body, tolerance, in
         if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_res_pct:.2f}%")
 
-        # Confidence: anchored curve (4→35, 5→45, 6→55, 7→65) + pattern quality bonus
-        conf = 35 + max(0, met - 4) * 10
+        # Confidence: anchored curve (4→40, 5→50, 6→60, 7→70) + pattern quality bonus
+        conf = 40 + max(0, met - 4) * 10
         if pat.pattern == "pin_bar":     conf += pat.quality * 8
         elif pat.pattern == "engulfing": conf += pat.quality * 6
         elif pat.pattern == "hammer":    conf += pat.quality * 5
@@ -264,8 +264,8 @@ def _evaluate_resistance(close, open_, high, low, n, price, avg_body, tolerance,
         if c7:
             met += 1; parts.append(f"Пространство {levels.dist_to_sup_pct:.2f}%")
 
-        # Confidence: anchored curve (4→35, 5→45, 6→55, 7→65) + pattern quality bonus
-        conf = 35 + max(0, met - 4) * 10
+        # Confidence: anchored curve (4→40, 5→50, 6→60, 7→70) + pattern quality bonus
+        conf = 40 + max(0, met - 4) * 10
         if pat.pattern == "pin_bar":     conf += pat.quality * 8
         elif pat.pattern == "engulfing": conf += pat.quality * 6
         elif pat.pattern == "hammer":    conf += pat.quality * 5
