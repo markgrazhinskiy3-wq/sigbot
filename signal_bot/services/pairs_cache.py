@@ -1,6 +1,6 @@
 """
 In-memory cache for available OTC pairs.
-Pairs are filtered to >= MIN_PAYOUT (85%) when live payout data is available.
+Pairs are filtered to >= MIN_PAYOUT (80%) when live payout data is available.
 Sorted alphabetically to match PocketOption UI order.
 Payout % is stored in each pair dict and shown in button labels.
 """
@@ -15,7 +15,7 @@ import config
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SEC = 5 * 60   # refresh every 5 minutes to pick up live payouts
-MIN_PAYOUT    = 85        # filter threshold (used only when live data is available)
+MIN_PAYOUT    = 80        # filter threshold (used only when live data is available)
 
 _cache: list[dict] = []
 _cache_ts: float   = 0.0

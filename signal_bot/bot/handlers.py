@@ -1166,16 +1166,18 @@ def _extract_payout(p: dict) -> int:
 
 
 def _build_pairs_map() -> tuple[dict[str, str], dict[str, int]]:
-    """Return (pairs_map, payout_map) built from the live cache + config fallback."""
+    """
+    Return (pairs_map, payout_map) built ONLY from the live cache.
+    Relies on pairs_cache.get_cached() returning the dynamic live list
+    (all currency OTC pairs with payout >= MIN_PAYOUT from updateAssets).
+    No config fallback — avoids adding low-payout pairs back into the scan.
+    """
     pairs_map:  dict[str, str] = {}
     payout_map: dict[str, int] = {}
     for p in pairs_cache.get_cached():
         sym = p["symbol"]
         pairs_map[sym]  = p.get("name") or p["label"].split("|")[0].strip()
         payout_map[sym] = _extract_payout(p)
-    for p in config.OTC_PAIRS:
-        if p["symbol"] not in pairs_map:
-            pairs_map[p["symbol"]] = p["label"]
     return pairs_map, payout_map
 
 
@@ -1216,6 +1218,7 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
             parse_mode="HTML",
         )
 
+        await pairs_cache.refresh(force=True)
         pairs_map, payout_map = _build_pairs_map()
         results   = await scan_pairs_fresh(pairs_map, payout_map)
 
