@@ -307,7 +307,6 @@ async def _handshake(
             if "updateBalance" in text or "successauth" in text or "updateProfile" in text:
                 auth_done = True
         elif item[0] == "binary":
-            # Log binary events — payout data may arrive here during auth
             _, bin_event, bin_raw = item
             if bin_event and bin_event not in _seen_events:
                 _seen_events.add(bin_event)
@@ -315,6 +314,27 @@ async def _handshake(
                     "WS handshake binary event: %r  raw_len=%d  hex_preview=%s",
                     bin_event, len(bin_raw), bin_raw[:32].hex(),
                 )
+            # Auth confirmed via binary event
+            if bin_event in ("successauth", "successupdateBalance", "updateBalance"):
+                auth_done = True
+            # Parse updateAssets — contains full payout table for all instruments
+            if bin_event == "updateAssets" and bin_raw:
+                parsed_payouts = _parse_update_assets_binary(bin_raw)
+                if parsed_payouts:
+                    _live_payouts.update(parsed_payouts)
+                    otc_count = sum(1 for k in parsed_payouts if "otc" in k)
+                    logger.info(
+                        "updateAssets parsed: %d total assets, %d OTC pairs with payouts",
+                        len(parsed_payouts), otc_count,
+                    )
+                    # Log OTC payouts specifically
+                    otc_payouts = {k: v for k, v in parsed_payouts.items() if "otc" in k}
+                    logger.info("OTC payouts from updateAssets: %s", otc_payouts)
+                else:
+                    logger.warning(
+                        "updateAssets received (%d bytes) but parsed 0 payouts — raw preview: %s",
+                        len(bin_raw), bin_raw[:100],
+                    )
 
     payout_count = len(_live_payouts)
     logger.info(
@@ -322,6 +342,56 @@ async def _handshake(
         auth_payload.get("uid"), len(_seen_events), payout_count,
     )
     return ping_interval
+
+
+# ── updateAssets binary parser ─────────────────────────────────────────────────
+
+def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
+    """
+    Parse the 'updateAssets' binary WS frame → {normalised_symbol: payout_int}.
+
+    PocketOption sends this during auth handshake.  The payload is UTF-8 JSON:
+      [[asset_id, "#SYMBOL", "Name", "category", type_id, payout_pct, ...], ...]
+    e.g. [[5, "#AAPL", "Apple", "stock", 2, 50, ...], ...]
+
+    We look at every numeric field for a value that looks like a payout (30-100)
+    rather than hardcoding index 5, in case the schema differs for OTC pairs.
+    """
+    result: dict[str, int] = {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, list):
+            return result
+        for entry in data:
+            if not isinstance(entry, list) or len(entry) < 3:
+                continue
+            # Symbol is the field starting with "#"
+            sym = next((str(f) for f in entry if isinstance(f, str) and str(f).startswith("#")), None)
+            if not sym:
+                continue
+            # Payout: prefer index 5, but scan all ints in 30-100 range if missing
+            pct = 0
+            if len(entry) > 5 and isinstance(entry[5], (int, float)):
+                v = entry[5]
+                if 30 <= v <= 100:
+                    pct = int(round(v))
+                elif 0.30 <= v <= 1.0:
+                    pct = int(round(v * 100))
+            if not pct:
+                for f in entry[3:]:
+                    if isinstance(f, (int, float)):
+                        if 30 <= f <= 100:
+                            pct = int(round(f))
+                            break
+                        if 0.30 <= f <= 1.0:
+                            pct = int(round(f * 100))
+                            break
+            if pct:
+                key = sym.lower().lstrip("#")  # "eurusd_otc", "aapl", etc.
+                result[key] = pct
+    except Exception as e:
+        logger.warning("_parse_update_assets_binary failed: %s", e)
+    return result
 
 
 # ── Payout capture (side-effect of candle fetch) ──────────────────────────────
