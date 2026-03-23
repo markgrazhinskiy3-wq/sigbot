@@ -932,10 +932,17 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
             cl = int(resp.headers.get("content-length", "0") or "0")
             if cl > 2_000_000:
                 return
-            # Log every JSON URL for diagnostics — helps identify the assets API
-            url_short = resp.url[:120]
-            logger.debug("HTTP JSON response: %s", url_short)
+            # Log every JSON URL — helps identify the assets API endpoint
+            url_short = resp.url[:150]
+            logger.info("HTTP JSON response [cl=%s]: %s", cl, url_short)
             body = await resp.json()
+            # Log a preview of the body to identify the assets endpoint
+            try:
+                import json as _j
+                preview = _j.dumps(body)[:200]
+            except Exception:
+                preview = str(body)[:200]
+            logger.info("HTTP JSON body preview: %s", preview)
             before = len(http_assets)
             _try_parse_assets_from_ws_payload("http:" + resp.url, body, http_assets)
             after = len(http_assets)
