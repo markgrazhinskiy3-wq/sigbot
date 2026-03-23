@@ -246,7 +246,7 @@ def run_decision_engine(
             try:
                 kwargs = dict(df=df1m, ind=ind, levels=levels,
                               ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
-                if name in ("level_bounce", "level_breakout", "divergence"):
+                if name in ("level_bounce", "level_breakout", "divergence", "ema_bounce"):
                     kwargs["mode"] = mode_obj.mode
                 if name in ("level_bounce", "level_breakout"):
                     kwargs["df1m_ctx"] = df1m_ctx

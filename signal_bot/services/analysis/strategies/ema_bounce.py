@@ -37,10 +37,16 @@ def ema_bounce_strategy(
     levels: LevelSet,
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
+    mode: str = "RANGE",
 ) -> StrategyResult:
     """
     Returns BUY / SELL / NONE with confidence 0-100.
     Requires >= 4 of 8 conditions met.
+
+    Regime filter:
+      TRENDING_UP   → only BUY (pullback INTO uptrend = BUY opportunity)
+      TRENDING_DOWN → only SELL (pullback INTO downtrend = SELL opportunity)
+      All others    → both directions allowed
     """
     close = df["close"].values
     open_ = df["open"].values
@@ -100,6 +106,25 @@ def ema_bounce_strategy(
             base_conf += 3
         if 40 <= ind.rsi <= 55:
             base_conf += 3
+
+    # ── Regime direction filter ───────────────────────────────────────────────
+    # In a confirmed trend, ema_bounce should only trade WITH the trend.
+    # A pullback in TRENDING_UP is a BUY opportunity, never SELL.
+    # A pullback in TRENDING_DOWN is a SELL opportunity, never BUY.
+    if direction == "SELL" and mode == "TRENDING_UP":
+        return _none(
+            f"SELL заблокирован: режим TRENDING_UP (откат = BUY возможность)",
+            {"regime_block": "sell_in_uptrend",
+             "sell_met": sell_met, "buy_met": buy_met,
+             "sell_conditions": sell_conds, "buy_conditions": buy_conds}
+        )
+    if direction == "BUY" and mode == "TRENDING_DOWN":
+        return _none(
+            f"BUY заблокирован: режим TRENDING_DOWN (откат = SELL возможность)",
+            {"regime_block": "buy_in_downtrend",
+             "sell_met": sell_met, "buy_met": buy_met,
+             "sell_conditions": sell_conds, "buy_conditions": buy_conds}
+        )
 
     return StrategyResult(
         direction=direction,
