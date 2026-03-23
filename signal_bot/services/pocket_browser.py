@@ -957,39 +957,62 @@ async def init_monitor_ws_auth() -> bool:
 
         page.on("response", _on_resp)
 
-        # Try cookie login first for secondary account
+        # Try cookie login — prioritise monitor cookies, fall back to global cookies
         cookie_login_ok = False
-        if COOKIES_PATH_MON.exists():
+        for _cookie_path, _label in [
+            (COOKIES_PATH_MON, "monitor"),
+            (COOKIES_PATH,     "global"),
+        ]:
+            if not _cookie_path.exists():
+                continue
             try:
-                with open(COOKIES_PATH_MON) as f:
-                    mon_cookies = json.load(f)
-                if mon_cookies:
-                    await context.add_cookies(mon_cookies)
-                    logger.info("Loaded %d monitor cookies from %s", len(mon_cookies), COOKIES_PATH_MON)
-                    await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
-                    await page.wait_for_timeout(3000)
-                    if "cabinet" in page.url or "trade" in page.url:
-                        cookie_login_ok = True
-                        logger.info("Monitor cookie login OK, URL: %s", page.url)
-                    else:
-                        logger.warning("Monitor cookie login failed (URL: %s), falling back to credentials", page.url)
+                with open(_cookie_path) as f:
+                    _cookies = json.load(f)
+                if not _cookies:
+                    continue
+                await context.add_cookies(_cookies)
+                logger.info("Trying cookie login with %d %s cookies from %s",
+                            len(_cookies), _label, _cookie_path)
+                # Use "commit" (first-byte received) — much faster than domcontentloaded
+                # avoids timeout when PocketOption's SPA is slow to initialise
+                await page.goto(config.PO_TRADE_URL, wait_until="commit", timeout=60_000)
+                await page.wait_for_timeout(4000)
+                if "cabinet" in page.url or "trade" in page.url or "quick" in page.url:
+                    cookie_login_ok = True
+                    logger.info("Cookie login OK via %s cookies, URL: %s", _label, page.url)
+                    break
+                else:
+                    logger.warning("Cookie login failed via %s (URL: %s)", _label, page.url)
+                    await context.clear_cookies()
             except Exception as e:
-                logger.warning("Monitor cookie load error: %s", e)
+                logger.warning("Cookie login error (%s): %s", _label, e)
+                try:
+                    await context.clear_cookies()
+                except Exception:
+                    pass
 
         if not cookie_login_ok:
-            # Fall back to credentials login
-            await _login_with_credentials(page, _login, _password)
-            # Save cookies for future runs (avoid reCAPTCHA)
+            logger.info("All cookie logins failed — trying credential login")
             try:
-                saved = await context.cookies()
-                if saved:
-                    with open(COOKIES_PATH_MON, "w") as f:
-                        json.dump(saved, f, indent=2)
-                    logger.info("Saved %d monitor cookies → %s", len(saved), COOKIES_PATH_MON)
+                await _login_with_credentials(page, _login, _password)
+                # Save cookies for future runs
+                try:
+                    saved = await context.cookies()
+                    if saved:
+                        with open(COOKIES_PATH_MON, "w") as f:
+                            json.dump(saved, f, indent=2)
+                        logger.info("Saved %d monitor cookies → %s", len(saved), COOKIES_PATH_MON)
+                except Exception as e:
+                    logger.warning("Could not save monitor cookies: %s", e)
+                # Navigate to trading page after credential login
+                await page.goto(config.PO_TRADE_URL, wait_until="commit", timeout=60_000)
+                await page.wait_for_timeout(4000)
+                logger.info("Credential login done, URL: %s", page.url)
             except Exception as e:
-                logger.warning("Could not save monitor cookies: %s", e)
-            # Navigate to trading page — this triggers the WS handshake that sends auth
-            await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+                logger.error("Credential login failed: %s — aborting payout capture", e)
+                await browser.close()
+                await playwright.stop()
+                return False
 
         logger.info("init_monitor: page URL after navigation: %s", page.url)
         # Save screenshot for debugging (stored on Railway volume)
