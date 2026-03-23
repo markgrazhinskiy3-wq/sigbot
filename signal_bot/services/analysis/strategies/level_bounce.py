@@ -114,9 +114,9 @@ def level_bounce_strategy(
 
     # STEP 2 — evaluate each direction (always returns full condition set for debug)
     best_buy  = _eval_buy(close, open_, high, low, n, price, avg_body, ind,
-                          sup_levels, res_levels, mode)
+                          sup_levels, res_levels, mode, ctx_trend_up)
     best_sell = _eval_sell(close, open_, high, low, n, price, avg_body, ind,
-                           res_levels, sup_levels, mode)
+                           res_levels, sup_levels, mode, ctx_trend_down)
 
     direction      = "NONE"
     conditions_met = 0
@@ -157,11 +157,12 @@ def level_bounce_strategy(
 # ── BUY: bounce from 1m support ───────────────────────────────────────────────
 
 def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
-              sup_levels, res_levels, mode) -> dict:
+              sup_levels, res_levels, mode, ctx_confirms: bool = False) -> dict:
     """
     Evaluate all 6 conditions for every candidate support level.
     Always returns the best partial result (most conditions met),
     even if below _MIN_MET — so debug always shows condition checkmarks.
+    ctx_confirms: True if 1m MTF trend agrees with BUY direction.
     """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
@@ -225,7 +226,8 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
             if touch_count >= 3: conf += 5
-            if mode == "RANGE":  conf += 3
+            if mode == "RANGE":  conf += 5   # range bonus
+            if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
 
         # Always update best if this level has more conditions met
         # (so debug always shows full condition set, even below threshold)
@@ -238,10 +240,11 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
 # ── SELL: bounce from 1m resistance ──────────────────────────────────────────
 
 def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
-               res_levels, sup_levels, mode) -> dict:
+               res_levels, sup_levels, mode, ctx_confirms: bool = False) -> dict:
     """
     Evaluate all 6 conditions for every candidate resistance level.
     Always returns the best partial result for debug visibility.
+    ctx_confirms: True if 1m MTF trend agrees with SELL direction.
     """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
@@ -304,7 +307,8 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
             if touch_count >= 3: conf += 5
-            if mode == "RANGE":  conf += 3
+            if mode == "RANGE":  conf += 5   # range bonus
+            if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
 
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}

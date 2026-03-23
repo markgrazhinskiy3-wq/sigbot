@@ -57,12 +57,12 @@ _MODE_STRATEGIES: dict[str, dict] = {
     # in a confirmed trend direction have poor reliability at 1-2 min expiry.
     # level_breakout added: breakouts above/below 1m levels work well in trending markets.
     "TRENDING_UP": {
-        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout"],
-        "secondary": ["level_bounce", "divergence"],
+        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "secondary": ["divergence"],
     },
     "TRENDING_DOWN": {
-        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout"],
-        "secondary": ["level_bounce", "divergence"],
+        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "secondary": ["divergence"],
     },
     "RANGE": {
         # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
@@ -74,12 +74,12 @@ _MODE_STRATEGIES: dict[str, dict] = {
     "VOLATILE": {
         # Micro Breakout only allowed here where ATR is high enough
         # level_breakout primary here — volatile markets have real breakouts
-        "primary":   ["micro_breakout", "squeeze_breakout", "level_breakout"],
-        "secondary": ["level_bounce", "divergence"],
+        "primary":   ["micro_breakout", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "secondary": ["divergence"],
     },
     "SQUEEZE": {
-        "primary":   ["squeeze_breakout", "ema_bounce"],
-        "secondary": ["level_breakout", "level_bounce", "divergence", "rsi_reversal"],
+        "primary":   ["squeeze_breakout", "ema_bounce", "level_bounce"],
+        "secondary": ["level_breakout", "divergence", "rsi_reversal"],
     },
 }
 
