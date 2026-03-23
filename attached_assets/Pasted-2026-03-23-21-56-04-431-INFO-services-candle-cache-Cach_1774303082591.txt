@@ -1,0 +1,113 @@
+2026-03-23 21:56:04,431 [INFO] services.candle_cache: Cache warm-up complete (0/24 pairs). WS auth available: True
+2026-03-23 21:56:04,875 [INFO] __main__: Bot command menu registered (4 user + 17 admin commands)
+2026-03-23 21:56:04,875 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-03-23 21:56:04,876 [INFO] aiogram.dispatcher: Start polling
+2026-03-23 21:56:04,877 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-03-23 21:56:05,021 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'signal test'
+2026-03-23 21:56:18,469 [INFO] __main__: Playwright chromium ready
+2026-03-23 21:56:18,469 [INFO] services.pocket_browser: WS auth is 0.0h old (skipping WS re-capture) but payouts are stale → will run browser just for payout capture
+2026-03-23 21:56:18,469 [INFO] services.pocket_browser: Initialising monitoring WebSocket auth…
+2026-03-23 21:56:20,714 [INFO] services.pocket_browser: Trying cookie login with 21 monitor cookies from /app/signal_bot/po_cookies_monitor.json
+2026-03-23 21:56:53,278 [INFO] services.po_ws_client: Direct WS: authenticated (uid=86535816)
+2026-03-23 21:56:53,437 [INFO] services.pocket_browser: Parsed 52 candles from EURUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:53,437 [INFO] services.po_ws_client: Direct WS: #EURUSD_otc → 52 candles
+2026-03-23 21:56:53,617 [INFO] services.pocket_browser: Parsed 52 candles from EURJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:53,617 [INFO] services.po_ws_client: Direct WS: #EURJPY_otc → 52 candles
+2026-03-23 21:56:53,776 [INFO] services.pocket_browser: Parsed 51 candles from GBPJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:53,776 [INFO] services.po_ws_client: Direct WS: #GBPJPY_otc → 51 candles
+2026-03-23 21:56:53,933 [INFO] services.pocket_browser: Parsed 52 candles from AUDUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:53,934 [INFO] services.po_ws_client: Direct WS: #AUDUSD_otc → 52 candles
+2026-03-23 21:56:54,181 [INFO] services.pocket_browser: Parsed 52 candles from AUDCAD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,181 [INFO] services.po_ws_client: Direct WS: #AUDCAD_otc → 52 candles
+2026-03-23 21:56:54,339 [INFO] services.pocket_browser: Parsed 52 candles from AUDNZD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,339 [INFO] services.po_ws_client: Direct WS: #AUDNZD_otc → 52 candles
+2026-03-23 21:56:54,507 [INFO] services.pocket_browser: Parsed 52 candles from CADCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,507 [INFO] services.po_ws_client: Direct WS: #CADCHF_otc → 52 candles
+2026-03-23 21:56:54,665 [INFO] services.pocket_browser: Parsed 51 candles from AEDCNY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,666 [INFO] services.po_ws_client: Direct WS: #AEDCNY_otc → 51 candles
+2026-03-23 21:56:54,824 [INFO] services.pocket_browser: Parsed 51 candles from BHDCNY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,825 [INFO] services.po_ws_client: Direct WS: #BHDCNY_otc → 51 candles
+2026-03-23 21:56:54,983 [INFO] services.pocket_browser: Parsed 52 candles from CADJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:54,983 [INFO] services.po_ws_client: Direct WS: #CADJPY_otc → 52 candles
+2026-03-23 21:56:55,163 [INFO] services.pocket_browser: Parsed 52 candles from EURCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:56:55,163 [INFO] services.po_ws_client: Direct WS: #EURCHF_otc → 52 candles
+2026-03-23 21:56:55,323 [INFO] services.pocket_browser: Parsed 52 candles from GBPAUD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:55,323 [INFO] services.po_ws_client: Direct WS: #GBPAUD_otc → 52 candles
+2026-03-23 21:56:55,481 [INFO] services.pocket_browser: Parsed 50 candles from KESUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:55,481 [INFO] services.po_ws_client: Direct WS: #KESUSD_otc → 50 candles
+2026-03-23 21:56:55,738 [INFO] services.po_ws_client: Direct WS: #GBPUSD_otc → 52 candles
+2026-03-23 21:56:55,896 [INFO] services.pocket_browser: Parsed 51 candles from USDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:55,896 [INFO] services.po_ws_client: Direct WS: #USDJPY_otc → 51 candles
+2026-03-23 21:56:55,737 [INFO] services.pocket_browser: Parsed 52 candles from GBPUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,111 [INFO] services.pocket_browser: Parsed 52 candles from USDCAD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,111 [INFO] services.po_ws_client: Direct WS: #USDCAD_otc → 52 candles
+2026-03-23 21:56:56,269 [INFO] services.pocket_browser: Parsed 52 candles from USDCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,269 [INFO] services.po_ws_client: Direct WS: #USDCHF_otc → 52 candles
+2026-03-23 21:56:56,427 [INFO] services.pocket_browser: Parsed 52 candles from NZDUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,428 [INFO] services.po_ws_client: Direct WS: #NZDUSD_otc → 52 candles
+2026-03-23 21:56:56,640 [INFO] services.pocket_browser: Parsed 52 candles from EURGBP_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,641 [INFO] services.po_ws_client: Direct WS: #EURGBP_otc → 52 candles
+2026-03-23 21:56:56,957 [INFO] services.po_ws_client: Direct WS: #AUDCHF_otc → 52 candles
+2026-03-23 21:56:56,799 [INFO] services.pocket_browser: Parsed 52 candles from AUDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:56,799 [INFO] services.po_ws_client: Direct WS: #AUDJPY_otc → 52 candles
+2026-03-23 21:56:56,957 [INFO] services.pocket_browser: Parsed 52 candles from AUDCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:56:57,175 [INFO] services.pocket_browser: Parsed 52 candles from NZDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:57,175 [INFO] services.po_ws_client: Direct WS: #NZDJPY_otc → 52 candles
+2026-03-23 21:56:57,335 [INFO] services.pocket_browser: Parsed 52 candles from CHFJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:57,335 [INFO] services.po_ws_client: Direct WS: #CHFJPY_otc → 52 candles
+2026-03-23 21:56:57,495 [INFO] services.pocket_browser: Parsed 52 candles from EURTRY_otc history (updateHistoryNewFast)
+2026-03-23 21:56:57,495 [INFO] services.po_ws_client: Direct WS: #EURTRY_otc → 52 candles
+2026-03-23 21:56:57,496 [INFO] services.candle_cache: Cache refresh: 24/24 pairs (WS+fallback) in 8.1s
+2026-03-23 21:57:20,717 [WARNING] services.pocket_browser: Cookie login error (monitor): Page.goto: Timeout 60000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/cabinet/demo-quick-high-low/", waiting until "commit"
+2026-03-23 21:57:20,722 [INFO] services.pocket_browser: Trying cookie login with 21 global cookies from /app/signal_bot/po_cookies.json
+2026-03-23 21:57:46,270 [INFO] services.po_ws_client: Direct WS: authenticated (uid=86535816)
+2026-03-23 21:57:46,430 [INFO] services.pocket_browser: Parsed 56 candles from EURUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:46,430 [INFO] services.po_ws_client: Direct WS: #EURUSD_otc → 56 candles
+2026-03-23 21:57:46,592 [INFO] services.pocket_browser: Parsed 42 candles from EURJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:46,592 [INFO] services.po_ws_client: Direct WS: #EURJPY_otc → 42 candles
+2026-03-23 21:57:46,761 [INFO] services.pocket_browser: Parsed 55 candles from GBPJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:46,761 [INFO] services.po_ws_client: Direct WS: #GBPJPY_otc → 55 candles
+2026-03-23 21:57:46,919 [INFO] services.pocket_browser: Parsed 42 candles from AUDUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:46,919 [INFO] services.po_ws_client: Direct WS: #AUDUSD_otc → 42 candles
+2026-03-23 21:57:47,078 [INFO] services.pocket_browser: Parsed 42 candles from AUDCAD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,078 [INFO] services.po_ws_client: Direct WS: #AUDCAD_otc → 42 candles
+2026-03-23 21:57:47,247 [INFO] services.pocket_browser: Parsed 56 candles from AUDNZD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,247 [INFO] services.po_ws_client: Direct WS: #AUDNZD_otc → 56 candles
+2026-03-23 21:57:47,405 [INFO] services.pocket_browser: Parsed 42 candles from CADCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,405 [INFO] services.po_ws_client: Direct WS: #CADCHF_otc → 42 candles
+2026-03-23 21:57:47,564 [INFO] services.pocket_browser: Parsed 55 candles from AEDCNY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,564 [INFO] services.po_ws_client: Direct WS: #AEDCNY_otc → 55 candles
+2026-03-23 21:57:47,724 [INFO] services.pocket_browser: Parsed 55 candles from BHDCNY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,724 [INFO] services.po_ws_client: Direct WS: #BHDCNY_otc → 55 candles
+2026-03-23 21:57:47,882 [INFO] services.pocket_browser: Parsed 42 candles from CADJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:47,883 [INFO] services.po_ws_client: Direct WS: #CADJPY_otc → 42 candles
+2026-03-23 21:57:48,041 [INFO] services.pocket_browser: Parsed 42 candles from EURCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,041 [INFO] services.po_ws_client: Direct WS: #EURCHF_otc → 42 candles
+2026-03-23 21:57:48,270 [INFO] services.pocket_browser: Parsed 56 candles from GBPAUD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,271 [INFO] services.po_ws_client: Direct WS: #GBPAUD_otc → 56 candles
+2026-03-23 21:57:48,430 [INFO] services.pocket_browser: Parsed 54 candles from KESUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,430 [INFO] services.po_ws_client: Direct WS: #KESUSD_otc → 54 candles
+2026-03-23 21:57:48,589 [INFO] services.pocket_browser: Parsed 56 candles from GBPUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,590 [INFO] services.po_ws_client: Direct WS: #GBPUSD_otc → 56 candles
+2026-03-23 21:57:48,787 [INFO] services.pocket_browser: Parsed 56 candles from USDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,787 [INFO] services.po_ws_client: Direct WS: #USDJPY_otc → 56 candles
+2026-03-23 21:57:48,949 [INFO] services.pocket_browser: Parsed 56 candles from USDCAD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:48,949 [INFO] services.po_ws_client: Direct WS: #USDCAD_otc → 56 candles
+2026-03-23 21:57:49,110 [INFO] services.pocket_browser: Parsed 56 candles from USDCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,110 [INFO] services.po_ws_client: Direct WS: #USDCHF_otc → 56 candles
+2026-03-23 21:57:49,270 [INFO] services.pocket_browser: Parsed 56 candles from NZDUSD_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,270 [INFO] services.po_ws_client: Direct WS: #NZDUSD_otc → 56 candles
+2026-03-23 21:57:49,427 [INFO] services.pocket_browser: Parsed 42 candles from EURGBP_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,428 [INFO] services.po_ws_client: Direct WS: #EURGBP_otc → 42 candles
+2026-03-23 21:57:49,586 [INFO] services.pocket_browser: Parsed 42 candles from AUDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,586 [INFO] services.po_ws_client: Direct WS: #AUDJPY_otc → 42 candles
+2026-03-23 21:57:49,770 [INFO] services.pocket_browser: Parsed 42 candles from AUDCHF_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,770 [INFO] services.po_ws_client: Direct WS: #AUDCHF_otc → 42 candles
+2026-03-23 21:57:49,929 [INFO] services.pocket_browser: Parsed 56 candles from NZDJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:49,930 [INFO] services.po_ws_client: Direct WS: #NZDJPY_otc → 56 candles
+2026-03-23 21:57:50,275 [INFO] services.candle_cache: Cache refresh: 24/24 pairs (WS+fallback) in 7.8s
+2026-03-23 21:57:50,087 [INFO] services.pocket_browser: Parsed 42 candles from CHFJPY_otc history (updateHistoryNewFast)
+2026-03-23 21:57:50,087 [INFO] services.po_ws_client: Direct WS: #CHFJPY_otc → 42 candles
+2026-03-23 21:57:50,273 [INFO] services.pocket_browser: Parsed 42 candles from EURTRY_otc history (updateHistoryNewFast)
