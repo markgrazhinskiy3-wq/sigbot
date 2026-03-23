@@ -325,11 +325,16 @@ async def refresh_pair_now(symbol: str) -> list[dict]:
 def resample_to_1m(candles_15s: list[dict]) -> list[dict]:
     """
     Resample 15-second candles into 1-minute candles.
-    Groups by 1-minute bucket (time // 60 * 60).
+
+    Primary:  group by Unix timestamp bucket (time // 60 * 60).
+    Fallback: if fewer than 5 bars produced (candles lack valid timestamps),
+              group sequentially — every 4 consecutive 15s bars = 1 minute.
+              Assigns synthetic monotonic timestamps (0, 60, 120, …) so that
+              resample_to_5m() can further aggregate correctly.
     Returns list sorted oldest → newest.
-    Typically produces ~10-14 bars from 50 fifteen-second bars.
     """
     from collections import defaultdict
+
     groups: dict[int, list[dict]] = defaultdict(list)
     for c in candles_15s:
         t = c.get("time", 0)
@@ -348,6 +353,24 @@ def resample_to_1m(candles_15s: list[dict]) -> list[dict]:
             "low":   min(c["low"]  for c in g),
             "close": g[-1]["close"],
         })
+
+    # Fallback: timestamps were missing/zero — aggregate sequentially (4×15s = 1m)
+    if len(result) < 5 and candles_15s:
+        result = []
+        i = 0
+        bucket_idx = 0
+        while i < len(candles_15s):
+            g = candles_15s[i:i + 4]
+            result.append({
+                "time":  bucket_idx * 60,          # synthetic monotonic timestamp
+                "open":  g[0]["open"],
+                "high":  max(c["high"] for c in g),
+                "low":   min(c["low"]  for c in g),
+                "close": g[-1]["close"],
+            })
+            i += 4
+            bucket_idx += 1
+
     return result
 
 
@@ -355,13 +378,14 @@ def resample_to_5m(candles_1m: list[dict]) -> list[dict]:
     """
     Resample 1-minute candles into 5-minute candles.
     Groups by 5-minute bucket (time // 300 * 300).
+    Works correctly with both real and synthetic timestamps from resample_to_1m().
     Returns list sorted oldest → newest.
     """
     from collections import defaultdict
     groups: dict[int, list[dict]] = defaultdict(list)
     for c in candles_1m:
         t = c.get("time", 0)
-        if t <= 0:
+        if t < 0:
             continue
         bucket = (t // 300) * 300
         groups[bucket].append(c)
