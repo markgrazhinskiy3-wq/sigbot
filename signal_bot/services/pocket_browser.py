@@ -702,22 +702,33 @@ def _parse_payouts_from_response(body, out: dict) -> None:
 async def init_monitor_ws_auth() -> bool:
     """
     Log in with the secondary PocketOption account (PP_LOGIN/PP_PASSWORD) in a
-    separate browser context, capture the WS auth token, save it to
-    po_ws_auth_monitor.json, then close the context.
+    separate browser context, capture the WS auth token + live payout data.
 
     Returns True if successful, False if credentials not configured or login fails.
-    Called once at bot startup; stream_pair() then uses this auth file.
-    Also captures live payout data from HTTP responses during page load.
     """
     import time as _time
-    # If a fresh monitor auth file already exists (< 12 hours old), skip re-init
+
+    # Even if WS auth is fresh, we must still capture payouts if file is missing/stale
+    payouts_fresh = (
+        PO_PAYOUTS_PATH.exists()
+        and (_time.time() - PO_PAYOUTS_PATH.stat().st_mtime) / 3600 < 6.0
+    )
+
+    # If WS auth is fresh AND payouts are fresh → skip entirely
     if WS_AUTH_PATH_MON.exists():
         age_hours = (_time.time() - WS_AUTH_PATH_MON.stat().st_mtime) / 3600
-        if age_hours < 12:
+        if age_hours < 12 and payouts_fresh:
             logger.info(
-                "Monitor WS auth file is %.1fh old — skipping re-init (valid until next restart)", age_hours
+                "Monitor WS auth (%.1fh old) and payouts are both fresh — skipping re-init",
+                age_hours,
             )
             return True
+        if age_hours < 12:
+            logger.info(
+                "WS auth is %.1fh old (skipping WS re-capture) but payouts are stale → "
+                "will run browser just for payout capture",
+                age_hours,
+            )
 
     if not config.PP_LOGIN or not config.PP_PASSWORD:
         logger.warning("init_monitor_ws_auth: PP_LOGIN/PP_PASSWORD not set — monitor will share main auth")
@@ -825,8 +836,86 @@ async def init_monitor_ws_auth() -> bool:
                 break
             await page.wait_for_timeout(500)
 
-        # Extra 3s wait so HTTP JSON responses (including asset/payout data) can arrive
-        await page.wait_for_timeout(3000)
+        # Extra 5s wait so the Vue app fully initialises and loads asset data
+        await page.wait_for_timeout(5000)
+
+        # ── JS extraction: read payout data from PocketOption's Vue runtime ───
+        try:
+            js_payouts = await page.evaluate(r"""async () => {
+                const result = {};
+
+                function tryNum(v) {
+                    if (typeof v === 'number' && v > 0) return v > 1 ? Math.round(v) : Math.round(v * 100);
+                    if (typeof v === 'string') { const n = parseFloat(v); if (!isNaN(n) && n > 0) return n > 1 ? Math.round(n) : Math.round(n * 100); }
+                    return 0;
+                }
+                function symKey(s) { return String(s).toLowerCase().replace(/[#\/\s\-]/g,''); }
+
+                function scanObj(obj, depth) {
+                    if (!obj || typeof obj !== 'object' || depth > 7) return;
+                    if (Array.isArray(obj)) {
+                        obj.forEach(function(item) {
+                            if (!item || typeof item !== 'object') return;
+                            var pct = tryNum(item.profit) || tryNum(item.payout) || tryNum(item.profitability) ||
+                                      tryNum(item.percent) || tryNum(item.win_rate) || tryNum(item.winrate);
+                            var sym = item.symbol || item.asset || item.ticker || item.code || item.name || item.title;
+                            if (pct > 30 && sym) {
+                                result[symKey(sym)] = pct;
+                            } else {
+                                scanObj(item, depth + 1);
+                            }
+                        });
+                    } else {
+                        Object.values(obj).forEach(function(v) { scanObj(v, depth + 1); });
+                    }
+                }
+
+                // 1. Try known Vue store paths
+                var roots = [];
+                try { roots.push(document.querySelector('#app').__vue_app__.config.globalProperties.$store.state); } catch(e) {}
+                try { roots.push(document.querySelector('#app').__vue_app__._context.provides.store.state); } catch(e) {}
+                try { roots.push(document.querySelector('#app').__vue_app__._context.provides.store._state.data); } catch(e) {}
+                roots.forEach(function(r) { if (r) scanObj(r, 0); });
+
+                // 2. Scan all window properties for asset-like arrays
+                if (Object.keys(result).length === 0) {
+                    Object.keys(window).forEach(function(k) {
+                        try {
+                            var v = window[k];
+                            if (v && typeof v === 'object' && !k.startsWith('_') && k.length < 40) {
+                                scanObj(v, 0);
+                            }
+                        } catch(e) {}
+                    });
+                }
+
+                // 3. Scan all elements with text matching "NN%" near known asset names
+                if (Object.keys(result).length === 0) {
+                    document.querySelectorAll('*').forEach(function(el) {
+                        var text = el.innerText || '';
+                        var pctMatch = text.match(/(\d{2,3})%/);
+                        if (!pctMatch) return;
+                        var pct = parseInt(pctMatch[1]);
+                        if (pct < 50 || pct > 99) return;
+                        // look for OTC in nearby text
+                        if (text.toLowerCase().includes('otc')) {
+                            var nameMatch = text.match(/([A-Z]{3}\/[A-Z]{3})\s*OTC/i);
+                            if (nameMatch) {
+                                result[symKey(nameMatch[1] + '_otc')] = pct;
+                            }
+                        }
+                    });
+                }
+
+                return result;
+            }""")
+
+            logger.info("JS Vue extraction found %d payout entries: %s",
+                        len(js_payouts), list(js_payouts.items())[:5])
+            if js_payouts:
+                intercepted_payouts.update(js_payouts)
+        except Exception as exc:
+            logger.warning("JS Vue extraction error: %s", exc)
 
         # Also try direct API endpoint probing with browser cookies
         API_PROBE_URLS = [
