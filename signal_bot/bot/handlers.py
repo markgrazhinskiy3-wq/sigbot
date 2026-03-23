@@ -702,7 +702,12 @@ async def cmd_pairsdiag(message: Message) -> None:
     Admin: probe PocketOption WS for payout data and report every event seen.
     Runs for ~12 seconds. Use to identify the correct WS event for payout.
     """
-    if not _is_primary_admin(message.from_user.id):
+    uid = message.from_user.id
+    if not _is_primary_admin(uid) and not _is_admin(uid):
+        await message.answer(
+            f"⛔ Нет доступа.\n<code>your_id={uid}</code>  admin_id={config.ADMIN_USER_ID}",
+            parse_mode="HTML",
+        )
         return
 
     await message.answer("🔍 <b>WS-диагностика пayout</b>\nЗондирую PocketOption (~12 сек)…", parse_mode="HTML")
