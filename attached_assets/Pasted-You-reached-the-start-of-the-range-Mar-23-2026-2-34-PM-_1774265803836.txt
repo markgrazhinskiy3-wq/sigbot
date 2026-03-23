@@ -1,0 +1,102 @@
+You reached the start of the range
+Mar 23, 2026, 2:34 PM
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+Starting Container
+    import config
+KeyError: 'ADMIN_USER_ID'
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+  File "/app/signal_bot/main.py", line 15, in <module>
+Traceback (most recent call last):
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+KeyError: 'ADMIN_USER_ID'
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+KeyError: 'ADMIN_USER_ID'
+  File "/app/signal_bot/main.py", line 15, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+    import config
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+  File "/app/signal_bot/config.py", line 10, in <module>
+Traceback (most recent call last):
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 714, in __getitem__
+KeyError: 'ADMIN_USER_ID'
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 10, in <module>
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/806de446-3ac9-4aa3-90c1-fe1e3dc6330c/vol_tsz4cu73169rtlpp
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+  File "/app/signal_bot/config.py", line 10, in <module>
+  File "<frozen os>", line 714, in __getitem__
+    import config
+KeyError: 'ADMIN_USER_ID'
+    ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+                             ~~~~~~~~~~^^^^^^^^^^^^^^^^^
