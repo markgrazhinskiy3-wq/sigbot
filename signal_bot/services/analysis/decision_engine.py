@@ -369,7 +369,7 @@ def run_decision_engine(
     mode_str_m = mode_obj.strength / 100.0   # 0-1
     # Only apply if confidence is moderate (don't destroy already-great signals)
     if conf_raw < 75:
-        conf_raw = conf_raw * (0.78 + 0.22 * mode_str_m)
+        conf_raw = conf_raw * (0.88 + 0.12 * mode_str_m)
 
     # 4c. Hard floor: if after all multipliers conf < 60% of raw → apply ×0.60
     floor_conf = best.confidence * 0.60
