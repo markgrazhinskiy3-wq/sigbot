@@ -694,6 +694,124 @@ async def cmd_pairsinfo(message: Message) -> None:
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
+# ─── /pairsdiag — WS payout diagnostic (admin only) ─────────────────────────
+
+@router.message(Command("pairsdiag"))
+async def cmd_pairsdiag(message: Message) -> None:
+    """
+    Admin: probe PocketOption WS for payout data and report every event seen.
+    Runs for ~12 seconds. Use to identify the correct WS event for payout.
+    """
+    if not _is_primary_admin(message.from_user.id):
+        return
+
+    await message.answer("🔍 <b>WS-диагностика пayout</b>\nЗондирую PocketOption (~12 сек)…", parse_mode="HTML")
+
+    try:
+        import json as _json
+        import asyncio as _asyncio
+        import time as _time
+        import aiohttp as _aiohttp
+        from services.po_ws_client import (
+            load_auth, _reader, _keepalive, _handshake, get_live_payouts,
+        )
+
+        # Show what's already captured from candle fetches
+        live = get_live_payouts()
+        live_info = (
+            "\n".join(f"  {k}: {v}%" for k, v in list(live.items())[:10])
+            if live else "  (пусто)"
+        )
+
+        # Probe WS and collect all text events
+        auth_data = load_auth()
+        if not auth_data:
+            await message.answer("❌ WS auth ещё не захвачен браузером. Подождите ~1 мин после старта.", parse_mode="HTML")
+            return
+
+        ws_url       = auth_data["ws_url"]
+        auth_payload = auth_data["auth"]
+        headers = {
+            "Origin":  "https://pocketoption.com",
+            "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
+        }
+
+        events: list[str] = []  # "event_name: preview"
+        timeout = 12.0
+
+        async with _aiohttp.ClientSession() as http:
+            async with http.ws_connect(
+                ws_url, headers=headers, heartbeat=None,
+                receive_timeout=None, autoclose=False, autoping=False,
+            ) as ws:
+                queue: _asyncio.Queue = _asyncio.Queue()
+                reader_task = _asyncio.create_task(_reader(ws, queue))
+                ping_task   = _asyncio.create_task(_keepalive(ws, 25.0))
+                try:
+                    pi = await _handshake(ws, auth_payload, queue)
+                    ping_task.cancel()
+                    ping_task = _asyncio.create_task(_keepalive(ws, pi))
+
+                    # Candidate messages
+                    for msg in ['42["assets"]', '42["getAssets"]', '42["updateAssets"]',
+                                '42["assets/load"]', '42["openOptions"]']:
+                        try: await ws.send_str(msg)
+                        except Exception: pass
+
+                    # Subscribe to first 3 pairs
+                    for p in config.OTC_PAIRS[:3]:
+                        asset = p["symbol"].lstrip("#")
+                        await ws.send_str("42" + _json.dumps(["changeSymbol", {"asset": asset, "period": 60}]))
+
+                    # Drain
+                    seen_events: set[str] = set()
+                    deadline = _time.monotonic() + timeout
+                    while _time.monotonic() < deadline:
+                        remaining = deadline - _time.monotonic()
+                        try:
+                            item = await _asyncio.wait_for(queue.get(), timeout=min(remaining, 1.5))
+                        except _asyncio.TimeoutError:
+                            continue
+                        if item is None:
+                            break
+                        if item[0] != "text":
+                            continue
+                        text = item[1]
+                        if not text.startswith("42"):
+                            continue
+                        try:
+                            data = _json.loads(text[2:])
+                        except Exception:
+                            continue
+                        if not isinstance(data, list) or len(data) < 1:
+                            continue
+                        ev = str(data[0])
+                        pl = data[1] if len(data) > 1 else {}
+                        if ev not in seen_events:
+                            seen_events.add(ev)
+                            preview = str(pl)[:120]
+                            events.append(f"<code>{html.escape(ev)}</code>: {html.escape(preview)}")
+                finally:
+                    reader_task.cancel()
+                    ping_task.cancel()
+
+        lines = [
+            "📡 <b>WS Payout Diagnostic</b>\n",
+            f"<b>_live_payouts (из свечей):</b>\n{live_info}\n",
+            f"<b>Все text-события за 12 сек ({len(events)} уникальных):</b>",
+        ] + events + [
+            "\n<i>Если нет событий с profit/payout — PO не отправляет % через WS.</i>"
+        ]
+        text_out = "\n".join(lines)
+        # Telegram limit 4096
+        for chunk in [text_out[i:i+4000] for i in range(0, len(text_out), 4000)]:
+            await message.answer(chunk, parse_mode="HTML")
+
+    except Exception as exc:
+        await message.answer(f"❌ Ошибка диагностики: <code>{html.escape(str(exc))}</code>", parse_mode="HTML")
+
+
 # ─── Callback handlers ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("admin:approve:"))
