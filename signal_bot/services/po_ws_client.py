@@ -477,3 +477,182 @@ async def _keepalive(ws: aiohttp.ClientWebSocketResponse, interval: float) -> No
         pass
     except Exception as e:
         logger.debug("Keepalive ended: %s", e)
+
+
+# ── Live payout fetcher ────────────────────────────────────────────────────────
+
+async def fetch_asset_payouts(timeout: float = 12.0) -> dict[str, int]:
+    """
+    Connect to PocketOption WS and collect real-time payout % for all OTC assets.
+
+    Returns {normalised_symbol: payout_int}, e.g. {"eurusd_otc": 82, ...}
+    Empty dict if nothing found or auth not available yet.
+
+    Logs every unique event name received — crucial for diagnosing why data is
+    missing if the returned dict is empty.
+    """
+    import re as _re
+
+    auth_data = load_auth()
+    if not auth_data:
+        logger.warning("fetch_asset_payouts: WS auth not yet available")
+        return {}
+
+    ws_url       = auth_data["ws_url"]
+    auth_payload = auth_data["auth"]
+
+    headers = {
+        "Origin":  "https://pocketoption.com",
+        "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        ),
+    }
+
+    payouts: dict[str, int] = {}
+    seen_events: set[str]   = set()
+
+    def _parse_pct(v) -> int:
+        if isinstance(v, (int, float)):
+            if 1 < v <= 100:
+                return int(round(v))
+            if 0 < v < 1:
+                return int(round(v * 100))
+        if isinstance(v, str):
+            m = _re.search(r"(\d{2,3})", v)
+            if m:
+                p = int(m.group(1))
+                if 30 < p <= 100:
+                    return p
+        return 0
+
+    def _scan_obj(obj, depth: int = 0) -> None:
+        """Recursively scan any object for asset-with-payout entries."""
+        if depth > 8 or not obj:
+            return
+        if isinstance(obj, list):
+            for item in obj:
+                _scan_obj(item, depth + 1)
+        elif isinstance(obj, dict):
+            # Check if this dict looks like an asset entry
+            sym = ""
+            pct = 0
+            for k, v in obj.items():
+                kl = k.lower()
+                if kl in ("symbol", "asset", "id", "ticker", "code", "name"):
+                    if isinstance(v, str) and "_otc" in v.lower():
+                        sym = v.lstrip("#")
+                if kl in ("profit", "payout", "return", "percent",
+                          "profitability", "winrate", "win_rate", "value"):
+                    p = _parse_pct(v)
+                    if p > 30:
+                        pct = p
+            if sym and pct:
+                key = sym.lower().lstrip("#")
+                if not key.endswith("_otc"):
+                    key += "_otc"
+                if key not in payouts:
+                    payouts[key] = pct
+                    logger.info("fetch_asset_payouts: %s → %d%%", key, pct)
+            # Recurse into values
+            for v in obj.values():
+                if isinstance(v, (list, dict)):
+                    _scan_obj(v, depth + 1)
+
+    def _process_event(event_name: str, payload) -> None:
+        if event_name not in seen_events:
+            seen_events.add(event_name)
+            logger.info(
+                "fetch_asset_payouts WS event: %r  payload_type=%s  payload_preview=%s",
+                event_name, type(payload).__name__, str(payload)[:120],
+            )
+        _scan_obj(payload)
+
+    try:
+        async with aiohttp.ClientSession() as http:
+            async with http.ws_connect(
+                ws_url,
+                headers=headers,
+                heartbeat=None,
+                receive_timeout=None,
+                autoclose=False,
+                autoping=False,
+            ) as ws:
+                queue: asyncio.Queue[Any] = asyncio.Queue()
+                reader_task = asyncio.create_task(_reader(ws, queue))
+                ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
+
+                try:
+                    ping_interval = await _handshake(ws, auth_payload, queue)
+                    ping_task.cancel()
+                    ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
+
+                    # Send candidate messages that might trigger an asset-list response
+                    for msg in [
+                        '42["assets"]',
+                        '42["getAssets"]',
+                        '42["loadAssets"]',
+                        '42["updateAssets"]',
+                        '42["assets/load"]',
+                        '42["instruments"]',
+                        '42["loadInstruments"]',
+                        '42["openOptions"]',
+                    ]:
+                        try:
+                            await ws.send_str(msg)
+                        except Exception:
+                            pass
+
+                    # Also subscribe to a few OTC pairs — the changeSymbol response
+                    # may include asset metadata / payout
+                    import config as _cfg
+                    for p in _cfg.OTC_PAIRS[:5]:
+                        asset = p["symbol"].lstrip("#")
+                        sub = json.dumps(["changeSymbol", {"asset": asset, "period": 60}])
+                        try:
+                            await ws.send_str("42" + sub)
+                        except Exception:
+                            pass
+
+                    # Drain ALL text frames for `timeout` seconds
+                    deadline = time.monotonic() + timeout
+                    while time.monotonic() < deadline:
+                        remaining = deadline - time.monotonic()
+                        try:
+                            item = await asyncio.wait_for(
+                                queue.get(), timeout=min(remaining, 1.5)
+                            )
+                        except asyncio.TimeoutError:
+                            continue
+                        if item is None:
+                            break
+                        if item[0] != "text":
+                            continue
+                        text = item[1]
+                        if not text.startswith("42"):
+                            continue
+                        try:
+                            data = json.loads(text[2:])
+                        except Exception:
+                            continue
+                        if not isinstance(data, list) or len(data) < 1:
+                            continue
+                        event_name = str(data[0])
+                        payload    = data[1] if len(data) > 1 else {}
+                        _process_event(event_name, payload)
+
+                finally:
+                    reader_task.cancel()
+                    ping_task.cancel()
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error("fetch_asset_payouts WS error: %s", e)
+
+    logger.info(
+        "fetch_asset_payouts done: %d payouts found. All events seen: %s",
+        len(payouts), sorted(seen_events),
+    )
+    return payouts

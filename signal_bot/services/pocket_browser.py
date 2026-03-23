@@ -949,7 +949,124 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
     try:
         await _ensure_logged_in(context, page)
         await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
-        await page.wait_for_timeout(2500)
+        await page.wait_for_timeout(3500)  # give the Vue app time to populate its store
+
+        # ── Strategy 0: extract payout from the Vue/JS in-memory state ──────────
+        # This runs BEFORE any panel interaction, so it works even in headless env.
+        try:
+            js_assets: list[dict] = await page.evaluate(r"""() => {
+                const results = [];
+
+                function parsePct(v) {
+                    if (typeof v === 'number') {
+                        if (v > 1 && v <= 100) return Math.round(v);
+                        if (v > 0 && v < 1)    return Math.round(v * 100);
+                    }
+                    if (typeof v === 'string') {
+                        const m = v.match(/(\d{2,3})/);
+                        if (m) { const p = parseInt(m[1]); if (p > 30 && p <= 100) return p; }
+                    }
+                    return 0;
+                }
+
+                function isOtc(s) { return typeof s === 'string' && s.toLowerCase().includes('otc'); }
+
+                function scanObj(obj, depth) {
+                    if (!obj || depth > 10) return;
+                    if (Array.isArray(obj)) {
+                        for (const item of obj) {
+                            if (typeof item === 'object' && item) {
+                                let sym = '', pct = 0;
+                                for (const [k, v] of Object.entries(item)) {
+                                    const kl = k.toLowerCase();
+                                    if (!sym && ['symbol','asset','id','ticker','code','name'].includes(kl) && isOtc(v))
+                                        sym = String(v);
+                                    if (!pct && ['profit','payout','return','percent','profitability','winrate','win_rate','value'].includes(kl))
+                                        pct = parsePct(v);
+                                }
+                                if (sym && pct > 30) {
+                                    results.push({ name: sym, pct, rawSym: sym });
+                                } else {
+                                    scanObj(item, depth + 1);
+                                }
+                            }
+                        }
+                    } else if (typeof obj === 'object') {
+                        for (const v of Object.values(obj)) {
+                            if (typeof v === 'object') scanObj(v, depth + 1);
+                        }
+                    }
+                }
+
+                // A: Vue 3 global store
+                try {
+                    const app = document.__vue_app__;
+                    if (app) {
+                        const store = app.config.globalProperties.$store;
+                        if (store && store.state) scanObj(store.state, 0);
+                    }
+                } catch(e) {}
+
+                // B: Vue instance on root element
+                try {
+                    const root = document.querySelector('#app') || document.querySelector('[id]');
+                    if (root && root.__vue_app__) {
+                        const store = root.__vue_app__.config.globalProperties.$store;
+                        if (store && store.state) scanObj(store.state, 0);
+                    }
+                } catch(e) {}
+
+                // C: scan window globals whose name suggests asset data
+                if (results.length === 0) {
+                    const assetWords = ['asset','market','trade','instrument','symbol','quote','option'];
+                    try {
+                        for (const k of Object.keys(window)) {
+                            if (k.length > 40 || k.startsWith('on') || k.startsWith('webkit')) continue;
+                            if (!assetWords.some(w => k.toLowerCase().includes(w))) continue;
+                            try { scanObj(window[k], 0); } catch(e) {}
+                        }
+                    } catch(e) {}
+                }
+
+                // D: injected JSON in <script> tags
+                if (results.length === 0) {
+                    try {
+                        for (const s of document.querySelectorAll('script:not([src])')) {
+                            const t = s.textContent || '';
+                            if (!t.toLowerCase().includes('otc')) continue;
+                            const matches = t.match(/\[(\{[^[\]]{20,}\}(?:,\{[^[\]]{20,}\})*)\]/g) || [];
+                            for (const m of matches.slice(0, 5)) {
+                                try { scanObj(JSON.parse(m), 0); } catch(e) {}
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                return results;
+            }""")
+
+            if js_assets:
+                logger.info("Strategy 0 (JS store): found %d raw assets", len(js_assets))
+                pairs0 = _normalise_pairs_raw(js_assets, min_payout)
+                if pairs0:
+                    logger.info("Strategy 0 yielded %d pairs — returning early", len(pairs0))
+                    return pairs0
+            else:
+                logger.info("Strategy 0 (JS store): no OTC assets found in page JS context")
+        except Exception as exc:
+            logger.warning("Strategy 0 (JS store) error: %s", exc)
+
+        # ── Strategy 1 & 2 results from network interception ─────────────────────
+        # (ws_assets and http_assets were collected via page event listeners above)
+        if ws_assets or http_assets:
+            combined_intercepted = ws_assets + http_assets
+            logger.info(
+                "Using intercepted network assets (WS=%d HTTP=%d) before panel attempt",
+                len(ws_assets), len(http_assets),
+            )
+            pairs_net = _normalise_pairs_raw(combined_intercepted, min_payout)
+            if pairs_net:
+                return pairs_net
 
         # Open the asset selector panel via mouse click on the asset name
         opened = False
