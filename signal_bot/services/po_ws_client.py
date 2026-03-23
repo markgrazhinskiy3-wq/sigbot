@@ -260,23 +260,58 @@ async def _handshake(
     await ws.send_str('42["favorite/load"]')
     await ws.send_str('42["price-alert/load"]')
 
-    # Drain server responses for up to 3 sec; stop on updateBalance/updateProfile
-    drain_deadline = time.monotonic() + 3.0
+    # Additional messages to request asset/payout data
+    for msg in [
+        '42["openOptions"]',
+        '42["getOptions"]',
+        '42["assets"]',
+        '42["loadAssets"]',
+        '42["instruments"]',
+    ]:
+        try:
+            await ws.send_str(msg)
+        except Exception:
+            pass
+
+    # Drain server responses for up to 8 sec — log ALL events to discover payout source
+    _seen_events: set[str] = set()
+    drain_deadline = time.monotonic() + 8.0
+    auth_done = False
     while time.monotonic() < drain_deadline:
         remaining = drain_deadline - time.monotonic()
         try:
-            item = await asyncio.wait_for(queue.get(), timeout=remaining)
+            item = await asyncio.wait_for(queue.get(), timeout=min(remaining, 1.0))
         except asyncio.TimeoutError:
-            break
+            if auth_done:
+                break  # auth confirmed, no more events coming
+            continue
         if item is None:
             raise RuntimeError("Server closed connection during auth")
         if item[0] == "text":
             text = item[1]
+            # Log every unique event name at INFO so we can discover what PO sends
+            if text.startswith("42"):
+                try:
+                    parsed = json.loads(text[2:])
+                    ev = str(parsed[0]) if isinstance(parsed, list) else ""
+                    if ev and ev not in _seen_events:
+                        _seen_events.add(ev)
+                        logger.info(
+                            "WS handshake event: %r  preview=%s",
+                            ev, str(parsed[1] if len(parsed) > 1 else "")[:150],
+                        )
+                    # Try to capture payout from every event
+                    _capture_payout_from_text(text)
+                except Exception:
+                    pass
             if "updateBalance" in text or "successauth" in text or "updateProfile" in text:
-                logger.debug("Direct WS: auth ack: %s…", text[:80])
-                break
+                auth_done = True
 
-    logger.info("Direct WS: authenticated (uid=%s)", auth_payload.get("uid"))
+    payout_count = len(_live_payouts)
+    logger.info(
+        "Direct WS: authenticated (uid=%s) — handshake drained %d events, %d payouts captured",
+        auth_payload.get("uid"), len(_seen_events), payout_count,
+    )
     return ping_interval
 
 
