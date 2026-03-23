@@ -46,26 +46,26 @@ PO_LOGIN_URL: str = f"{PO_BASE_URL}/en/login"
 SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", "3"))
 
 OTC_PAIRS: list[dict] = [
-    # Major pairs
-    {"label": "EUR/USD OTC", "symbol": "#EURUSD_otc"},
-    {"label": "GBP/USD OTC", "symbol": "#GBPUSD_otc"},
-    {"label": "USD/JPY OTC", "symbol": "#USDJPY_otc"},
-    {"label": "AUD/USD OTC", "symbol": "#AUDUSD_otc"},
-    {"label": "USD/CAD OTC", "symbol": "#USDCAD_otc"},
-    {"label": "USD/CHF OTC", "symbol": "#USDCHF_otc"},
-    {"label": "NZD/USD OTC", "symbol": "#NZDUSD_otc"},
+    # Major pairs — payout values are estimates; browser scraping overrides with live data
+    {"label": "EUR/USD OTC", "symbol": "#EURUSD_otc", "payout": 82},
+    {"label": "GBP/USD OTC", "symbol": "#GBPUSD_otc", "payout": 82},
+    {"label": "USD/JPY OTC", "symbol": "#USDJPY_otc", "payout": 82},
+    {"label": "AUD/USD OTC", "symbol": "#AUDUSD_otc", "payout": 82},
+    {"label": "USD/CAD OTC", "symbol": "#USDCAD_otc", "payout": 82},
+    {"label": "USD/CHF OTC", "symbol": "#USDCHF_otc", "payout": 82},
+    {"label": "NZD/USD OTC", "symbol": "#NZDUSD_otc", "payout": 82},
     # Cross pairs
-    {"label": "EUR/GBP OTC", "symbol": "#EURGBP_otc"},
-    {"label": "EUR/JPY OTC", "symbol": "#EURJPY_otc"},
-    {"label": "GBP/JPY OTC", "symbol": "#GBPJPY_otc"},
-    {"label": "AUD/JPY OTC", "symbol": "#AUDJPY_otc"},
-    {"label": "AUD/CAD OTC", "symbol": "#AUDCAD_otc"},
-    {"label": "AUD/CHF OTC", "symbol": "#AUDCHF_otc"},
-    {"label": "AUD/NZD OTC", "symbol": "#AUDNZD_otc"},
-    {"label": "CAD/CHF OTC", "symbol": "#CADCHF_otc"},
-    {"label": "NZD/JPY OTC", "symbol": "#NZDJPY_otc"},
-    {"label": "CHF/JPY OTC", "symbol": "#CHFJPY_otc"},
-    {"label": "EUR/TRY OTC", "symbol": "#EURTRY_otc"},
+    {"label": "EUR/GBP OTC", "symbol": "#EURGBP_otc", "payout": 82},
+    {"label": "EUR/JPY OTC", "symbol": "#EURJPY_otc", "payout": 82},
+    {"label": "GBP/JPY OTC", "symbol": "#GBPJPY_otc", "payout": 82},
+    {"label": "AUD/JPY OTC", "symbol": "#AUDJPY_otc", "payout": 82},
+    {"label": "AUD/CAD OTC", "symbol": "#AUDCAD_otc", "payout": 82},
+    {"label": "AUD/CHF OTC", "symbol": "#AUDCHF_otc", "payout": 82},
+    {"label": "AUD/NZD OTC", "symbol": "#AUDNZD_otc", "payout": 82},
+    {"label": "CAD/CHF OTC", "symbol": "#CADCHF_otc", "payout": 82},
+    {"label": "NZD/JPY OTC", "symbol": "#NZDJPY_otc", "payout": 82},
+    {"label": "CHF/JPY OTC", "symbol": "#CHFJPY_otc", "payout": 82},
+    {"label": "EUR/TRY OTC", "symbol": "#EURTRY_otc", "payout": 82},
 ]
 
 EXPIRATIONS: list[dict] = [

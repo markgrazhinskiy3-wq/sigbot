@@ -22,11 +22,17 @@ _lock = asyncio.Lock()
 
 
 def _fallback_pairs() -> list[dict]:
-    """Return static config pairs — used when browser fetch fails."""
-    return [
-        {"label": p["label"], "symbol": p["symbol"], "payout": 0, "name": p["label"]}
-        for p in config.OTC_PAIRS
-    ]
+    """Return static config pairs — used when browser fetch fails.
+    Uses payout from config if present, so the UI always shows a %.
+    """
+    result = []
+    for p in config.OTC_PAIRS:
+        payout = p.get("payout", 0)
+        label  = p["label"]
+        if payout > 0 and "%" not in label:
+            label = f"{label} | {payout}%"
+        result.append({"label": label, "symbol": p["symbol"], "payout": payout, "name": p["label"]})
+    return result
 
 
 def is_fresh() -> bool:
