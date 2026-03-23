@@ -1,0 +1,115 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+Starting Container
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+Traceback (most recent call last):
+    raise RuntimeError(
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+Traceback (most recent call last):
+  File "/app/signal_bot/config.py", line 16, in _require
+  File "/app/signal_bot/main.py", line 15, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (2/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (3/5)...
+[config] ADMIN_USER_ID not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 28, in <module>
+    ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'ADMIN_USER_ID' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/57bf08d0-f383-4cec-84a0-7ffb3a1f0bb8/vol_tsz4cu73169rtlpp
+[config] ADMIN_USER_ID not found, retrying in 3.0s (1/5)...
