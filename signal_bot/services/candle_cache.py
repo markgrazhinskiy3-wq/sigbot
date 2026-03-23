@@ -209,31 +209,41 @@ async def _refresher_loop(pairs: list[str]) -> None:
     )
 
     # Initial warm-up:
-    # 1. Load ALL pairs via browser to build full history (50+ candles each)
-    #    — this provides the baseline data for quality signal analysis.
-    # 2. Simultaneously, first browser load captures WS auth for future cycles.
-    # WS is NOT used for initial warm-up (it only gives 13-14 candles).
-    #
-    # _warm_up_done is set True after MIN_READY_PAIRS are loaded so users
-    # aren't blocked while the remaining pairs continue loading in background.
+    # If WS auth is already available → use WS directly (fast, 40-55 candles each).
+    # Otherwise → try browser, fall back to WS when browser fails (ETXTBSY on Railway).
     MIN_READY_PAIRS = min(10, len(pairs))
-    logger.info("Initial cache warm-up (browser, %d pairs, ready after %d)...", len(pairs), MIN_READY_PAIRS)
-    loaded = 0
     global _warm_up_done
-    for symbol in pairs:
-        ok = await _refresh_one_browser(symbol)
-        if ok:
-            loaded += 1
-            entry = _cache.get(symbol)
-            logger.info(
-                "Warm-up: %s cached (%d candles) [%d/%d]",
-                symbol,
-                len(entry.candles) if entry else 0,
-                loaded, len(pairs),
-            )
-            if not _warm_up_done and loaded >= MIN_READY_PAIRS:
-                _warm_up_done = True
-                logger.info("Cache warm-up threshold reached (%d pairs). Bot is now ready.", loaded)
+
+    if ws_available():
+        logger.info("Initial cache warm-up via WS (%d pairs)...", len(pairs))
+        try:
+            ws_results = await _refresh_all_via_ws(pairs)
+            loaded = ws_results[0]  # ok count
+        except Exception as e:
+            logger.warning("WS warm-up failed: %s", e)
+            loaded = 0
+    else:
+        logger.info("Initial cache warm-up (browser, %d pairs, ready after %d)...", len(pairs), MIN_READY_PAIRS)
+        loaded = 0
+        for symbol in pairs:
+            ok = await _refresh_one_browser(symbol)
+            if not ok and ws_available():
+                # Browser failed (ETXTBSY during deployment) — try WS fallback
+                ws_ok, _ = await _refresh_all_via_ws([symbol])
+                ok = ws_ok > 0
+            if ok:
+                loaded += 1
+                entry = _cache.get(symbol)
+                logger.info(
+                    "Warm-up: %s cached (%d candles) [%d/%d]",
+                    symbol,
+                    len(entry.candles) if entry else 0,
+                    loaded, len(pairs),
+                )
+                if not _warm_up_done and loaded >= MIN_READY_PAIRS:
+                    _warm_up_done = True
+                    logger.info("Cache warm-up threshold reached (%d pairs). Bot is now ready.", loaded)
+
     if not _warm_up_done:
         _warm_up_done = True
     logger.info("Cache warm-up complete (%d/%d pairs). WS auth available: %s", loaded, len(pairs), ws_available())
