@@ -198,8 +198,8 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
 
-        # 4. RSI extreme: RSI < 35
-        c4 = ind.rsi < 35
+        # 4. RSI extreme: RSI < 40
+        c4 = ind.rsi < 40
         conds["rsi_extreme_15s"] = c4
         if c4:
             met += 1
@@ -212,10 +212,10 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Stoch разворот вверх ({ind.stoch_k:.0f})")
 
-        # 6. Room to target: > 0.05% to nearest resistance
+        # 6. Room to target: > 0.025% to nearest resistance
         nearest_res = res_levels[0][0] if res_levels else None
         room = (nearest_res - price) / price * 100 if (nearest_res and nearest_res > price) else 0.0
-        c6 = room > 0.05
+        c6 = room > 0.025
         conds["room_to_target"] = c6
         if c6:
             met += 1
@@ -280,8 +280,8 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
 
-        # 4. RSI extreme: RSI > 65
-        c4 = ind.rsi > 65
+        # 4. RSI extreme: RSI > 60
+        c4 = ind.rsi > 60
         conds["rsi_extreme_15s"] = c4
         if c4:
             met += 1
@@ -294,10 +294,10 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Stoch разворот вниз ({ind.stoch_k:.0f})")
 
-        # 6. Room to target: > 0.05% to nearest support
+        # 6. Room to target: > 0.025% to nearest support
         nearest_sup = sup_levels[0][0] if sup_levels else None
         room = (price - nearest_sup) / price * 100 if (nearest_sup and nearest_sup < price) else 0.0
-        c6 = room > 0.05
+        c6 = room > 0.025
         conds["room_to_target"] = c6
         if c6:
             met += 1

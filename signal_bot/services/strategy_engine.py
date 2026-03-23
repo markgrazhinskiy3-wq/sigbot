@@ -75,27 +75,44 @@ async def calculate_signal(
     df1m_ctx = None
     try:
         import pandas as pd
+        # Diagnostic: check time field in raw candles
+        times_ok = [c.get("time", 0) for c in candles if c.get("time", 0) > 0]
+        if len(times_ok) < len(candles):
+            logger.warning(
+                "1m resample: %d/%d candles have time=0 — resampling will skip them",
+                len(candles) - len(times_ok), len(candles)
+            )
         candles_1m = resample_to_1m(candles)
+        logger.info("1-min resample: %d raw 15s → %d 1m bars", len(candles), len(candles_1m))
         if len(candles_1m) >= 5:
             df1m_ctx = pd.DataFrame(candles_1m)
             for col in ("open", "high", "low", "close"):
                 df1m_ctx[col] = df1m_ctx[col].astype(float)
-            logger.debug("1-min candles: %d", len(df1m_ctx))
+        else:
+            logger.warning(
+                "1-min candles too few (%d) — ctx_1m disabled. "
+                "First candle time=%s, last candle time=%s",
+                len(candles_1m),
+                candles[0].get("time") if candles else "N/A",
+                candles[-1].get("time") if candles else "N/A",
+            )
     except Exception as e:
-        logger.warning("1-min resampling failed: %s", e)
+        logger.warning("1-min resampling failed: %s", e, exc_info=True)
 
     # ── Resample 15s → 5-min (macro context) ─────────────────────────────────
     df5m = None
     try:
         import pandas as pd
         candles_5m = resample_to_5m(candles)
+        logger.info("5-min resample: %d raw 15s → %d 5m bars", len(candles), len(candles_5m))
         if len(candles_5m) >= 4:
             df5m = pd.DataFrame(candles_5m)
             for col in ("open", "high", "low", "close"):
                 df5m[col] = df5m[col].astype(float)
-            logger.debug("5-min candles: %d", len(df5m))
+        else:
+            logger.warning("5-min candles too few (%d) — df5m disabled", len(candles_5m))
     except Exception as e:
-        logger.warning("5-min resampling failed: %s", e)
+        logger.warning("5-min resampling failed: %s", e, exc_info=True)
 
     # ── Decision Engine ───────────────────────────────────────────────────────
     eng: EngineResult = run_decision_engine(
