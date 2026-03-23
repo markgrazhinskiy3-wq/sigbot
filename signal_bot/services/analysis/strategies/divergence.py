@@ -63,10 +63,10 @@ def divergence_strategy(
     base_conf = 0.0
     reason = "Дивергенция не обнаружена"
 
-    if buy_conf > sell_conf and buy_met >= 3:
+    if buy_conf > sell_conf and buy_met >= 4:
         direction = "BUY"; conditions_met = buy_met; base_conf = buy_conf
         reason = " | ".join(buy_parts)
-    elif sell_conf > buy_conf and sell_met >= 3:
+    elif sell_conf > buy_conf and sell_met >= 4:
         direction = "SELL"; conditions_met = sell_met; base_conf = sell_conf
         reason = " | ".join(sell_parts)
 
@@ -196,9 +196,9 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
 
     # Confidence: conditions-driven (not hardcoded)
     base_conf = (met / _TOTAL) * 85
-    if _divergence_at_level(low2, levels.supports): base_conf += 10
-    if abs(rsi_diff) > 10:                          base_conf += 7  # strong divergence
-    if mode == "RANGE":                             base_conf += 5
+    if _divergence_at_level(low2, levels.supports): base_conf += 7
+    if abs(rsi_diff) > 10:                          base_conf += 5
+    if mode == "RANGE":                             base_conf += 3
 
     return met, base_conf, parts, conds
 
@@ -263,9 +263,9 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
 
     # Confidence: conditions-driven (not hardcoded)
     base_conf = (met / _TOTAL) * 85
-    if _divergence_at_level(high2, levels.resistances): base_conf += 10
-    if rsi_diff > 10:                                   base_conf += 7
-    if mode == "RANGE":                                 base_conf += 5
+    if _divergence_at_level(high2, levels.resistances): base_conf += 7
+    if rsi_diff > 10:                                   base_conf += 5
+    if mode == "RANGE":                                 base_conf += 3
 
     return met, base_conf, parts, conds
 

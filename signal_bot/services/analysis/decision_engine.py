@@ -351,13 +351,13 @@ def run_decision_engine(
     ctx_dn_strong = ctx_dn_1m and ctx_macro_dn
 
     if direction == "BUY":
-        if ctx_up_strong:
-            conf_raw += 7        # 1m EMA + slope confirm upward
+        if ctx_up_strong and best.conditions_met >= 5:
+            conf_raw += 3        # 1m EMA + slope confirm upward (only solid signals)
         elif ctx_dn_strong:
             conf_raw *= 0.82     # both layers oppose → counter-trend penalty
     else:  # SELL
-        if ctx_dn_strong:
-            conf_raw += 7
+        if ctx_dn_strong and best.conditions_met >= 5:
+            conf_raw += 3
         elif ctx_up_strong:
             conf_raw *= 0.82
 

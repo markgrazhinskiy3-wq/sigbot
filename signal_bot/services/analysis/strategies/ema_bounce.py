@@ -28,7 +28,7 @@ class StrategyResult:
 
 
 _TOTAL   = 8
-_MIN_MET = 3   # relaxed from 4 — valid setups with some missing confirmations still fire
+_MIN_MET = 4
 
 
 def ema_bounce_strategy(
@@ -75,9 +75,8 @@ def ema_bounce_strategy(
     if buy_wins and buy_met >= _MIN_MET:
         direction      = "BUY"
         conditions_met = buy_met
-        # Anchored curve: 3→45, 4→53, 5→61, 6→69, 7→77, 8→85
-        # Soft confirmations reduce conf instead of blocking the signal
-        base_conf      = 45 + max(0, buy_met - 3) * 8
+        # Anchored curve: 4→35, 5→45, 6→55, 7→65, 8→75
+        base_conf      = 35 + max(0, buy_met - 4) * 10
         reason         = " | ".join(buy_parts)
         # Precision touch bonus (very close to EMA13 — within 0.01%)
         if abs(low[-1] - ind.ema13) / price < 0.0001:
@@ -92,8 +91,8 @@ def ema_bounce_strategy(
     elif sell_wins and sell_met >= _MIN_MET:
         direction      = "SELL"
         conditions_met = sell_met
-        # Same anchored curve as buy side
-        base_conf      = 45 + max(0, sell_met - 3) * 8
+        # Same anchored curve as buy side: 4→35, 5→45, 6→55, 7→65, 8→75
+        base_conf      = 35 + max(0, sell_met - 4) * 10
         reason         = " | ".join(sell_parts)
         if abs(high[-1] - ind.ema13) / price < 0.0001:
             base_conf += 5
