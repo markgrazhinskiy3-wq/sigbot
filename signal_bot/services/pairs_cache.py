@@ -23,14 +23,14 @@ _lock = asyncio.Lock()
 
 
 def _all_config_pairs() -> list[dict]:
-    """All pairs from config with clean labels (no %)."""
+    """All pairs from config — payout 0 means unknown (no live data yet)."""
     result = []
     for p in config.OTC_PAIRS:
         name = p["label"]
         result.append({
             "label":  name,
             "symbol": p["symbol"],
-            "payout": p.get("payout", 82),
+            "payout": 0,   # unknown until live WS data arrives
             "name":   name,
         })
     return result

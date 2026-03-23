@@ -23,15 +23,17 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 def pairs_keyboard(pairs: list[dict] | None = None) -> InlineKeyboardMarkup:
     """
     Build the pair selection keyboard.
-    `pairs` is a list of {"label": str, "symbol": str}.
+    `pairs` is a list of {"label": str, "symbol": str, "payout": int}.
     Falls back to static config.OTC_PAIRS when pairs is None.
     """
     builder = InlineKeyboardBuilder()
     source = pairs if pairs is not None else config.OTC_PAIRS
     for pair in source:
+        payout = pair.get("payout", 0)
+        btn_label = f"{pair['label']}  •  {payout}%" if payout else pair["label"]
         builder.row(
             InlineKeyboardButton(
-                text=pair["label"],
+                text=btn_label,
                 callback_data=f"pair:{pair['symbol']}",
             )
         )
@@ -99,9 +101,11 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     for sig in signals:
+        payout = getattr(sig, "payout", 0)
+        btn_label = f"{sig.pair}  •  {payout}%" if payout else sig.pair
         builder.row(
             InlineKeyboardButton(
-                text=sig.pair,
+                text=btn_label,
                 callback_data=f"pair:{sig.symbol}",
             )
         )
