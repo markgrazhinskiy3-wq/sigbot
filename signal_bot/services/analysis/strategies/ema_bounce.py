@@ -107,6 +107,40 @@ def ema_bounce_strategy(
         if 40 <= ind.rsi <= 55:
             base_conf += 3
 
+    # ── Trend momentum penalty (FIX 1) ───────────────────────────────────────
+    # A weak bull/bear ratio contradicts the trend classification.
+    # If fewer than half the recent candles are in trend direction → -15.
+    if direction != "NONE":
+        recent_n   = min(20, n)
+        bull_pct   = float(np.sum(close[-recent_n:] > open_[-recent_n:])) / recent_n * 100
+        bear_pct   = 100.0 - bull_pct
+        if direction == "BUY"  and mode == "TRENDING_UP"   and bull_pct < 50:
+            base_conf -= 15
+            reason += f" | ⚠ Слабый тренд (бычьих {bull_pct:.0f}%) -15"
+        if direction == "SELL" and mode == "TRENDING_DOWN"  and bear_pct < 50:
+            base_conf -= 15
+            reason += f" | ⚠ Слабый тренд (медвежьих {bear_pct:.0f}%) -15"
+
+    # ── Level proximity penalty (FIX 2) ──────────────────────────────────────
+    # Buying near resistance or selling near support is high risk.
+    # If within 0.02% of the opposing level → -15.
+    if direction == "BUY" and levels.resistances:
+        above_res = [r for r in levels.resistances if r > price]
+        if above_res:
+            nearest_res = min(above_res)
+            dist_pct = (nearest_res - price) / price
+            if dist_pct < 0.0002:  # within 0.02%
+                base_conf -= 15
+                reason += f" | ⚠ BUY близко к сопротивлению ({dist_pct*100:.3f}%) -15"
+    if direction == "SELL" and levels.supports:
+        below_sup = [s for s in levels.supports if s < price]
+        if below_sup:
+            nearest_sup = max(below_sup)
+            dist_pct = (price - nearest_sup) / price
+            if dist_pct < 0.0002:  # within 0.02%
+                base_conf -= 15
+                reason += f" | ⚠ SELL близко к поддержке ({dist_pct*100:.3f}%) -15"
+
     # ── Exhaustion hard gate ──────────────────────────────────────────────────
     # If RSI/Stoch shows extreme exhaustion in the direction of the signal,
     # the move is already played out — block the signal immediately.
@@ -146,7 +180,7 @@ def ema_bounce_strategy(
 
     return StrategyResult(
         direction=direction,
-        confidence=min(100.0, base_conf),
+        confidence=max(0.0, min(100.0, base_conf)),
         conditions_met=conditions_met,
         total_conditions=_TOTAL,
         strategy_name="ema_bounce",
