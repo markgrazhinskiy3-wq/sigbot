@@ -390,10 +390,17 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
                             break
             if pct:
                 result[key] = pct
-            elif "_otc" in key and _diag_logged < 8:
-                # Log OTC entries where we couldn't find payout — reveals the schema
-                _diag_logged += 1
-                logger.info("updateAssets OTC no-payout entry: sym=%r  raw=%s", sym, entry)
+            # Log entries that mention OTC in any field (catches "EUR/USD OTC" etc.)
+            if not pct and _diag_logged < 8:
+                entry_str = str(entry).lower()
+                if "otc" in entry_str or "forex" in entry_str or "currency" in entry_str:
+                    _diag_logged += 1
+                    logger.info("updateAssets non-stock entry (no payout): sym=%r  raw=%s", sym, entry)
+        # Also log first 3 raw entries to see full schema
+        if data:
+            logger.info("updateAssets first entry schema: %s", data[0])
+            if len(data) > 1:
+                logger.info("updateAssets total entries in array: %d", len(data))
     except Exception as e:
         logger.warning("_parse_update_assets_binary failed: %s", e)
     return result
