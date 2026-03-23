@@ -758,15 +758,194 @@ async def get_available_otc_pairs(min_payout: int = 80) -> list[dict]:
         return []
 
 
+def _normalise_pairs_raw(pairs_raw: list[dict], min_payout: int = 80) -> list[dict]:
+    """
+    Normalise and filter a list of raw asset dicts: {"name", "pct", "rawSym"}.
+    Returns list of {"label", "symbol", "payout", "name"} with payout >= min_payout.
+    """
+    import re as _re
+
+    def _clean_name(raw: str) -> str:
+        s = raw.strip()
+        s = _re.sub(r'\+\s*\d*', '', s)
+        s = _re.sub(r'\d{2,3}\s*%', '', s)
+        return s.strip()
+
+    seen: set[str] = set()
+    pairs: list[dict] = []
+
+    for raw in pairs_raw:
+        name: str = _clean_name(raw.get("name") or "")
+        pct: int = int(raw.get("pct", 0))
+        raw_sym: str = (raw.get("rawSym") or "").strip()
+
+        if pct < min_payout:
+            continue
+        if not name or len(name) < 5:
+            continue
+        if "otc" not in name.lower():
+            continue
+        slash_count = name.count("/")
+        if slash_count > 1 or len(name) > 25 or "payout" in name.lower() or "asset" in name.lower():
+            logger.debug("Skipping garbage entry: %r", name)
+            continue
+
+        if raw_sym:
+            sym_base = raw_sym.lstrip("#").lower()
+            sym_base = _re.sub(r'[^a-z0-9_]', '', sym_base)
+            if not sym_base.endswith("_otc"):
+                sym_base += "_otc"
+            sym = "#" + sym_base
+        else:
+            base = name.upper()
+            base = _re.sub(r'\s*OTC\s*', '', base)
+            base = _re.sub(r'[^A-Z]', '', base)
+            sym = f"#{base}_otc"
+
+        key = sym.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        label = f"{name} | {pct}%"
+        pairs.append({"label": label, "symbol": sym, "payout": pct, "name": name})
+        logger.info("OTC pair normalised: %s → %s (%d%%)", name, sym, pct)
+
+    pairs.sort(key=lambda p: -p["payout"])
+    logger.info("_normalise_pairs_raw: %d pairs with payout ≥%d%%", len(pairs), min_payout)
+    return pairs
+
+
+def _try_parse_assets_from_ws_payload(event_name: str, payload, out: list[dict]) -> None:
+    """
+    Try to extract OTC asset list (with payout) from a Socket.IO event payload.
+    Mutates `out` in-place.
+    """
+    import re as _re2
+
+    def _dig(obj, depth=0):
+        if depth > 6:
+            return
+        if isinstance(obj, list):
+            for item in obj:
+                if isinstance(item, dict):
+                    # Look for asset-like objects: have a name/title AND a payout/profit field
+                    name_val = None
+                    pct_val = 0
+                    sym_val = ""
+                    for nk in ("name", "title", "label", "asset", "symbol", "ticker"):
+                        if isinstance(obj, dict):
+                            pass
+                        v = item.get(nk, "")
+                        if isinstance(v, str) and v.strip():
+                            name_val = v.strip()
+                            break
+                    for pk in ("profit", "payout", "return", "percent", "profitability", "winrate"):
+                        v = item.get(pk)
+                        if isinstance(v, (int, float)) and v > 0:
+                            pct_val = int(v) if v > 1 else int(v * 100)
+                            break
+                    for sk in ("id", "asset", "symbol", "ticker", "code"):
+                        v = item.get(sk, "")
+                        if isinstance(v, str) and v.strip():
+                            sym_val = v.strip()
+                            break
+                    if name_val and pct_val > 30:
+                        out.append({"name": name_val, "pct": pct_val, "rawSym": sym_val})
+                    else:
+                        _dig(item, depth + 1)
+                elif isinstance(item, list):
+                    _dig(item, depth + 1)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                _dig(v, depth + 1)
+
+    logger.debug("WS event '%s' — scanning for asset data", event_name)
+    _dig(payload)
+
+
 async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
     """
     Scrape available OTC pairs and their payout percentages from Pocket Option.
     Returns list of {"label": "EUR/USD OTC | 82%", "symbol": "#EURUSD_otc", "payout": 82}
     filtered to payout >= min_payout.
     Falls back to an empty list on any error.
+
+    Strategy priority:
+      1. Incoming WS frames during page load (most reliable — PO sends asset list on connect)
+      2. HTTP JSON API responses intercepted during page load
+      3. DOM scraping of the asset panel (existing code)
     """
     context = await _get_context()
     page = await context.new_page()
+
+    # ── Strategy 1 & 2: intercept network data before DOM interaction ──────────
+    ws_assets: list[dict] = []
+    http_assets: list[dict] = []
+    seen_ws_events: set[str] = set()
+
+    def _on_page_ws(ws):
+        if "po.market" not in ws.url and "pocketoption" not in ws.url:
+            return
+
+        def _on_frame_received(raw_msg):
+            try:
+                text = raw_msg if isinstance(raw_msg, str) else (
+                    raw_msg.decode("utf-8", errors="ignore") if isinstance(raw_msg, bytes) else str(raw_msg)
+                )
+                if not text.startswith("42"):
+                    return
+                data = json.loads(text[2:])
+                if not isinstance(data, list) or len(data) < 1:
+                    return
+                event_name = str(data[0])
+                payload = data[1] if len(data) > 1 else {}
+                # Log new event names for diagnostics
+                if event_name not in seen_ws_events:
+                    seen_ws_events.add(event_name)
+                    logger.info("PO WS incoming event: %r (payload type: %s)", event_name, type(payload).__name__)
+                # Check if this event might carry asset data
+                if any(kw in event_name.lower() for kw in (
+                    "asset", "symbol", "instrument", "pair", "market",
+                    "load", "list", "update", "data", "init", "info"
+                )):
+                    before = len(ws_assets)
+                    _try_parse_assets_from_ws_payload(event_name, payload, ws_assets)
+                    after = len(ws_assets)
+                    if after > before:
+                        logger.info("WS event '%s' yielded %d asset entries", event_name, after - before)
+            except Exception as exc:
+                logger.debug("WS framereceived parse error: %s", exc)
+
+        ws.on("framereceived", _on_frame_received)
+
+    page.on("websocket", _on_page_ws)
+
+    async def _on_http_response(resp):
+        try:
+            if resp.status != 200:
+                return
+            ct = resp.headers.get("content-type", "")
+            if "json" not in ct and "javascript" not in ct:
+                return
+            url_lower = resp.url.lower()
+            # Only check URLs that might serve asset data
+            if not any(kw in url_lower for kw in (
+                "asset", "symbol", "instrument", "pair", "market",
+                "product", "trade", "option", "quote"
+            )):
+                return
+            body = await resp.json()
+            before = len(http_assets)
+            _try_parse_assets_from_ws_payload("http:" + resp.url, body, http_assets)
+            after = len(http_assets)
+            if after > before:
+                logger.info("HTTP response %s yielded %d asset entries", resp.url[:80], after - before)
+        except Exception:
+            pass
+
+    page.on("response", _on_http_response)
+
     try:
         await _ensure_logged_in(context, page)
         await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -810,6 +989,16 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
 
         if not opened:
             logger.warning("get_available_otc_pairs: could not open asset panel")
+            # Fall through to intercepted WS/HTTP data if available
+            intercepted = ws_assets or http_assets
+            if intercepted:
+                logger.info(
+                    "Panel unopened — using %d intercepted assets (WS=%d HTTP=%d)",
+                    len(intercepted), len(ws_assets), len(http_assets),
+                )
+                pairs_raw = intercepted
+                # Jump straight to normalisation (skip DOM eval block)
+                return _normalise_pairs_raw(pairs_raw, min_payout)
             return []
 
         # Try to click an "OTC" category tab inside the panel
@@ -947,67 +1136,27 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
 
         if not pairs_raw:
             logger.warning("get_available_otc_pairs: no OTC pairs found in DOM")
+            # Try to fall back on network-intercepted asset data
+            intercepted = ws_assets or http_assets
+            if intercepted:
+                logger.info(
+                    "DOM empty — using %d intercepted assets (WS=%d HTTP=%d)",
+                    len(intercepted), len(ws_assets), len(http_assets),
+                )
+                return _normalise_pairs_raw(intercepted, min_payout)
             return []
 
-        # Normalise and deduplicate
-        seen: set[str] = set()
-        pairs: list[dict] = []
-
-        import re as _re
-
-        def _clean_name(raw: str) -> str:
-            """Strip noise from pair names: trailing +, % signs, payout numbers."""
-            s = raw.strip()
-            # Remove trailing/embedded "+" and any digits that follow (e.g. "OTC+92")
-            s = _re.sub(r'\+\s*\d*', '', s)
-            # Remove stray % and digits
-            s = _re.sub(r'\d{2,3}\s*%', '', s)
-            return s.strip()
-
-        for raw in pairs_raw:
-            name: str = _clean_name(raw.get("name") or "")
-            pct: int = raw.get("pct", 0)
-            raw_sym: str = (raw.get("rawSym") or "").strip()
-
-            if pct < min_payout:
-                continue
-            if not name or len(name) < 5:
-                continue
-            if "otc" not in name.lower():
-                continue
-            # Skip clearly bad entries: too long, multiple "/" (concatenated pairs),
-            # or contains known garbage text
-            slash_count = name.count("/")
-            if slash_count > 1 or len(name) > 20 or "payout" in name.lower() or "asset" in name.lower():
-                logger.debug("Skipping garbage entry: %r", name)
-                continue
-
-            # Build symbol from data attribute if available, otherwise derive from name
-            if raw_sym:
-                # Clean raw_sym: strip "#", lowercase, remove "+" and garbage
-                sym_base = raw_sym.lstrip("#").lower()
-                sym_base = _re.sub(r'[^a-z0-9_]', '', sym_base)   # only alphanum + _
-                if not sym_base.endswith("_otc"):
-                    sym_base += "_otc"
-                sym = "#" + sym_base
-            else:
-                # Derive symbol from name: "EUR/USD OTC" → "#EURUSD_otc"
-                base = name.upper()
-                base = _re.sub(r'\s*OTC\s*', '', base)
-                base = _re.sub(r'[^A-Z]', '', base)    # only letters
-                sym = f"#{base}_otc"
-
-            key = sym.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-
-            label = f"{name} | {pct}%"
-            pairs.append({"label": label, "symbol": sym, "payout": pct, "name": name})
-            logger.info("OTC pair found: %s → %s (%d%%)", name, sym, pct)
-
-        pairs.sort(key=lambda p: -p["payout"])
-        logger.info("get_available_otc_pairs: %d pairs with payout ≥%d%%", len(pairs), min_payout)
+        # DOM found some raw pairs — normalise them; if result is empty (all below
+        # min_payout), try intercepted data before giving up.
+        pairs = _normalise_pairs_raw(pairs_raw, min_payout)
+        if not pairs:
+            intercepted = ws_assets or http_assets
+            if intercepted:
+                logger.info(
+                    "DOM pairs all below min_payout — trying %d intercepted assets",
+                    len(intercepted),
+                )
+                pairs = _normalise_pairs_raw(intercepted, min_payout)
         return pairs
 
     except Exception as e:
