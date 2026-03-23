@@ -1,8 +1,8 @@
 """
 In-memory cache for available OTC pairs.
-Pairs are loaded from config instantly. Payout filtering (>= MIN_PAYOUT) is
-applied if live payout data is available from the WS candle client.
-Percentages are NOT shown in labels — only used for filtering.
+Pairs are filtered to >= MIN_PAYOUT (85%) when live payout data is available.
+Sorted alphabetically to match PocketOption UI order.
+Payout % is stored in each pair dict and shown in button labels.
 """
 import asyncio
 import logging
@@ -69,7 +69,8 @@ def _filtered_pairs(live_payouts: dict) -> list[dict] | None:
         )
         return None
 
-    result.sort(key=lambda x: -x["payout"])
+    # Alphabetical order — matches PocketOption UI (sorted by name)
+    result.sort(key=lambda x: x["label"])
     return result
 
 

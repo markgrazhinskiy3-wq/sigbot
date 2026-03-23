@@ -972,8 +972,9 @@ def _label_for_symbol(symbol: str) -> str:
 
 async def _show_pairs_keyboard(callback: CallbackQuery, *, force_refresh: bool = False) -> None:
     """Fetch live pairs and show the pair selection keyboard."""
-    if force_refresh or not pairs_cache.is_fresh():
-        await pairs_cache.refresh(force=force_refresh)
+    # Always refresh — reads live payouts from memory (no network call), nearly instant.
+    # This guarantees the payout % shown is always current.
+    await pairs_cache.refresh(force=True)
 
     all_pairs = pairs_cache.get_cached()
     pairs = all_pairs
