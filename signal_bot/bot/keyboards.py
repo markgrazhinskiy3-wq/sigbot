@@ -94,14 +94,16 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
 def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     """
     Keyboard with pairs that currently have a BUY/SELL signal.
-    Each button shows pair name; clicking opens expiration picker.
-    signals: list of SignalResponse sorted by confidence desc.
+    Each button shows pair name + payout %; clicking opens expiration picker.
+    signals: list of TradabilityResult sorted by score desc.
     """
     builder = InlineKeyboardBuilder()
     for sig in signals:
+        payout = getattr(sig, "payout", 0)
+        label  = f"{sig.pair}  {payout}%" if payout > 0 else sig.pair
         builder.row(
             InlineKeyboardButton(
-                text=sig.pair,
+                text=label,
                 callback_data=f"pair:{sig.symbol}",
             )
         )

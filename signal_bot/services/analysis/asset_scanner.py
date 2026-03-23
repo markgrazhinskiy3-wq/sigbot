@@ -37,6 +37,7 @@ class TradabilityResult:
     pair:   str
     score:  int
     mode:   str
+    payout: int                          = 0
     applicable_strategies: list[str]     = field(default_factory=list)
     levels: dict                         = field(default_factory=dict)
     explanation: str                     = ""
@@ -441,7 +442,10 @@ def calculate_tradability(symbol: str, pair: str, candles: list[dict]) -> Tradab
 
 # ── scan_pairs_fresh ──────────────────────────────────────────────────────────
 
-async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]:
+async def scan_pairs_fresh(
+    pairs_map: dict[str, str],
+    payout_map: dict[str, int] | None = None,
+) -> list[TradabilityResult]:
     """
     Real-time scan: refresh all pairs via WS, run full strategy engine,
     return pairs where at least one strategy met >= 3 conditions (good market).
@@ -451,6 +455,7 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
     from services.candle_cache import _refresh_all_via_ws, get_cached
     from services.strategy_engine import calculate_signal
 
+    payout_map = payout_map or {}
     symbols = list(pairs_map.keys())
 
     # 1. Force fresh WS fetch for all pairs
@@ -503,6 +508,7 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
             pair=label,
             score=quality_score,
             mode=market_mode,
+            payout=payout_map.get(symbol, 0),
         ))
 
     results.sort(key=lambda r: r.score, reverse=True)
@@ -511,15 +517,20 @@ async def scan_pairs_fresh(pairs_map: dict[str, str]) -> list[TradabilityResult]
 
 # ── scan_all_pairs ────────────────────────────────────────────────────────────
 
-def scan_all_pairs(pairs_map: dict[str, str]) -> list[TradabilityResult]:
+def scan_all_pairs(
+    pairs_map: dict[str, str],
+    payout_map: dict[str, int] | None = None,
+) -> list[TradabilityResult]:
     """
     Scan all cached pairs using tradability criteria.
     Uses ONLY cached candles — no network calls.
     pairs_map: {symbol: label}
+    payout_map: {symbol: payout_pct}  (optional)
     Returns filtered+sorted list (score >= threshold, max 7).
     """
     from services.candle_cache import get_cached
 
+    payout_map = payout_map or {}
     results: list[TradabilityResult] = []
     for symbol, pair in pairs_map.items():
         candles = get_cached(symbol)
@@ -527,6 +538,7 @@ def scan_all_pairs(pairs_map: dict[str, str]) -> list[TradabilityResult]:
             continue
         result = calculate_tradability(symbol, pair, candles)
         if result is not None:
+            result.payout = payout_map.get(symbol, 0)
             results.append(result)
 
     threshold = THRESHOLD_HIGH
@@ -552,7 +564,8 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
     ]
 
     for i, r in enumerate(results, 1):
-        lines.append(f"{i}. <b>{r.pair}</b>")
+        payout_str = f" — <b>{r.payout}%</b>" if r.payout > 0 else ""
+        lines.append(f"{i}. <b>{r.pair}</b>{payout_str}")
 
     lines.append("")
     lines.append("Выберите пару для анализа")

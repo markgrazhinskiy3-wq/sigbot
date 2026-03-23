@@ -938,13 +938,18 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 # ─── Recommended pairs ───────────────────────────────────────────────────────
 
 
-def _build_pairs_map() -> dict[str, str]:
-    pairs_map = {p["symbol"]: p.get("name") or p["label"].split("|")[0].strip()
-                 for p in pairs_cache.get_cached()}
+def _build_pairs_map() -> tuple[dict[str, str], dict[str, int]]:
+    """Return (pairs_map, payout_map) built from the live cache + config fallback."""
+    pairs_map:  dict[str, str] = {}
+    payout_map: dict[str, int] = {}
+    for p in pairs_cache.get_cached():
+        sym = p["symbol"]
+        pairs_map[sym]  = p.get("name") or p["label"].split("|")[0].strip()
+        payout_map[sym] = int(p.get("payout") or 0)
     for p in config.OTC_PAIRS:
         if p["symbol"] not in pairs_map:
             pairs_map[p["symbol"]] = p["label"]
-    return pairs_map
+    return pairs_map, payout_map
 
 
 @router.callback_query(F.data == "action:recommended_pairs")
@@ -984,8 +989,8 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
             parse_mode="HTML",
         )
 
-        pairs_map = _build_pairs_map()
-        results   = await scan_pairs_fresh(pairs_map)
+        pairs_map, payout_map = _build_pairs_map()
+        results   = await scan_pairs_fresh(pairs_map, payout_map)
 
         if not results:
             await callback.message.edit_text(
@@ -1080,8 +1085,8 @@ async def cmd_signal(message: Message) -> None:
             )
             return
 
-        pairs_map = _build_pairs_map()
-        results   = scan_all_pairs(pairs_map)
+        pairs_map, payout_map = _build_pairs_map()
+        results   = scan_all_pairs(pairs_map, payout_map)
 
         if not results:
             await msg.edit_text(
