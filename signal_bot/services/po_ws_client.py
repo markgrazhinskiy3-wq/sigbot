@@ -297,8 +297,8 @@ async def _handshake(
                     if ev and ev not in _seen_events:
                         _seen_events.add(ev)
                         logger.info(
-                            "WS handshake event: %r  preview=%s",
-                            ev, str(parsed[1] if len(parsed) > 1 else "")[:150],
+                            "WS handshake text event: %r  preview=%s",
+                            ev, str(parsed[1] if len(parsed) > 1 else "")[:200],
                         )
                     # Try to capture payout from every event
                     _capture_payout_from_text(text)
@@ -306,6 +306,15 @@ async def _handshake(
                     pass
             if "updateBalance" in text or "successauth" in text or "updateProfile" in text:
                 auth_done = True
+        elif item[0] == "binary":
+            # Log binary events — payout data may arrive here during auth
+            _, bin_event, bin_raw = item
+            if bin_event and bin_event not in _seen_events:
+                _seen_events.add(bin_event)
+                logger.info(
+                    "WS handshake binary event: %r  raw_len=%d  hex_preview=%s",
+                    bin_event, len(bin_raw), bin_raw[:32].hex(),
+                )
 
     payout_count = len(_live_payouts)
     logger.info(
@@ -599,6 +608,162 @@ async def _keepalive(ws: aiohttp.ClientWebSocketResponse, interval: float) -> No
         pass
     except Exception as e:
         logger.debug("Keepalive ended: %s", e)
+
+
+# ── HTTP polling payout fetcher (fallback — no browser needed) ────────────────
+
+async def fetch_payouts_http_polling(timeout: float = 15.0) -> dict[str, int]:
+    """
+    Use Socket.IO HTTP long-polling transport to fetch payout data.
+
+    Works on the same po.market server as the WS connection — not blocked by
+    Cloudflare (different domain from pocketoption.com).
+
+    Returns {normalised_symbol: payout_int} or {} on failure.
+    """
+    auth_data = load_auth()
+    if not auth_data:
+        return {}
+
+    ws_url       = auth_data["ws_url"]
+    auth_payload = auth_data["auth"]
+
+    # Convert wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket
+    # →  https://demo-api-eu.po.market/socket.io/
+    http_base = ws_url.replace("wss://", "https://").replace("ws://", "http://")
+    http_base = http_base.split("?")[0]  # strip query string
+
+    headers = {
+        "Origin":  "https://pocketoption.com",
+        "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+    }
+
+    payouts: dict[str, int] = {}
+    seen_events: set[str]   = set()
+
+    def _scan_for_payouts(obj, depth: int = 0) -> None:
+        if depth > 8 or not obj:
+            return
+        if isinstance(obj, list):
+            for item in obj:
+                if isinstance(item, dict):
+                    pct = 0
+                    for k in ("profit", "payout", "profitability", "percent", "win_rate"):
+                        v = item.get(k)
+                        if isinstance(v, (int, float)) and 30 < v <= 100:
+                            pct = int(round(v))
+                            break
+                        if isinstance(v, (int, float)) and 0 < v < 1:
+                            pct = int(round(v * 100))
+                            break
+                    sym = item.get("symbol") or item.get("asset") or item.get("ticker") or item.get("name") or ""
+                    if pct > 30 and sym:
+                        key = str(sym).lower().replace("#", "").replace("/", "").replace(" ", "").replace("-", "")
+                        payouts[key] = pct
+                    else:
+                        _scan_for_payouts(item, depth + 1)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                _scan_for_payouts(v, depth + 1)
+
+    try:
+        async with aiohttp.ClientSession(headers=headers) as http:
+            # Step 1: EIO handshake — get session ID
+            resp = await asyncio.wait_for(
+                http.get(http_base, params={"EIO": "4", "transport": "polling"}),
+                timeout=10.0,
+            )
+            body = await resp.text()
+            logger.info("HTTP polling handshake: status=%d body=%s", resp.status, body[:120])
+            if resp.status != 200 or not body.startswith("0"):
+                logger.warning("HTTP polling: unexpected handshake response, aborting")
+                return {}
+            import re as _re
+            sid_m = _re.search(r'"sid"\s*:\s*"([^"]+)"', body)
+            if not sid_m:
+                logger.warning("HTTP polling: no sid in handshake")
+                return {}
+            sid = sid_m.group(1)
+            logger.info("HTTP polling: got sid=%s", sid)
+
+            # Step 2: Send Socket.IO CONNECT
+            await asyncio.wait_for(
+                http.post(http_base, params={"EIO": "4", "transport": "polling", "sid": sid},
+                          data="40", headers={"Content-Type": "text/plain"}),
+                timeout=5.0,
+            )
+
+            # Step 3: Poll once to drain CONNECT ACK
+            resp2 = await asyncio.wait_for(
+                http.get(http_base, params={"EIO": "4", "transport": "polling", "sid": sid}),
+                timeout=5.0,
+            )
+            ack = await resp2.text()
+            logger.info("HTTP polling CONNECT ACK: %s", ack[:80])
+
+            # Step 4: Send auth
+            auth_msg = "42" + json.dumps(["auth", auth_payload])
+            await asyncio.wait_for(
+                http.post(http_base, params={"EIO": "4", "transport": "polling", "sid": sid},
+                          data=auth_msg, headers={"Content-Type": "text/plain"}),
+                timeout=5.0,
+            )
+
+            # Step 5: Poll for responses up to `timeout` seconds
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    resp3 = await asyncio.wait_for(
+                        http.get(http_base, params={"EIO": "4", "transport": "polling", "sid": sid}),
+                        timeout=5.0,
+                    )
+                    text = await resp3.text()
+                    if not text:
+                        await asyncio.sleep(0.5)
+                        continue
+                    logger.debug("HTTP polling response: %s", text[:200])
+                    # Multiple packets separated by length prefix (EIO4 format): <len>\x1e<data>
+                    parts = text.split("\x1e") if "\x1e" in text else [text]
+                    for part in parts:
+                        # Strip numeric length prefix if present
+                        p = part.lstrip("0123456789")
+                        if not p.startswith("42"):
+                            continue
+                        try:
+                            parsed = json.loads(p[2:])
+                            ev = str(parsed[0]) if isinstance(parsed, list) else ""
+                            payload = parsed[1] if len(parsed) > 1 else None
+                            if ev and ev not in seen_events:
+                                seen_events.add(ev)
+                                logger.info(
+                                    "HTTP polling event: %r  preview=%s",
+                                    ev, str(payload)[:150],
+                                )
+                            if payload:
+                                _scan_for_payouts(payload if isinstance(payload, list) else [payload])
+                        except Exception:
+                            pass
+                    if payouts:
+                        logger.info("HTTP polling: captured %d payouts", len(payouts))
+                        break
+                except asyncio.TimeoutError:
+                    break
+                except Exception as e:
+                    logger.warning("HTTP polling error: %s", e)
+                    break
+
+    except Exception as e:
+        logger.warning("fetch_payouts_http_polling failed: %s", e)
+
+    logger.info(
+        "fetch_payouts_http_polling done — %d events seen, %d payouts found",
+        len(seen_events), len(payouts),
+    )
+    return payouts
 
 
 # ── Live payout fetcher ────────────────────────────────────────────────────────

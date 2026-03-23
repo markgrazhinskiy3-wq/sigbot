@@ -951,21 +951,15 @@ async def init_monitor_ws_auth() -> bool:
         and (_time.time() - PO_PAYOUTS_PATH.stat().st_mtime) / 3600 < 6.0
     )
 
-    # If WS auth is fresh AND payouts are fresh → skip entirely
+    # If WS auth is fresh → skip browser entirely (payouts will come via HTTP polling)
     if WS_AUTH_PATH_MON.exists():
         age_hours = (_time.time() - WS_AUTH_PATH_MON.stat().st_mtime) / 3600
-        if age_hours < 12 and payouts_fresh:
+        if age_hours < 12:
             logger.info(
-                "Monitor WS auth (%.1fh old) and payouts are both fresh — skipping re-init",
+                "Monitor WS auth is %.1fh old — skipping browser (payouts via HTTP polling)",
                 age_hours,
             )
             return True
-        if age_hours < 12:
-            logger.info(
-                "WS auth is %.1fh old (skipping WS re-capture) but payouts are stale → "
-                "will run browser just for payout capture",
-                age_hours,
-            )
 
     # Use secondary account if configured, otherwise fall back to primary account
     _login = config.PP_LOGIN or config.PO_LOGIN

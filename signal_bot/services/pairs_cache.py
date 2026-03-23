@@ -120,6 +120,17 @@ async def refresh(force: bool = False) -> list[dict]:
             except Exception as e:
                 logger.warning("Could not read WS live payouts: %s", e)
 
+        # Source 3: Socket.IO HTTP polling (no browser — uses po.market not pocketoption.com)
+        if not live:
+            try:
+                from services.po_ws_client import fetch_payouts_http_polling
+                hp = await fetch_payouts_http_polling(timeout=12.0)
+                if hp:
+                    live.update(hp)
+                    logger.info("Payout source: HTTP polling — %d entries", len(hp))
+            except Exception as e:
+                logger.warning("Could not fetch payouts via HTTP polling: %s", e)
+
         if live:
             pairs = _filtered_pairs(live)
             if pairs:
