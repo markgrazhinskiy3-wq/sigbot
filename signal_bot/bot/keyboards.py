@@ -99,11 +99,9 @@ def recommended_pairs_keyboard(signals: list) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     for sig in signals:
-        payout = getattr(sig, "payout", 0)
-        label  = f"{sig.pair}  {payout}%" if payout > 0 else sig.pair
         builder.row(
             InlineKeyboardButton(
-                text=label,
+                text=sig.pair,
                 callback_data=f"pair:{sig.symbol}",
             )
         )

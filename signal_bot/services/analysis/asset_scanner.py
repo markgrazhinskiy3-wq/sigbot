@@ -564,8 +564,7 @@ def format_scan_output(results: list[TradabilityResult], scan_age_sec: float = 0
     ]
 
     for i, r in enumerate(results, 1):
-        payout_str = f" — <b>{r.payout}%</b>" if r.payout > 0 else ""
-        lines.append(f"{i}. <b>{r.pair}</b>{payout_str}")
+        lines.append(f"{i}. <b>{r.pair}</b>")
 
     lines.append("")
     lines.append("Выберите пару для анализа")
