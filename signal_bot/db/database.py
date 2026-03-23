@@ -445,6 +445,31 @@ async def get_pending_outcomes(max_age_sec: int = 1800) -> list[dict]:
             return [dict(r) for r in rows]
 
 
+async def get_last_trades(limit: int = 10) -> list[dict]:
+    """
+    Return the most recent N signal outcomes across all pairs (all outcome states).
+    Ordered newest first. Used for /debug no-args mode.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT
+                id, symbol, pair_label, direction,
+                confidence, confidence_raw, confidence_band,
+                strategy, market_mode, used_tier,
+                expiration_sec, signal_price, result_price,
+                outcome, created_at, resolved_at
+            FROM signal_outcomes
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
 async def get_pair_outcomes(symbol: str, limit: int = 15) -> list[dict]:
     """
     Return recent resolved signal outcomes for a specific pair symbol.

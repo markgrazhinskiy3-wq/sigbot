@@ -18,7 +18,7 @@ from db.database import (
     get_daily_admin_stats, get_performance_report,
     get_all_admin_ids, get_all_admins, add_admin, remove_admin,
     get_condition_stats, reset_condition_stats,
-    get_pair_outcomes,
+    get_pair_outcomes, get_last_trades,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
@@ -402,38 +402,141 @@ async def cmd_broadcast(message: Message) -> None:
     await message.answer(f"📢 Рассылка: ✅ {sent} отправлено, ❌ {failed} ошибок.")
 
 
-# ─── /debug — raw signal analysis dump (admin only) ──────────────────────────
+# ─── /debug ───────────────────────────────────────────────────────────────────
+# /debug          → last trade(s) from DB (no live analysis)
+# /debug PAIR     → live analysis + history for PAIR
 
 @router.message(Command("debug"))
 async def cmd_debug(message: Message) -> None:
-    """
-    /debug [PAIR_SYMBOL]
-    Example: /debug #AUDCAD_otc
-    Returns the full module scoring breakdown for the requested pair.
-    Admin-only.
-    """
     if not _is_admin(message.from_user.id):
         return
 
-    parts = message.text.split(maxsplit=1)
-    raw_symbol = parts[1].strip() if len(parts) > 1 else None
+    msg_parts = message.text.split(maxsplit=1)
+    raw_symbol = msg_parts[1].strip() if len(msg_parts) > 1 else None
 
     if raw_symbol:
+        # ── LIVE ANALYSIS MODE ────────────────────────────────────────────
         symbol = raw_symbol
-        _last_pair[message.from_user.id] = symbol   # update memory
+        _last_pair[message.from_user.id] = symbol
+        await _debug_live(message, symbol)
     else:
-        symbol = _last_pair.get(message.from_user.id)
-        if not symbol:
-            pairs = pairs_cache.get_cached()
-            if not pairs:
-                await message.answer("Сначала выберите пару через меню, чтобы /debug запомнил её.")
-                return
-            symbol = pairs[0]["symbol"]
+        # ── LAST TRADE MODE ───────────────────────────────────────────────
+        await _debug_last_trades(message)
 
+
+async def _debug_last_trades(message: Message) -> None:
+    """Show the last N trades from DB across all pairs."""
+    trades = await get_last_trades(limit=10)
+
+    if not trades:
+        await message.answer("📂 Сделок ещё нет. Запусти сигнал через меню сначала.")
+        return
+
+    last = trades[0]
+
+    # ── Detail block for the single most recent trade ─────────────────────
+    def _outcome_icon(o: str) -> str:
+        return {"win": "✅", "loss": "❌", "pending": "⏳", "error": "⚠️"}.get(o, "❓")
+
+    def _dir_icon(d: str) -> str:
+        return "📈" if d == "BUY" else "📉"
+
+    def _ts(s: str | None) -> str:
+        if not s:
+            return "—"
+        return s[:16].replace("T", " ") + " UTC"
+
+    def _exp(sec: int | None) -> str:
+        if not sec:
+            return "?"
+        return f"{sec // 60}м" if sec >= 60 else f"{sec}с"
+
+    outcome     = last.get("outcome", "pending")
+    direction   = last.get("direction", "?")
+    entry       = last.get("signal_price") or 0.0
+    result      = last.get("result_price") or 0.0
+    diff        = (result - entry) / entry * 100 if entry and result else None
+    strategy    = last.get("strategy") or "?"
+    mode        = last.get("market_mode") or "?"
+    tier        = last.get("used_tier") or "?"
+    conf_raw    = last.get("confidence_raw")
+    conf_stars  = last.get("confidence")
+    conf_band   = last.get("confidence_band") or ""
+    exp_sec     = last.get("expiration_sec") or 0
+    pair_label  = last.get("pair_label") or last.get("symbol") or "?"
+    created_ts  = _ts(last.get("created_at"))
+    resolved_ts = _ts(last.get("resolved_at"))
+
+    conf_str = ""
+    if conf_raw is not None:
+        conf_str = f"conf={conf_raw:.0f}"
+        if conf_stars:
+            conf_str += f" ⭐{conf_stars}"
+        if conf_band:
+            conf_str += f" ({conf_band})"
+
+    diff_str = f"{diff:+.4f}%" if diff is not None else "⏳ ждём закрытия"
+
+    lines = [
+        f"📋 <b>ПОСЛЕДНЯЯ СДЕЛКА</b>",
+        f"",
+        f"🔖 <b>{html.escape(pair_label)}</b>",
+        f"{_dir_icon(direction)} {direction}  |  {_exp(exp_sec)}  |  {html.escape(strategy)} [{html.escape(tier)}]",
+        f"🧭 Режим: <b>{html.escape(mode)}</b>",
+        f"📊 {conf_str}" if conf_str else "",
+        f"",
+        f"🕐 Сигнал:  {created_ts}",
+        f"🕑 Закрыт:  {resolved_ts}",
+        f"",
+        f"💰 Вход:   <code>{entry:.6f}</code>",
+        f"📤 Выход:  <code>{result:.6f}</code>" if result else f"📤 Выход:  ⏳ ещё не закрыта",
+        f"📊 Δ:      <b>{diff_str}</b>",
+        f"",
+        f"{_outcome_icon(outcome)} <b>{'ПОБЕДА' if outcome=='win' else 'УБЫТОК' if outcome=='loss' else 'ОЖИДАНИЕ' if outcome=='pending' else outcome.upper()}</b>",
+    ]
+    # Remove blank lines that came from empty conf_str
+    lines = [l for l in lines if l is not None]
+
+    # ── Mini-table of last 10 ─────────────────────────────────────────────
+    resolved   = [t for t in trades if t.get("outcome") in ("win", "loss")]
+    wins_total = sum(1 for t in resolved if t["outcome"] == "win")
+    wr         = round(wins_total / len(resolved) * 100) if resolved else 0
+
+    lines += [
+        "",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"📂 <b>Последние 10 сделок</b>  ({wins_total}W/{len(resolved)-wins_total}L  WR={wr}%)",
+    ]
+
+    for t in trades:
+        icon      = _outcome_icon(t.get("outcome", "pending"))
+        ts_short  = (t.get("created_at") or "")[:16].replace("T", " ")
+        sym_short = (t.get("pair_label") or t.get("symbol") or "?")[:12]
+        d         = t.get("direction", "?")
+        s         = (t.get("strategy") or "?")[:12]
+        m         = (t.get("market_mode") or "?")[:12]
+        cr        = t.get("confidence_raw")
+        cr_str    = f" c={cr:.0f}" if cr is not None else ""
+        ep        = t.get("signal_price") or 0
+        rp        = t.get("result_price") or 0
+        dif       = (rp - ep) / ep * 100 if ep and rp else None
+        dif_str   = f" {dif:+.3f}%" if dif is not None else ""
+        lines.append(f"  {icon} {ts_short}  {sym_short}  {d}  {s}/{m}{cr_str}{dif_str}")
+
+    lines += [
+        "",
+        "💡 <i>/debug ПАРА — живой анализ рынка</i>",
+    ]
+
+    await _send_long(message, lines)
+
+
+async def _debug_live(message: Message, symbol: str) -> None:
+    """Run live analysis and show full technical breakdown for a pair."""
     await message.answer(f"🔬 Запускаю анализ <code>{symbol}</code>...", parse_mode="HTML")
 
     try:
-        pair_label = _label_for_symbol(symbol)
+        pair_label  = _label_for_symbol(symbol)
         signal_resp = await get_signal(symbol=symbol, pair_label=pair_label, expiration_sec=60)
     except Exception as e:
         await message.answer(f"❌ Ошибка: <code>{e}</code>", parse_mode="HTML")
@@ -446,101 +549,77 @@ async def cmd_debug(message: Message) -> None:
         await message.answer("Нет данных debug (не удалось получить свечи).")
         return
 
-    direction = details.get("direction", "NO_SIGNAL")
+    direction  = details.get("direction", "NO_SIGNAL")
     last_close = debug.get("last_close", "?")
 
-    # ── Bar counts ──────────────────────────────────────────────────────────
-    n15  = debug.get("n_bars_15s") or debug.get("candles_raw", "?")
-    n1m  = debug.get("n_bars_1m", 0)
-    n5m  = debug.get("n_bars_5m", 0)
-    nc   = debug.get("candles_clean", "?")
-    abp  = debug.get("avg_body_pct", 0)
+    n15 = debug.get("n_bars_15s") or debug.get("candles_raw", "?")
+    n1m = debug.get("n_bars_1m", 0)
+    n5m = debug.get("n_bars_5m", 0)
+    nc  = debug.get("candles_clean", "?")
+    abp = debug.get("avg_body_pct", 0)
 
     lines = [
-        f"🔬 <b>DEBUG {symbol}</b>",
-        f"Цена: <code>{last_close}</code> | Направление: <b>{direction}</b>",
+        f"🔬 <b>LIVE АНАЛИЗ: {symbol}</b>",
+        f"Цена: <code>{last_close}</code>  |  Сигнал: <b>{direction}</b>",
         "",
         f"📊 <b>Свечи</b>",
-        f"  15s bars: <b>{n15}</b> raw → <b>{nc}</b> clean",
-        f"  1m bars:  <b>{n1m}</b> | 5m bars: <b>{n5m}</b>",
+        f"  15s: <b>{n15}</b> raw → <b>{nc}</b> clean  |  1m: <b>{n1m}</b>  |  5m: <b>{n5m}</b>",
         f"  avg_body: {float(abp):.5f}%",
     ]
 
-    # ── Market mode ─────────────────────────────────────────────────────────
+    # Market mode
     mode     = debug.get("mode") or details.get("market_mode", "?")
     mode_str = debug.get("mode_strength", "?")
     mode_exp = debug.get("mode_explanation", "")
-    mode_dbg = debug.get("mode_debug") or debug.get("mode_debug", {})
-    lines += [
-        "",
-        f"🧭 <b>Режим рынка: {mode}</b> (сила={mode_str})",
-    ]
+    mode_dbg = debug.get("mode_debug") or {}
+    lines += ["", f"🧭 <b>Режим: {mode}</b> (сила={mode_str})"]
     if mode_exp:
         lines.append(f"  {html.escape(str(mode_exp))}")
     if isinstance(mode_dbg, dict) and mode_dbg:
-        parts = [f"{html.escape(str(k))}={html.escape(str(v))}" for k, v in mode_dbg.items()]
-        lines.append(f"  {' | '.join(parts)}")
+        dbg_parts = [f"{html.escape(str(k))}={html.escape(str(v))}" for k, v in mode_dbg.items()]
+        lines.append(f"  {' | '.join(dbg_parts)}")
 
-    # ── Indicators ──────────────────────────────────────────────────────────
+    # Indicators
     ind = debug.get("indicators", {})
     if ind:
-        atr       = ind.get("atr",       "?")
-        atr_ratio = ind.get("atr_ratio", "?")
-        rsi       = ind.get("rsi",       "?")
-        sk        = ind.get("stoch_k",   "?")
-        sd        = ind.get("stoch_d",   "?")
-        e5        = ind.get("ema5",      "?")
-        e13       = ind.get("ema13",     "?")
-        e21       = ind.get("ema21",     "?")
-        bw        = ind.get("bb_bw",     "?")
-        mom       = ind.get("momentum",  "?")
-        # EMA spread vs price
+        e5  = ind.get("ema5",  "?")
+        e13 = ind.get("ema13", "?")
+        e21 = ind.get("ema21", "?")
+        spread_str = "?"
         if isinstance(e5, float) and isinstance(e21, float) and isinstance(last_close, float) and last_close:
-            spread_pct = (e5 - e21) / last_close * 100
-            spread_str = f"{spread_pct:+.4f}%"
-        else:
-            spread_str = "?"
+            spread_str = f"{(e5 - e21) / last_close * 100:+.4f}%"
         lines += [
             "",
-            "📉 <b>Индикаторы (15s bars)</b>",
-            f"  ATR:      {atr}  (×{atr_ratio} avg)",
-            f"  RSI(7):   {rsi}",
-            f"  Stoch:    K={sk}  D={sd}",
-            f"  EMA5:     {e5}",
-            f"  EMA13:    {e13}",
-            f"  EMA21:    {e21}",
-            f"  EMA5-21:  {spread_str}",
-            f"  BB_bw:    {bw}",
-            f"  Momentum: {mom}",
+            "📉 <b>Индикаторы</b>",
+            f"  ATR: {ind.get('atr','?')} (×{ind.get('atr_ratio','?')})  |  RSI: {ind.get('rsi','?')}",
+            f"  Stoch K={ind.get('stoch_k','?')} D={ind.get('stoch_d','?')}  |  BB_bw={ind.get('bb_bw','?')}",
+            f"  EMA5={e5}  EMA13={e13}  EMA21={e21}  (Δ5-21={spread_str})",
         ]
 
-    # ── Levels ──────────────────────────────────────────────────────────────
+    # Levels
     lvl = debug.get("levels", {})
     if lvl:
         lines += [
             "",
             "📌 <b>Уровни</b>",
-            f"  Ближ. суп: {lvl.get('nearest_sup','?')}  ({lvl.get('dist_sup_pct','?')}% от цены)",
-            f"  Ближ. рез: {lvl.get('nearest_res','?')}  ({lvl.get('dist_res_pct','?')}% от цены)",
-            f"  Кол-во:    {lvl.get('n_supports',0)} суп  /  {lvl.get('n_resistances',0)} рез",
+            f"  Суп: {lvl.get('nearest_sup','?')} ({lvl.get('dist_sup_pct','?')}%)  "
+            f"Рез: {lvl.get('nearest_res','?')} ({lvl.get('dist_res_pct','?')}%)",
         ]
 
-    # ── Context ─────────────────────────────────────────────────────────────
-    cup  = debug.get("ctx_up_1m",    debug.get("ctx_up",   False))
-    cdn  = debug.get("ctx_dn_1m",    debug.get("ctx_down", False))
+    # Context
+    cup  = debug.get("ctx_up_1m",  debug.get("ctx_up",   False))
+    cdn  = debug.get("ctx_dn_1m",  debug.get("ctx_down", False))
     mnot = debug.get("ctx_macro_note", "—")
     lines += [
         "",
-        "🔗 <b>Контекст MTF</b>",
-        f"  1m EMA:   {'↑' if cup else '↓' if cdn else '—'}",
-        f"  Macro:    {html.escape(str(mnot))}",
+        f"🔗 <b>Контекст MTF</b>  1m={'↑' if cup else '↓' if cdn else '—'}  macro={html.escape(str(mnot))}",
     ]
 
-    # ── Per-strategy breakdown ───────────────────────────────────────────────
+    # Strategies
     strategies = debug.get("strategies", {})
     used_tier  = debug.get("used_tier", "?")
     if strategies:
-        lines += ["", f"🎯 <b>Стратегии</b> (tier запущен: {used_tier})"]
+        lines += ["", f"🎯 <b>Стратегии</b> (tier={used_tier})"]
         _TIER_ICONS = {"primary": "①", "secondary": "②"}
         for sname, sd in strategies.items():
             if sd.get("skipped"):
@@ -558,94 +637,85 @@ async def cmd_debug(message: Message) -> None:
             mult_str = f" ×{mult:.2f}" if mult != 1.0 else ""
             early = sd.get("early_reject")
             lines.append(
-                f"  {icon} <b>{sname}</b>: {fired} {sdir} | {scm}/{stot} ({spct}%) | conf={sconf}{mult_str}"
+                f"  {icon} <b>{sname}</b>: {fired} {sdir} {scm}/{stot} ({spct}%) conf={sconf}{mult_str}"
             )
             if early:
-                lines.append(f"    ⛔ Ранний отказ: {html.escape(str(early))}")
-            # Per-condition breakdown
-            conds = sd.get("conditions", {})
-            if conds:
-                for cname, cval in conds.items():
-                    if isinstance(cval, bool):
-                        mark = "✅" if cval else "❌"
-                        lines.append(f"    {mark} {cname}")
-                    elif isinstance(cval, str):
-                        # e.g. pattern_type = "pin_bar" — show as info
-                        lines.append(f"    ℹ️ {cname}: {html.escape(cval)}")
+                lines.append(f"    ⛔ {html.escape(str(early))}")
+            for cname, cval in sd.get("conditions", {}).items():
+                if isinstance(cval, bool):
+                    lines.append(f"    {'✅' if cval else '❌'} {cname}")
+                elif isinstance(cval, str):
+                    lines.append(f"    ℹ️ {cname}: {html.escape(cval)}")
 
-    # ── Final decision ───────────────────────────────────────────────────────
+    # Final decision
     lines.append("")
     if direction in ("BUY", "SELL"):
-        conf_raw  = details.get("confidence_raw", debug.get("conf_after_multipliers", "?"))
-        conf_5    = details.get("confidence_5", signal_resp.confidence)
-        quality   = details.get("signal_quality", "?")
-        expiry    = details.get("expiry_hint", "?")
-        strat     = details.get("primary_strategy", "?")
-        tier_used = debug.get("used_tier", "?")
+        conf_raw = details.get("confidence_raw", debug.get("conf_after_multipliers", "?"))
+        conf_5   = details.get("confidence_5", signal_resp.confidence)
+        quality  = details.get("signal_quality", "?")
+        expiry   = details.get("expiry_hint", "?")
+        strat    = details.get("primary_strategy", "?")
         lines += [
             f"✅ <b>Сигнал: {direction}</b>",
-            f"  Стратегия: {strat} [{tier_used}]",
+            f"  Стратегия: {strat} [{used_tier}]  |  Экспирация: {expiry}",
             f"  conf_raw={conf_raw}  ⭐{conf_5}  ({quality})",
-            f"  Экспирация: {expiry}",
         ]
         reasoning = details.get("reasoning", "")
         if reasoning:
-            lines.append(f"  Причина: {html.escape(str(reasoning)[:120])}")
+            lines.append(f"  {html.escape(str(reasoning)[:140])}")
     else:
         reject = details.get("reject_reason") or details.get("reasoning", "—")
         conf_r = debug.get("conf_raw")
         thresh = debug.get("min_threshold")
-        lines.append(f"❌ <b>NO_SIGNAL</b>")
-        lines.append(f"  Причина: {html.escape(str(reject))}")
+        lines.append(f"❌ <b>NO_SIGNAL</b>  {html.escape(str(reject))}")
         if conf_r is not None and thresh is not None:
             lines.append(f"  conf={conf_r} &lt; порог={thresh}")
 
-    # ── Trade history from DB ─────────────────────────────────────────────────
-    history = await get_pair_outcomes(symbol, limit=15)
+    # History for this pair
+    history = await get_pair_outcomes(symbol, limit=10)
     if history:
-        wins   = sum(1 for r in history if r["outcome"] == "win")
-        losses = sum(1 for r in history if r["outcome"] == "loss")
-        total  = wins + losses
-        wr     = round(wins / total * 100) if total else 0
-        lines += [
-            "",
-            f"📂 <b>История сделок ({total}): {wins}W / {losses}L — {wr}%</b>",
-        ]
+        wins  = sum(1 for r in history if r["outcome"] == "win")
+        total = wins + sum(1 for r in history if r["outcome"] == "loss")
+        wr    = round(wins / total * 100) if total else 0
+        lines += ["", f"📂 <b>История {symbol}: {wins}W/{total-wins}L WR={wr}%</b>"]
         for r in history:
-            icon   = "✅" if r["outcome"] == "win" else "❌"
-            ts     = (r["created_at"] or "")[:16].replace("T", " ")
-            strat  = (r["strategy"] or "?")
-            mode   = (r["market_mode"] or "?")
-            conf_r = r.get("confidence_raw")
-            conf_str = f" conf={conf_r:.0f}" if conf_r else ""
-            exp_sec = r.get("expiration_sec") or 0
-            exp_str = f"{exp_sec//60}m" if exp_sec >= 60 else f"{exp_sec}s"
-            entry  = r.get("signal_price") or 0
-            result = r.get("result_price") or 0
-            diff   = (result - entry) / entry * 100 if entry else 0
-            diff_str = f"{diff:+.3f}%"
+            icon     = "✅" if r["outcome"] == "win" else "❌"
+            ts       = (r.get("created_at") or "")[:16].replace("T", " ")
+            strat_h  = (r.get("strategy") or "?")[:10]
+            mode_h   = (r.get("market_mode") or "?")[:10]
+            cr       = r.get("confidence_raw")
+            cr_str   = f" c={cr:.0f}" if cr else ""
+            ep       = r.get("signal_price") or 0
+            rp       = r.get("result_price") or 0
+            dif      = (rp - ep) / ep * 100 if ep and rp else None
+            dif_str  = f" {dif:+.3f}%" if dif is not None else ""
             lines.append(
-                f"  {icon} {ts} | {r['direction']} {exp_str}{conf_str} | {strat}/{mode} | {diff_str}"
+                f"  {icon} {ts} {r['direction']}{cr_str} {strat_h}/{mode_h}{dif_str}"
             )
     else:
         lines += ["", "📂 <b>История:</b> сделок по этой паре ещё нет"]
 
-    text = "\n".join(lines)
-    # Telegram limit: split if needed
+    await _send_long(message, lines)
+
+
+async def _send_long(message: Message, lines: list[str]) -> None:
+    """Send potentially long text, splitting at 4000 chars."""
     LIMIT = 4000
+    text = "\n".join(lines)
     if len(text) <= LIMIT:
         await message.answer(text, parse_mode="HTML")
-    else:
-        chunk, length = [], 0
-        for line in lines:
-            length += len(line) + 1
-            if length > LIMIT:
-                await message.answer("\n".join(chunk), parse_mode="HTML")
-                chunk, length = [line], len(line) + 1
-            else:
-                chunk.append(line)
-        if chunk:
+        return
+    chunk: list[str] = []
+    length = 0
+    for line in lines:
+        length += len(line) + 1
+        if length > LIMIT:
             await message.answer("\n".join(chunk), parse_mode="HTML")
+            chunk, length = [line], len(line) + 1
+        else:
+            chunk.append(line)
+    if chunk:
+        await message.answer("\n".join(chunk), parse_mode="HTML")
 
 
 # ─── Callback handlers ───────────────────────────────────────────────────────
