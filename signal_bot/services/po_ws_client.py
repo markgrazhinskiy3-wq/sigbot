@@ -351,70 +351,44 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
     """
     Parse the 'updateAssets' binary WS frame → {normalised_symbol: payout_int}.
 
-    PocketOption sends this during auth handshake.  The payload is UTF-8 JSON:
-      [[asset_id, "#SYMBOL", "Name", "category", type_id, payout_pct, ...], ...]
-    e.g. [[5, "#AAPL", "Apple", "stock", 2, 50, ...], ...]
+    PocketOption sends this during auth handshake.  The payload is UTF-8 JSON array.
 
-    We look at every numeric field for a value that looks like a payout (30-100)
-    rather than hardcoding index 5, in case the schema differs for OTC pairs.
+    Confirmed schema per entry: [asset_id, "SYMBOL", "Name", "category", type_id, payout_pct, ...]
+    - Stock OTC symbols have "#" prefix: "#AAPL", "#MSFT_otc"
+    - All other OTC symbols don't: "EURUSD_otc", "AEDCNY_otc", "ADA-USD_otc"
+    - Payout is always index 5 as integer percent (e.g. 92 = 92%, 0 = unavailable)
     """
     result: dict[str, int] = {}
-    _diag_logged = 0  # log up to 8 entries without "#" symbol
-    _no_hash_logged = 0  # log up to 5 entries that had no "#" field at all
     try:
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, list):
             return result
         for entry in data:
-            if not isinstance(entry, list) or len(entry) < 3:
+            if not isinstance(entry, list) or len(entry) < 6:
                 continue
-            # Symbol: prefer field starting with "#", fall back to index 1
-            sym = next((str(f) for f in entry if isinstance(f, str) and str(f).startswith("#")), None)
-            if sym is None:
-                # Log first few no-hash entries to discover forex OTC format
-                if _no_hash_logged < 5:
-                    _no_hash_logged += 1
-                    logger.info("updateAssets no-hash entry #%d: %s", _no_hash_logged, entry)
-                # Use index 1 as symbol if it's a non-empty string
-                if len(entry) > 1 and isinstance(entry[1], str) and entry[1]:
-                    sym = entry[1]
-                else:
-                    continue
-            # Normalise: "#EUR/JPY OTC" or "EUR/JPY OTC" or "EURUSD_otc" → "eurjpy_otc"
-            key = sym.lstrip("#").lower().replace("/", "").replace(" ", "_")
-            # Payout: prefer index 5, but scan all numeric fields in 30-100 range if missing
-            pct = 0
-            if len(entry) > 5 and isinstance(entry[5], (int, float)):
-                v = entry[5]
-                if 30 <= v <= 100:
-                    pct = int(round(v))
-                elif 0.30 <= v <= 1.0:
-                    pct = int(round(v * 100))
-            if not pct:
-                for f in entry[3:]:
-                    if isinstance(f, (int, float)):
-                        if 30 <= f <= 100:
-                            pct = int(round(f))
-                            break
-                        if 0.30 <= f <= 1.0:
-                            pct = int(round(f * 100))
-                            break
-            if pct:
-                result[key] = pct
-            # Log entries that mention OTC in any field (catches "EUR/USD OTC" etc.)
-            if not pct and _diag_logged < 8:
-                entry_str = str(entry).lower()
-                if "otc" in entry_str or "forex" in entry_str or "currency" in entry_str:
-                    _diag_logged += 1
-                    logger.info("updateAssets non-stock entry (no payout): sym=%r  raw=%s", sym, entry)
-        # Diagnostic summary
-        if data:
-            logger.info("updateAssets first entry schema: %s", data[0])
-            logger.info("updateAssets total entries in array: %d", len(data))
-            otc_keys = {k: v for k, v in result.items() if "otc" in k}
+            # Schema confirmed: [asset_id, "SYMBOL", "Name", "category", type_id, payout_pct, ...]
+            # Stock OTC symbols start with "#" (e.g. "#AAPL"), all others don't (e.g. "EURUSD_otc")
+            raw_sym = entry[1]
+            if not isinstance(raw_sym, str) or not raw_sym:
+                continue
+            # Normalise to match candle-cache keys: "#EUR/JPY OTC" or "EURUSD_otc" → "eurjpy_otc"
+            key = raw_sym.lstrip("#").lower().replace("/", "").replace(" ", "_")
+            # Payout is at index 5 (confirmed from schema logging)
+            v = entry[5]
+            if not isinstance(v, (int, float)):
+                continue
+            if 30 <= v <= 100:
+                pct = int(round(v))
+            elif 0.30 <= v <= 1.0:
+                pct = int(round(v * 100))
+            else:
+                continue
+            result[key] = pct
+        if result:
+            otc_count = sum(1 for k in result if "otc" in k)
             logger.info(
-                "updateAssets OTC payouts captured (%d): %s",
-                len(otc_keys), otc_keys,
+                "updateAssets parsed %d assets total, %d with OTC in name",
+                len(result), otc_count,
             )
     except Exception as e:
         logger.warning("_parse_update_assets_binary failed: %s", e)
