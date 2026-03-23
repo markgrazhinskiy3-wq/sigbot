@@ -1,0 +1,115 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+Starting Container
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+    raise RuntimeError(
+Traceback (most recent call last):
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 16, in _require
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (2/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (3/5)...
+[config] PO_LOGIN not found, retrying in 3.0s (4/5)...
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 30, in <module>
+    PO_LOGIN: str = _require("PO_LOGIN")
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/app/signal_bot/config.py", line 16, in _require
+    raise RuntimeError(
+RuntimeError: Required env var 'PO_LOGIN' is not set after 5 attempts. Check Railway Variables.
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/3022ac48-8f47-4007-9025-c2a4e7fc9302/vol_tsz4cu73169rtlpp
+[config] PO_LOGIN not found, retrying in 3.0s (1/5)...
