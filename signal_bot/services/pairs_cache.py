@@ -97,24 +97,41 @@ async def refresh(force: bool = False) -> list[dict]:
 
         pairs: list[dict] | None = None
 
-        # Try live payouts captured from WS candle frames (side-effect of candle refresh)
+        live: dict[str, int] = {}
+
+        # Source 1: browser HTTP response interceptor (most reliable — captures API calls on page load)
         try:
-            from services.po_ws_client import get_live_payouts
-            live = get_live_payouts()
-            if live:
-                pairs = _filtered_pairs(live)
-                if pairs:
-                    logger.info(
-                        "Pairs filtered by live WS payouts (>= %d%%): %d/%d pairs",
-                        MIN_PAYOUT, len(pairs), len(config.OTC_PAIRS),
-                    )
+            from services.pocket_browser import get_browser_payouts
+            bp = get_browser_payouts()
+            if bp:
+                live.update(bp)
+                logger.info("Payout source: browser HTTP interceptor — %d entries", len(bp))
         except Exception as e:
-            logger.warning("Could not read live WS payouts: %s", e)
+            logger.warning("Could not read browser payouts: %s", e)
+
+        # Source 2: WS candle frames side-effect
+        if not live:
+            try:
+                from services.po_ws_client import get_live_payouts
+                wp = get_live_payouts()
+                if wp:
+                    live.update(wp)
+                    logger.info("Payout source: WS candle frames — %d entries", len(wp))
+            except Exception as e:
+                logger.warning("Could not read WS live payouts: %s", e)
+
+        if live:
+            pairs = _filtered_pairs(live)
+            if pairs:
+                logger.info(
+                    "Pairs filtered by live payouts (>= %d%%): %d/%d pairs",
+                    MIN_PAYOUT, len(pairs), len(config.OTC_PAIRS),
+                )
 
         # No live data — show all config pairs
         if not pairs:
             pairs = _all_config_pairs()
-            logger.info("No live payout data — showing all %d config pairs", len(pairs))
+            logger.info("No live payout data yet — showing all %d config pairs", len(pairs))
 
         _cache    = pairs
         _cache_ts = time.time()

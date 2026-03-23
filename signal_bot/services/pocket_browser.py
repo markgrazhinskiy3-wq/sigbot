@@ -21,6 +21,51 @@ _context: BrowserContext | None = None
 # from corrupting each other's page state.
 _browser_lock: asyncio.Lock | None = None
 
+# Live payout store — populated by HTTP response interceptor on every page load.
+# {normalised_symbol: payout_int}  e.g. {"eurusd_otc": 85}
+_browser_payouts: dict[str, int] = {}
+_browser_payouts_ts: float = 0.0
+
+
+def get_browser_payouts() -> dict[str, int]:
+    """Return live payouts captured from browser HTTP responses. {} if none yet."""
+    return dict(_browser_payouts)
+
+
+def _scan_for_payouts(obj, result: dict, depth: int = 0) -> None:
+    """Recursively scan a parsed JSON object for OTC asset + payout pairs."""
+    if depth > 10 or not obj:
+        return
+    if isinstance(obj, list):
+        for item in obj:
+            _scan_for_payouts(item, result, depth + 1)
+    elif isinstance(obj, dict):
+        sym = ""
+        pct = 0
+        for k, v in obj.items():
+            kl = k.lower()
+            if kl in ("symbol", "asset", "id", "ticker", "code", "name", "pair"):
+                if isinstance(v, str) and "otc" in v.lower():
+                    sym = v.lstrip("#").lower()
+            if kl in ("profit", "payout", "return", "percent",
+                      "profitability", "winrate", "win_rate", "value",
+                      "profit_percent", "return_percent", "yield"):
+                try:
+                    fv = float(v)
+                    if 1 < fv <= 100:
+                        pct = int(round(fv))
+                    elif 0 < fv < 1:
+                        pct = int(round(fv * 100))
+                except (TypeError, ValueError):
+                    pass
+        if sym and pct > 20:
+            if not sym.endswith("_otc"):
+                sym += "_otc"
+            result[sym] = pct
+        for v in obj.values():
+            if isinstance(v, (list, dict)):
+                _scan_for_payouts(v, result, depth + 1)
+
 
 def _get_lock() -> asyncio.Lock:
     """Lazily creates the lock inside the running event loop."""
@@ -97,6 +142,40 @@ def _load_saved_cookies() -> list[dict] | None:
     return None
 
 
+async def _on_browser_response(response) -> None:
+    """Intercept HTTP responses from PocketOption and extract live payout data."""
+    global _browser_payouts, _browser_payouts_ts
+    try:
+        url = response.url
+        if "pocketoption.com" not in url:
+            return
+        ct = (response.headers.get("content-type") or "").lower()
+        if "json" not in ct:
+            return
+        # Only scan URLs that likely contain asset/instrument data
+        url_lower = url.lower()
+        if not any(kw in url_lower for kw in (
+            "/api/", "asset", "instrument", "option", "payout",
+            "symbol", "market", "quote", "profit",
+        )):
+            return
+        try:
+            body = await response.json()
+        except Exception:
+            return
+        found: dict[str, int] = {}
+        _scan_for_payouts(body, found)
+        if found:
+            _browser_payouts.update(found)
+            _browser_payouts_ts = time.time()
+            logger.info(
+                "Browser HTTP interceptor: captured %d OTC payouts from %s",
+                len(found), url.split("?")[0],
+            )
+    except Exception as e:
+        logger.debug("_on_browser_response error: %s", e)
+
+
 async def _get_context() -> BrowserContext:
     global _playwright, _browser, _context
     if _browser is None or not _browser.is_connected():
@@ -122,7 +201,9 @@ async def _get_context() -> BrowserContext:
         await _context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        logger.info("Browser launched")
+        # Intercept HTTP responses to capture live payout data automatically
+        _context.on("response", _on_browser_response)
+        logger.info("Browser launched (with payout response interceptor)")
     return _context
 
 
