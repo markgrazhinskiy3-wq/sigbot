@@ -7,24 +7,22 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# ── Ensure Playwright Chromium is installed before anything else ──────────────
-# Railway may not preserve the browser cache between deploys even if the
-# Dockerfile has `playwright install chromium`. Running it here is a no-op
-# when browsers are already present and takes ~20s on first run.
-def _ensure_playwright_browsers() -> None:
-    try:
-        result = subprocess.run(
-            ["playwright", "install", "chromium"],
-            capture_output=True, text=True, timeout=180
-        )
-        if result.returncode == 0:
-            print("[startup] Playwright chromium browsers ready", flush=True)
-        else:
-            print(f"[startup] playwright install chromium failed: {result.stderr[:300]}", flush=True)
-    except Exception as e:
-        print(f"[startup] Could not run playwright install: {e}", flush=True)
-
-_ensure_playwright_browsers()
+# ── Ensure Playwright Chromium is installed (non-blocking background process) ─
+# Railway may not preserve the browser cache between redeploys even if the
+# Dockerfile has `playwright install chromium`. We start the install as a
+# background process so the bot responds immediately; by the time
+# init_monitor_ws_auth() runs (~30s later), browsers will be ready.
+_pw_install_proc = None
+try:
+    import shutil
+    _pw_bin = shutil.which("playwright") or "playwright"
+    _pw_install_proc = subprocess.Popen(
+        [_pw_bin, "install", "chromium"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    print(f"[startup] playwright install chromium started (pid={_pw_install_proc.pid})", flush=True)
+except Exception as _e:
+    print(f"[startup] Could not start playwright install: {_e}", flush=True)
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -139,6 +137,19 @@ async def main() -> None:
     # Initialise secondary account WS auth for real-time monitoring.
     # After it completes, refresh pairs cache so live payouts get picked up.
     async def _init_monitor_then_refresh():
+        # Wait for background playwright install to finish before launching browser
+        if _pw_install_proc is not None:
+            try:
+                await asyncio.get_event_loop().run_in_executor(None, _pw_install_proc.wait)
+                stdout = _pw_install_proc.stdout.read() if _pw_install_proc.stdout else b""
+                stderr = _pw_install_proc.stderr.read() if _pw_install_proc.stderr else b""
+                rc = _pw_install_proc.returncode
+                if rc == 0:
+                    logger.info("Playwright chromium browsers ready (install complete)")
+                else:
+                    logger.warning("playwright install chromium exited %d: %s", rc, stderr.decode()[:200])
+            except Exception as e:
+                logger.warning("Could not wait for playwright install: %s", e)
         await init_monitor_ws_auth()
         logger.info("Monitor auth done — re-refreshing pairs cache with live payouts…")
         try:
