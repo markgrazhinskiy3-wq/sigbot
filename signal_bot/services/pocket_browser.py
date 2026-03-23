@@ -658,6 +658,162 @@ async def _login_with_credentials(page, login: str, password: str) -> None:
     logger.info("Secondary account login OK, URL: %s", page.url)
 
 
+async def _scrape_payouts_from_page(page) -> dict:
+    """
+    Given an already-loaded, logged-in PocketOption trade page, click the asset
+    selector panel, navigate to OTC assets, and scrape payout percentages from the DOM.
+
+    Returns {symbol_key: pct_int} e.g. {"eurusd_otc": 87} or {} on failure.
+    This is the approach that worked before Railway.
+    """
+    result: dict = {}
+
+    def _sym_key(s: str) -> str:
+        return s.lower().replace("#", "").replace("/", "").replace(" ", "").replace("-", "")
+
+    # Wait for the Vue app to initialise
+    await page.wait_for_timeout(5000)
+    logger.info("_scrape_payouts_from_page: starting panel click approach")
+
+    # Click the asset name / currencies-block to open the selector panel
+    opened = False
+    try:
+        box = await page.evaluate("""() => {
+            const sels = ['.currencies-block', '.block-active-asset-name', '.asset-name',
+                           '[class*="active-asset"]', '.header-main__asset',
+                           '[class*="current-asset"]', '[class*="selected-asset"]'];
+            for (const s of sels) {
+                const el = document.querySelector(s);
+                if (el && el.offsetWidth > 0) {
+                    const r = el.getBoundingClientRect();
+                    return {x: r.left + r.width/2, y: r.top + r.height/2, sel: s};
+                }
+            }
+            return null;
+        }""")
+        if box:
+            logger.info("_scrape_payouts_from_page: clicking asset panel via %s", box.get('sel'))
+            await page.mouse.click(box['x'], box['y'])
+            await page.wait_for_timeout(2000)
+            opened = True
+    except Exception as e:
+        logger.warning("_scrape_payouts_from_page: panel click failed: %s", e)
+
+    if not opened:
+        # Try locator-based click
+        for sel in ['.block-active-asset-name', '.currencies-block', '.assets-toggle',
+                    '[data-action="open-assets"]', '[class*="asset-name"]']:
+            try:
+                el = page.locator(sel).first
+                if await el.count() > 0:
+                    await el.click(timeout=3000)
+                    await page.wait_for_timeout(2000)
+                    opened = True
+                    logger.info("_scrape_payouts_from_page: panel opened via locator %s", sel)
+                    break
+            except Exception:
+                continue
+
+    if not opened:
+        logger.warning("_scrape_payouts_from_page: could not open asset panel")
+        return result
+
+    # Click OTC tab or search for OTC
+    otc_clicked = False
+    for tab_text in ["OTC", "ОТС", "otc"]:
+        for sel in [
+            f'button:has-text("{tab_text}")', f'a:has-text("{tab_text}")',
+            f'span:has-text("{tab_text}")', f'li:has-text("{tab_text}")',
+            f'[class*="tab"]:has-text("{tab_text}")',
+            f'[class*="category"]:has-text("{tab_text}")',
+        ]:
+            try:
+                el = page.locator(sel).first
+                if await el.count() > 0:
+                    await el.click(timeout=2000)
+                    await page.wait_for_timeout(1500)
+                    otc_clicked = True
+                    logger.info("_scrape_payouts_from_page: clicked OTC tab via %s", sel)
+                    break
+            except Exception:
+                continue
+        if otc_clicked:
+            break
+
+    if not otc_clicked:
+        # Search for OTC in search box
+        try:
+            search_box = await page.evaluate("""() => {
+                const el = document.querySelector('input[placeholder*="earch" i], input[placeholder*="оиск" i]');
+                if (el) { const r = el.getBoundingClientRect(); return {x: r.left + r.width/2, y: r.top + r.height/2}; }
+                return null;
+            }""")
+            if search_box:
+                await page.mouse.click(search_box['x'], search_box['y'])
+                await page.wait_for_timeout(200)
+                await page.keyboard.type("OTC")
+                await page.wait_for_timeout(1000)
+                logger.info("_scrape_payouts_from_page: typed OTC in search box")
+        except Exception as e:
+            logger.warning("_scrape_payouts_from_page: OTC search failed: %s", e)
+
+    # Extract payout data from visible DOM
+    try:
+        raw_pairs = await page.evaluate(r"""() => {
+            const results = [];
+            function parsePct(text) { const m = text.match(/(\d{2,3})\s*%/); return m ? parseInt(m[1]) : 0; }
+            function cleanName(raw) { return raw.replace(/[+%]\s*\d*/g,'').replace(/\s+/g,' ').trim(); }
+
+            // Strategy A: data-* attributes with "otc"
+            const dataAttrs = ['data-id','data-asset','data-symbol','data-value'];
+            for (const attr of dataAttrs) {
+                const items = document.querySelectorAll('[' + attr + '*="otc" i]');
+                items.forEach(item => {
+                    if (item.querySelectorAll('[' + attr + ']').length > 0) return;
+                    const rawSym = item.getAttribute(attr) || '';
+                    const nameEl = item.querySelector('[class*="name"i],[class*="title"i],[class*="label"i]');
+                    const profitEl = item.querySelector('[class*="profit"i],[class*="payout"i],[class*="percent"i],[class*="return"i]');
+                    const name = nameEl ? cleanName(nameEl.textContent) : cleanName(item.textContent.split('\n')[0]);
+                    const pct = parsePct(profitEl ? profitEl.textContent : item.textContent);
+                    if (name && pct > 0) results.push({name, pct, rawSym});
+                });
+                if (results.length > 0) break;
+            }
+
+            if (results.length > 0) return results;
+
+            // Strategy B: list rows with OTC text
+            document.querySelectorAll('li, [class*="item"], [class*="row"]').forEach(item => {
+                const text = item.textContent || '';
+                if (!text.toLowerCase().includes('otc')) return;
+                if (item.querySelectorAll('li,[class*="item"]').length > 2) return;
+                const pct = parsePct(text);
+                if (pct < 50 || pct > 99) return;
+                const nameMatch = text.match(/([A-Z]{3}[\/\s][A-Z]{3}.*?OTC)/i);
+                if (nameMatch) results.push({name: nameMatch[1].trim(), pct, rawSym: ''});
+            });
+
+            return results;
+        }""")
+
+        logger.info("_scrape_payouts_from_page: DOM scraped %d raw entries", len(raw_pairs))
+        for item in (raw_pairs or []):
+            name = item.get("name", "")
+            pct = item.get("pct", 0)
+            raw_sym = item.get("rawSym", "")
+            if pct < 50:
+                continue
+            key = _sym_key(raw_sym) if raw_sym else _sym_key(name)
+            if key:
+                result[key] = pct
+    except Exception as e:
+        logger.warning("_scrape_payouts_from_page: DOM eval failed: %s", e)
+
+    logger.info("_scrape_payouts_from_page: returning %d payouts: %s",
+                len(result), list(result.items())[:5])
+    return result
+
+
 def _parse_payouts_from_response(body, out: dict) -> None:
     """
     Recursively search a JSON body (dict or list) for asset payout data.
@@ -916,6 +1072,20 @@ async def init_monitor_ws_auth() -> bool:
                 intercepted_payouts.update(js_payouts)
         except Exception as exc:
             logger.warning("JS Vue extraction error: %s", exc)
+
+        # ── DOM panel click scraping (most reliable — worked before Railway) ──────
+        # Even if JS found some entries, DOM panel may give more accurate/complete data
+        if len(intercepted_payouts) < 5:
+            logger.info("init_monitor: running DOM panel click scraping for payouts")
+            try:
+                dom_payouts = await _scrape_payouts_from_page(page)
+                if dom_payouts:
+                    intercepted_payouts.update(dom_payouts)
+                    logger.info("init_monitor: DOM panel scraping added %d payout entries", len(dom_payouts))
+                else:
+                    logger.warning("init_monitor: DOM panel scraping returned 0 entries")
+            except Exception as exc:
+                logger.warning("init_monitor: DOM panel scraping failed: %s", exc)
 
         # Also try direct API endpoint probing with browser cookies
         API_PROBE_URLS = [
