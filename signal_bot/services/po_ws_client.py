@@ -45,6 +45,26 @@ _HISTORY_TIMEOUT = 8
 # Minimum candles required to consider a response valid
 _MIN_CANDLES = 10
 
+# Live payout cache — populated as a side-effect of every candle fetch.
+# {normalised_symbol: payout_int}  e.g. {"eurusd_otc": 82}
+# Written by _fetch_symbol(), read by get_live_payouts().
+_live_payouts: dict[str, int] = {}
+
+
+def _parse_pct_simple(v) -> int:
+    """Parse a payout value: int/float ∈ (1,100] or (0,1) → integer percent."""
+    if isinstance(v, (int, float)):
+        if 1 < v <= 100:
+            return int(round(v))
+        if 0 < v < 1:
+            return int(round(v * 100))
+    return 0
+
+
+def get_live_payouts() -> dict[str, int]:
+    """Return the latest known payout dict, populated from WS candle fetches."""
+    return dict(_live_payouts)
+
 
 def load_auth(path: Path | None = None) -> dict | None:
     """Return saved auth dict {ws_url, auth} or None if not yet captured."""
@@ -260,6 +280,70 @@ async def _handshake(
     return ping_interval
 
 
+# ── Payout capture (side-effect of candle fetch) ──────────────────────────────
+
+def _capture_payout_from_text(text: str, hint_asset: str = "") -> None:
+    """
+    Try to extract payout % from any text WS frame and store in _live_payouts.
+    Called for every text frame received during _fetch_symbol so that we capture
+    payouts as a free side-effect of the candle-fetching loop.
+    """
+    global _live_payouts
+    if not text.startswith("42"):
+        return
+    try:
+        data = json.loads(text[2:])
+    except Exception:
+        return
+    if not isinstance(data, list) or len(data) < 2:
+        return
+
+    event_name = str(data[0])
+    payload    = data[1]
+
+    # Log every new event so we know exactly what PO sends after changeSymbol
+    if not hasattr(_capture_payout_from_text, "_seen"):
+        _capture_payout_from_text._seen = set()  # type: ignore[attr-defined]
+    seen: set = _capture_payout_from_text._seen   # type: ignore[attr-defined]
+    if event_name not in seen:
+        seen.add(event_name)
+        logger.info(
+            "WS text event after changeSymbol: %r  payload_preview=%s",
+            event_name, str(payload)[:200],
+        )
+
+    # Look for payout in the payload dict
+    if not isinstance(payload, dict):
+        return
+
+    # Determine which asset this event belongs to
+    asset_key = (
+        payload.get("asset")
+        or payload.get("symbol")
+        or payload.get("id")
+        or hint_asset
+    )
+    if not asset_key:
+        return
+    asset_key = str(asset_key).lstrip("#").lower()
+    if not asset_key.endswith("_otc"):
+        asset_key += "_otc"
+
+    # Extract payout — try common field names
+    for field in ("profit", "payout", "profitability", "return", "percent",
+                  "win_rate", "winrate", "value"):
+        raw = payload.get(field)
+        if raw is None:
+            continue
+        pct = _parse_pct_simple(raw)
+        if pct > 30:
+            if _live_payouts.get(asset_key) != pct:
+                logger.info("Live payout captured: %s → %d%%  (event=%r field=%r)",
+                            asset_key, pct, event_name, field)
+            _live_payouts[asset_key] = pct
+            return
+
+
 # ── Per-symbol fetch ──────────────────────────────────────────────────────────
 
 async def _fetch_symbol(
@@ -293,7 +377,10 @@ async def _fetch_symbol(
             break
 
         kind = item[0]
-        if kind == "binary":
+        if kind == "text":
+            # Capture payout from text responses to changeSymbol (e.g. updateStream)
+            _capture_payout_from_text(item[1], asset)
+        elif kind == "binary":
             _, event_name, raw = item
             binary_frames.append((event_name, raw))
             candles = _parse_frames(binary_frames, asset)
