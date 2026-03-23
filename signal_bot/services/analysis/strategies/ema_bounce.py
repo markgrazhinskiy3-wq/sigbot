@@ -107,6 +107,24 @@ def ema_bounce_strategy(
         if 40 <= ind.rsi <= 55:
             base_conf += 3
 
+    # ── Exhaustion hard gate ──────────────────────────────────────────────────
+    # If RSI/Stoch shows extreme exhaustion in the direction of the signal,
+    # the move is already played out — block the signal immediately.
+    # SELL when RSI<25 or StochK<10 → price is oversold, bounce likely.
+    # BUY  when RSI>75 or StochK>90 → price is overbought, reversal likely.
+    if direction == "SELL" and (ind.rsi < 25 or ind.stoch_k < 10):
+        return _none(
+            f"SELL заблокирован: перепроданность (RSI={ind.rsi:.1f}, Stoch K={ind.stoch_k:.1f})",
+            {"exhaustion_block": "sell_oversold",
+             "rsi": round(ind.rsi, 1), "stoch_k": round(ind.stoch_k, 1)}
+        )
+    if direction == "BUY" and (ind.rsi > 75 or ind.stoch_k > 90):
+        return _none(
+            f"BUY заблокирован: перекупленность (RSI={ind.rsi:.1f}, Stoch K={ind.stoch_k:.1f})",
+            {"exhaustion_block": "buy_overbought",
+             "rsi": round(ind.rsi, 1), "stoch_k": round(ind.stoch_k, 1)}
+        )
+
     # ── Regime direction filter ───────────────────────────────────────────────
     # In a confirmed trend, ema_bounce should only trade WITH the trend.
     # A pullback in TRENDING_UP is a BUY opportunity, never SELL.

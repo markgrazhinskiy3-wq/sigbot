@@ -231,6 +231,15 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             if touch_count >= 3: conf += 5
             if mode == "RANGE":  conf += 5   # range bonus
             if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
+            # Precision level touch bonus: price within 0.01% of support → +10
+            # Boosts level_bounce over conflicting ema_bounce when price is exactly at level
+            dist_pct = min(
+                abs(float(close[-1]) - sup_price) / sup_price,
+                abs(float(low[-1])   - sup_price) / sup_price,
+            )
+            if dist_pct < 0.0001:  # < 0.01%
+                conf += 10
+                parts.append("Точное касание уровня (<0.01%) +10")
 
         # Always update best if this level has more conditions met
         # (so debug always shows full condition set, even below threshold)
@@ -315,6 +324,14 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             if touch_count >= 3: conf += 5
             if mode == "RANGE":  conf += 5   # range bonus
             if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
+            # Precision level touch bonus: price within 0.01% of resistance → +10
+            dist_pct = min(
+                abs(float(close[-1]) - res_price) / res_price,
+                abs(float(high[-1])  - res_price) / res_price,
+            )
+            if dist_pct < 0.0001:  # < 0.01%
+                conf += 10
+                parts.append("Точное касание уровня (<0.01%) +10")
 
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
