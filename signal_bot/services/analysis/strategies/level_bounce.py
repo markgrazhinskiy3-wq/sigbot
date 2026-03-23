@@ -33,7 +33,7 @@ class StrategyResult:
 _TOTAL        = 6
 _MIN_MET      = 4
 _CLUSTER_PCT  = 0.0003   # 0.03% — cluster radius for grouping nearby pivots
-_APPROACH_PCT = 0.0003   # 0.03% — price is "at level" within this distance
+_APPROACH_PCT = 0.0005   # 0.05% — price is "at level" within this distance
 
 
 # ── 1m level detection ────────────────────────────────────────────────────────
@@ -180,13 +180,16 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         met += 1
         parts.append(f"Уровень 1m {sup_price:.5f} ({touch_count}x)")
 
-        # 2. Price at level: low of last 2 15s candles within 0.03%
-        c2 = any(abs(float(low[-i]) - sup_price) / sup_price < _APPROACH_PCT
-                 for i in range(1, min(3, n)))
+        # 2. Price at level: close or low of last 4 15s candles within 0.05%
+        c2 = any(
+            abs(float(low[-i])   - sup_price) / sup_price < _APPROACH_PCT or
+            abs(float(close[-i]) - sup_price) / sup_price < _APPROACH_PCT
+            for i in range(1, min(5, n))
+        )
         conds["price_at_level"] = c2
         if c2:
             met += 1
-            parts.append("Цена у уровня (±0.03%)")
+            parts.append("Цена у уровня (±0.05%)")
 
         # 3. Rejection candle 15s: lower wick > 2x body
         body     = abs(float(close[-1]) - float(open_[-1]))
@@ -262,13 +265,16 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         met += 1
         parts.append(f"Сопротивление 1m {res_price:.5f} ({touch_count}x)")
 
-        # 2. Price at level: high of last 2 15s candles within 0.03%
-        c2 = any(abs(float(high[-i]) - res_price) / res_price < _APPROACH_PCT
-                 for i in range(1, min(3, n)))
+        # 2. Price at level: close or high of last 4 15s candles within 0.05%
+        c2 = any(
+            abs(float(high[-i])  - res_price) / res_price < _APPROACH_PCT or
+            abs(float(close[-i]) - res_price) / res_price < _APPROACH_PCT
+            for i in range(1, min(5, n))
+        )
         conds["price_at_level"] = c2
         if c2:
             met += 1
-            parts.append("Цена у уровня (±0.03%)")
+            parts.append("Цена у уровня (±0.05%)")
 
         # 3. Rejection candle 15s: upper wick > 2x body
         body      = abs(float(close[-1]) - float(open_[-1]))
