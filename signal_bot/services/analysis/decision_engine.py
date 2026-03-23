@@ -32,6 +32,7 @@ from .strategies   import (
     ema_bounce_strategy,
     squeeze_breakout_strategy,
     level_bounce_strategy,
+    level_breakout_strategy,
     rsi_reversal_strategy,
     micro_breakout_strategy,
     divergence_strategy,
@@ -54,31 +55,31 @@ logger = logging.getLogger(__name__)
 _MODE_STRATEGIES: dict[str, dict] = {
     # RSI Reversal removed from TRENDING and VOLATILE — counter-trend reversals
     # in a confirmed trend direction have poor reliability at 1-2 min expiry.
+    # level_breakout added: breakouts above/below 1m levels work well in trending markets.
     "TRENDING_UP": {
-        "primary":   ["ema_bounce", "squeeze_breakout"],
+        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout"],
         "secondary": ["level_bounce", "divergence"],
     },
     "TRENDING_DOWN": {
-        "primary":   ["ema_bounce", "squeeze_breakout"],
+        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout"],
         "secondary": ["level_bounce", "divergence"],
     },
     "RANGE": {
         # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
         # RSI Reversal allowed here only — range is its natural habitat
-        # squeeze_breakout + micro_breakout in secondary so they appear in debug
-        # and can fire on rare breakout setups; both self-reject if conditions unmet
+        # level_breakout in secondary — can fire on range breakouts
         "primary":   ["level_bounce", "ema_bounce"],
-        "secondary": ["divergence", "rsi_reversal", "squeeze_breakout", "micro_breakout"],
+        "secondary": ["level_breakout", "divergence", "rsi_reversal", "squeeze_breakout", "micro_breakout"],
     },
     "VOLATILE": {
         # Micro Breakout only allowed here where ATR is high enough
-        # RSI Reversal removed — volatile markets make RSI signals unreliable
-        "primary":   ["micro_breakout", "squeeze_breakout"],
+        # level_breakout primary here — volatile markets have real breakouts
+        "primary":   ["micro_breakout", "squeeze_breakout", "level_breakout"],
         "secondary": ["level_bounce", "divergence"],
     },
     "SQUEEZE": {
         "primary":   ["squeeze_breakout", "ema_bounce"],
-        "secondary": ["divergence", "rsi_reversal"],
+        "secondary": ["level_breakout", "divergence", "rsi_reversal"],
     },
 }
 
@@ -86,6 +87,7 @@ _STRATEGY_FNS = {
     "ema_bounce":       ema_bounce_strategy,
     "squeeze_breakout": squeeze_breakout_strategy,
     "level_bounce":     level_bounce_strategy,
+    "level_breakout":   level_breakout_strategy,
     "rsi_reversal":     rsi_reversal_strategy,
     "micro_breakout":   micro_breakout_strategy,
     "divergence":       divergence_strategy,
@@ -244,8 +246,10 @@ def run_decision_engine(
             try:
                 kwargs = dict(df=df1m, ind=ind, levels=levels,
                               ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
-                if name in ("level_bounce", "divergence"):
+                if name in ("level_bounce", "level_breakout", "divergence"):
                     kwargs["mode"] = mode_obj.mode
+                if name in ("level_bounce", "level_breakout"):
+                    kwargs["df1m_ctx"] = df1m_ctx
                 res = fn(**kwargs)
             except Exception as e:
                 logger.warning("Strategy %s failed: %s", name, e)
@@ -479,7 +483,7 @@ def run_decision_engine(
 
 def _pick_expiry(strategy: str, quality: str) -> str:
     """Bounce/breakout → 1m, trend-follow → 2m."""
-    if strategy in ("level_bounce", "rsi_reversal", "divergence", "ema_bounce"):
+    if strategy in ("level_bounce", "level_breakout", "rsi_reversal", "divergence", "ema_bounce"):
         return "1m"
     if strategy in ("squeeze_breakout", "micro_breakout"):
         return "1m"

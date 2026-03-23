@@ -16,6 +16,7 @@ ALL_STRATEGIES = [
     "ema_bounce",
     "squeeze_breakout",
     "level_bounce",
+    "level_breakout",
     "rsi_reversal",
     "micro_breakout",
     "divergence",

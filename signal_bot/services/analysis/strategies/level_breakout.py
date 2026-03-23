@@ -1,0 +1,237 @@
+"""
+Strategy 7 — Level Breakout (1m levels + 15s entry)
+
+STEP 1: Find levels on 1m candles (need 3+ touches for breakout validity).
+STEP 2: Detect breakout close on 15s candles + momentum confirmation.
+
+Need 4 of 6 conditions. Base confidence: 40 + (met-4)*10.
+"""
+from __future__ import annotations
+import numpy as np
+import pandas as pd
+from dataclasses import dataclass
+from ..indicators import Indicators
+from ..levels import LevelSet
+from .level_bounce import find_1m_levels
+
+
+@dataclass
+class StrategyResult:
+    direction: str
+    confidence: float
+    conditions_met: int
+    total_conditions: int
+    strategy_name: str
+    reasoning: str
+    debug: dict
+
+
+_TOTAL   = 6
+_MIN_MET = 4
+
+
+def level_breakout_strategy(
+    df: pd.DataFrame,                       # 15s candles (entry timing)
+    ind: Indicators,
+    levels: LevelSet,                       # kept for API compatibility
+    df1m_ctx: pd.DataFrame | None = None,   # 1m candles (level detection)
+    ctx_trend_up: bool = False,
+    ctx_trend_down: bool = False,
+    mode: str = "RANGE",
+) -> StrategyResult:
+    if df1m_ctx is None or len(df1m_ctx) < 10:
+        return _none("Нет 1m данных", {"early_reject": "no_1m_data"})
+
+    n = len(df)
+    if n < 6:
+        return _none("Мало 15s данных", {"early_reject": "n<6"})
+
+    # Breakout needs at least moderate volatility
+    if ind.atr_ratio < 0.40:
+        return _none("ATR слишком мал для пробоя",
+                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.40"})
+
+    close  = df["close"].values
+    open_  = df["open"].values
+    high   = df["high"].values
+    low    = df["low"].values
+    price  = float(close[-1])
+    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+
+    # STEP 1 — find 1m levels
+    sup_levels, res_levels = find_1m_levels(df1m_ctx)
+
+    # STEP 2 — evaluate breakouts
+    best_buy  = _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
+                                   ind, res_levels, mode)
+    best_sell = _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
+                                    ind, sup_levels, mode)
+
+    direction      = "NONE"
+    conditions_met = 0
+    base_conf      = 0.0
+    reason         = "Нет пробоя уровня"
+
+    if best_buy["met"] >= _MIN_MET and best_buy["conf"] > best_sell["conf"]:
+        direction      = "BUY"
+        conditions_met = best_buy["met"]
+        base_conf      = best_buy["conf"]
+        reason         = best_buy["reason"]
+    elif best_sell["met"] >= _MIN_MET and best_sell["conf"] > best_buy["conf"]:
+        direction      = "SELL"
+        conditions_met = best_sell["met"]
+        base_conf      = best_sell["conf"]
+        reason         = best_sell["reason"]
+
+    return StrategyResult(
+        direction=direction,
+        confidence=min(100.0, base_conf),
+        conditions_met=conditions_met,
+        total_conditions=_TOTAL,
+        strategy_name="level_breakout",
+        reasoning=reason,
+        debug={
+            "buy_score":       best_buy["conf"],
+            "sell_score":      best_sell["conf"],
+            "buy_conditions":  best_buy["conds"],
+            "sell_conditions": best_sell["conds"],
+            "buy_met":         best_buy["met"],
+            "sell_met":        best_sell["met"],
+            "sup_levels_1m":   [(round(p, 5), t) for p, t in sup_levels[:5]],
+            "res_levels_1m":   [(round(p, 5), t) for p, t in res_levels[:5]],
+        }
+    )
+
+
+# ── BUY: breakout above 1m resistance ────────────────────────────────────────
+
+def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
+                       ind, res_levels, mode) -> dict:
+    best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
+
+    for res_price, touch_count in res_levels[:5]:
+        if touch_count < 3:
+            continue  # need 3+ touches for a breakout-worthy level
+
+        conds: dict[str, bool] = {}
+        met   = 0
+        parts: list[str] = []
+
+        # 1. tested_level: 3+ touches on 1m chart
+        c1 = True
+        conds["tested_level"] = c1
+        met += 1; parts.append(f"Протестированное сопр. {res_price:.5f} ({touch_count}x)")
+
+        # 2. close_beyond: 15s close ABOVE resistance
+        c2 = float(close[-1]) > res_price
+        conds["close_beyond"] = c2
+        if c2:
+            met += 1; parts.append(f"Закрылась выше {res_price:.5f}")
+        else:
+            continue  # must have closed beyond level
+
+        # 3. momentum_candle: bullish body > 1.5x avg
+        body = abs(float(close[-1]) - float(open_[-1]))
+        c3 = body > avg_body * 1.5 and float(close[-1]) > float(open_[-1])
+        conds["momentum_candle"] = c3
+        if c3:
+            met += 1; parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+
+        # 4. follow_through: previous 15s candle also bullish
+        c4 = n >= 2 and float(close[-2]) > float(open_[-2])
+        conds["follow_through"] = c4
+        if c4:
+            met += 1; parts.append("Продолжение (пред. свеча бычья)")
+
+        # 5. ema_aligned: 15s EMA5 > EMA13 (momentum supports direction)
+        c5 = ind.ema5 > ind.ema13
+        conds["ema_aligned"] = c5
+        if c5:
+            met += 1; parts.append("EMA вверх")
+
+        # 6. not_exhausted: RSI 35-65 (room to move, not overbought)
+        c6 = 35 <= ind.rsi <= 65
+        conds["not_exhausted"] = c6
+        if c6:
+            met += 1; parts.append(f"RSI в норме ({ind.rsi:.0f})")
+
+        if met < _MIN_MET:
+            continue
+
+        conf = 40 + max(0, met - 4) * 10
+        if touch_count >= 4: conf += 5  # extra-tested level bonus
+
+        if conf > best["conf"]:
+            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+
+    return best
+
+
+# ── SELL: breakout below 1m support ──────────────────────────────────────────
+
+def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
+                        ind, sup_levels, mode) -> dict:
+    best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
+
+    for sup_price, touch_count in sup_levels[:5]:
+        if touch_count < 3:
+            continue
+
+        conds: dict[str, bool] = {}
+        met   = 0
+        parts: list[str] = []
+
+        # 1. tested_level: 3+ touches
+        c1 = True
+        conds["tested_level"] = c1
+        met += 1; parts.append(f"Протестированная пд. {sup_price:.5f} ({touch_count}x)")
+
+        # 2. close_beyond: 15s close BELOW support
+        c2 = float(close[-1]) < sup_price
+        conds["close_beyond"] = c2
+        if c2:
+            met += 1; parts.append(f"Закрылась ниже {sup_price:.5f}")
+        else:
+            continue
+
+        # 3. momentum_candle: bearish body > 1.5x avg
+        body = abs(float(close[-1]) - float(open_[-1]))
+        c3 = body > avg_body * 1.5 and float(close[-1]) < float(open_[-1])
+        conds["momentum_candle"] = c3
+        if c3:
+            met += 1; parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+
+        # 4. follow_through: previous 15s candle also bearish
+        c4 = n >= 2 and float(close[-2]) < float(open_[-2])
+        conds["follow_through"] = c4
+        if c4:
+            met += 1; parts.append("Продолжение (пред. свеча медвежья)")
+
+        # 5. ema_aligned: 15s EMA5 < EMA13
+        c5 = ind.ema5 < ind.ema13
+        conds["ema_aligned"] = c5
+        if c5:
+            met += 1; parts.append("EMA вниз")
+
+        # 6. not_exhausted: RSI 35-65
+        c6 = 35 <= ind.rsi <= 65
+        conds["not_exhausted"] = c6
+        if c6:
+            met += 1; parts.append(f"RSI в норме ({ind.rsi:.0f})")
+
+        if met < _MIN_MET:
+            continue
+
+        conf = 40 + max(0, met - 4) * 10
+        if touch_count >= 4: conf += 5
+
+        if conf > best["conf"]:
+            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+
+    return best
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _none(reason: str, extra: dict | None = None) -> StrategyResult:
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "level_breakout", reason, extra or {})
