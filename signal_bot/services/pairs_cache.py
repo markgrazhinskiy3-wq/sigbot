@@ -1,7 +1,6 @@
 """
-In-memory cache for available OTC pairs with payout percentages.
-Refreshes automatically every CACHE_TTL_SEC seconds.
-Falls back to the static config.OTC_PAIRS list if the browser fetch fails.
+In-memory cache for available OTC pairs.
+Returns pairs from config instantly — no browser scraping, no payout display.
 """
 import asyncio
 import logging
@@ -13,25 +12,26 @@ import config
 
 logger = logging.getLogger(__name__)
 
-CACHE_TTL_SEC = 15 * 60   # 15 minutes
-MIN_PAYOUT    = 80        # only show pairs with payout >= this (recommended pairs threshold)
+CACHE_TTL_SEC = 60 * 60   # 1 hour (irrelevant since we use static config)
+MIN_PAYOUT    = 0          # no payout filtering — show all config pairs
 
 _cache: list[dict] = []
 _cache_ts: float   = 0.0
 _lock = asyncio.Lock()
 
 
-def _fallback_pairs() -> list[dict]:
-    """Return static config pairs — used when browser fetch fails.
-    Uses payout from config if present, so the UI always shows a %.
-    """
+def _build_pairs() -> list[dict]:
+    """Build pairs list from config — no browser needed, instant."""
     result = []
     for p in config.OTC_PAIRS:
-        payout = p.get("payout", 0)
-        label  = p["label"]
-        if payout > 0 and "%" not in label:
-            label = f"{label} | {payout}%"
-        result.append({"label": label, "symbol": p["symbol"], "payout": payout, "name": p["label"]})
+        payout = p.get("payout", 82)
+        name   = p["label"]
+        result.append({
+            "label":  name,   # clean label, no % shown
+            "symbol": p["symbol"],
+            "payout": payout,
+            "name":   name,
+        })
     return result
 
 
@@ -40,146 +40,22 @@ def is_fresh() -> bool:
 
 
 def get_cached() -> list[dict]:
-    """Return cached pairs or fallback (never empty so keyboard always renders)."""
-    return _cache if _cache else _fallback_pairs()
+    """Return cached pairs — always non-empty."""
+    if not _cache:
+        return _build_pairs()
+    return _cache
 
 
 async def refresh(force: bool = False) -> list[dict]:
-    """
-    Fetch live OTC pairs from PocketOption.
-    Thread-safe — concurrent callers wait on the lock and reuse the result.
-    Returns the updated (or cached) pairs list.
-
-    Strategy:
-      1. Browser scraping (Strategy 0/1/2/3 inside pocket_browser)
-      2. Direct WS payout fetch — connect via the same auth credentials the
-         candle fetcher uses, drain events and parse payout fields
-      3. Static fallback from config (shows estimate payouts)
-    """
+    """Return OTC pairs from config instantly."""
     global _cache, _cache_ts
 
     async with _lock:
         if not force and is_fresh():
             return _cache
 
-        logger.info("Refreshing OTC pairs cache (force=%s)…", force)
-
-        # ── Strategy 0: live payouts from po_payouts.json (captured by browser) ──
-        # File is written by init_monitor_ws_auth() which runs in a known-working
-        # browser session on Railway. Fresh if < 6 hours old.
-        pairs: list[dict] = []
-        try:
-            from services.pocket_browser import load_live_payouts
-            file_payouts = load_live_payouts(max_age_hours=6.0)
-            if file_payouts:
-                file_pairs: list[dict] = []
-                for p in config.OTC_PAIRS:
-                    sym_key = p["symbol"].lstrip("#").lower().replace("_", "").replace("/", "")
-                    # Try multiple key variants: eurusd_otc, eurusdotc, #eurusd_otc
-                    payout = (
-                        file_payouts.get(sym_key)
-                        or file_payouts.get(p["symbol"].lstrip("#").lower())
-                        or file_payouts.get(p["symbol"].lower())
-                        or p.get("payout", 0)
-                    )
-                    if payout >= MIN_PAYOUT:
-                        name  = p["label"]
-                        label = f"{name} | {payout}%"
-                        file_pairs.append({"label": label, "symbol": p["symbol"], "payout": payout, "name": name})
-                file_pairs.sort(key=lambda x: -x["payout"])
-                if file_pairs:
-                    logger.info("Strategy 0 (po_payouts.json): %d pairs with live payouts", len(file_pairs))
-                    pairs = file_pairs
-        except Exception as e:
-            logger.warning("Strategy 0 (po_payouts.json) error: %s", e)
-
-        # ── Strategy 0b: live payouts captured from candle-fetch WS frames ───────
-        if not pairs:
-            try:
-                from services.po_ws_client import get_live_payouts
-                live = get_live_payouts()
-                if live:
-                    live_pairs: list[dict] = []
-                    for p in config.OTC_PAIRS:
-                        sym_key = p["symbol"].lstrip("#").lower()
-                        payout = live.get(sym_key, p.get("payout", 0))
-                        if payout >= MIN_PAYOUT:
-                            name  = p["label"]
-                            label = f"{name} | {payout}%"
-                            live_pairs.append({
-                                "label":  label,
-                                "symbol": p["symbol"],
-                                "payout": payout,
-                                "name":   name,
-                            })
-                    live_pairs.sort(key=lambda x: -x["payout"])
-                    if live_pairs:
-                        logger.info(
-                            "Strategy 0b (live WS payouts): %d pairs. "
-                            "Payload keys seen: %s",
-                            len(live_pairs), list(live)[:5],
-                        )
-                        pairs = live_pairs
-                    else:
-                        logger.warning(
-                            "Strategy 0b: live payout map has %d entries but none "
-                            "passed min_payout=%d. Keys: %s",
-                            len(live), MIN_PAYOUT, list(live)[:10],
-                        )
-            except Exception as e:
-                logger.warning("Strategy 0b (live payouts) error: %s", e)
-
-        # ── Strategy 1: browser scraping ─────────────────────────────────────
-        if not pairs:
-            try:
-                from services.pocket_browser import get_available_otc_pairs
-                pairs = await get_available_otc_pairs(min_payout=MIN_PAYOUT)
-            except Exception as e:
-                logger.warning("OTC pairs browser fetch failed: %s", e)
-
-        # ── Strategy 2: direct WS payout fetch ───────────────────────────────
-        if not pairs:
-            logger.info("Browser scraping returned nothing — trying direct WS payout fetch…")
-            try:
-                from services.po_ws_client import fetch_asset_payouts
-                payout_map = await fetch_asset_payouts(timeout=12.0)
-                if payout_map:
-                    # Build pairs list: use config symbols, substitute live payouts
-                    ws_pairs: list[dict] = []
-                    for p in config.OTC_PAIRS:
-                        sym_key = p["symbol"].lstrip("#").lower()
-                        payout = payout_map.get(sym_key, p.get("payout", 0))
-                        if payout >= MIN_PAYOUT:
-                            name   = p["label"]
-                            label  = f"{name} | {payout}%"
-                            ws_pairs.append({
-                                "label":  label,
-                                "symbol": p["symbol"],
-                                "payout": payout,
-                                "name":   name,
-                            })
-                    ws_pairs.sort(key=lambda x: -x["payout"])
-                    if ws_pairs:
-                        logger.info("WS payout fetch yielded %d pairs", len(ws_pairs))
-                        pairs = ws_pairs
-                    else:
-                        logger.warning(
-                            "WS payout fetch ran but no pairs passed min_payout=%d. "
-                            "payout_map keys: %s", MIN_PAYOUT, list(payout_map)[:10],
-                        )
-                else:
-                    logger.warning("WS payout fetch returned empty dict")
-            except Exception as e:
-                logger.warning("WS payout fetch failed: %s", e)
-
-        # ── Update cache or keep previous / fallback ──────────────────────────
-        if pairs:
-            _cache    = pairs
-            _cache_ts = time.time()
-            logger.info("Pairs cache updated: %d pairs", len(pairs))
-        else:
-            logger.warning("All payout strategies failed — keeping previous cache or config fallback")
-            if not _cache:
-                _cache = _fallback_pairs()
-
+        pairs = _build_pairs()
+        _cache    = pairs
+        _cache_ts = time.time()
+        logger.info("Pairs cache loaded: %d pairs from config", len(pairs))
         return _cache

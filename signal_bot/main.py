@@ -119,46 +119,30 @@ async def main() -> None:
 
     logger.info("Starting Pocket Option Signal Bot")
 
-    # Fetch live OTC pairs from PocketOption (payout ≥ 82% for recommended, ≥ 85% for manual list).
-    # This runs BEFORE candle warm-up so the refresher gets the real list.
-    # Falls back to config.OTC_PAIRS automatically if browser fetch fails.
-    logger.info("Fetching live OTC pairs from PocketOption (payout ≥ 82%%)...")
-    try:
-        live_pairs = await pairs_cache.refresh(force=True)
-        logger.info("Live pairs loaded: %d pairs", len(live_pairs))
-    except Exception as e:
-        logger.warning("Could not fetch live pairs, using static config: %s", e)
-        live_pairs = None   # start_refresher will fall back to config.OTC_PAIRS
+    # Load OTC pairs instantly from config (no browser needed)
+    live_pairs = await pairs_cache.refresh(force=True)
+    logger.info("OTC pairs loaded: %d pairs", len(live_pairs))
 
-    # Start candle cache — warms up all live pairs in background so signal
-    # requests are served instantly from cache instead of opening a browser per user.
+    # Start candle cache — warms up all pairs in background
     start_refresher(pairs=live_pairs)
 
-    # Initialise secondary account WS auth for real-time monitoring.
-    # After it completes, refresh pairs cache so live payouts get picked up.
-    async def _init_monitor_then_refresh():
-        # Wait for background playwright install to finish before launching browser
+    # Initialise WS auth for real-time monitoring (background, non-blocking)
+    async def _init_monitor():
         if _pw_install_proc is not None:
             try:
                 await asyncio.get_event_loop().run_in_executor(None, _pw_install_proc.wait)
-                stdout = _pw_install_proc.stdout.read() if _pw_install_proc.stdout else b""
-                stderr = _pw_install_proc.stderr.read() if _pw_install_proc.stderr else b""
                 rc = _pw_install_proc.returncode
                 if rc == 0:
-                    logger.info("Playwright chromium browsers ready (install complete)")
+                    logger.info("Playwright chromium ready")
                 else:
-                    logger.warning("playwright install chromium exited %d: %s", rc, stderr.decode()[:200])
+                    stderr = _pw_install_proc.stderr.read() if _pw_install_proc.stderr else b""
+                    logger.warning("playwright install exited %d: %s", rc, stderr.decode()[:200])
             except Exception as e:
                 logger.warning("Could not wait for playwright install: %s", e)
         await init_monitor_ws_auth()
-        logger.info("Monitor auth done — re-refreshing pairs cache with live payouts…")
-        try:
-            await pairs_cache.refresh(force=True)
-            logger.info("Pairs cache re-refreshed after monitor auth: %d pairs", len(pairs_cache.get_cached()))
-        except Exception as e:
-            logger.warning("Post-monitor pairs refresh failed: %s", e)
+        logger.info("Monitor WS auth done")
 
-    asyncio.create_task(_init_monitor_then_refresh())
+    asyncio.create_task(_init_monitor())
 
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,
