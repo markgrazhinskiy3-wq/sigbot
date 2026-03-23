@@ -39,12 +39,9 @@ from .strategies   import (
 
 # Strategy adaptation — optional import, falls back gracefully if unavailable
 try:
-    from services.strategy_adaptation import is_strategy_enabled, get_confidence_multiplier as _get_multiplier
-    _ADAPTATION_AVAILABLE = True
+    from services.strategy_adaptation import is_strategy_enabled
 except ImportError:
     def is_strategy_enabled(name: str) -> bool: return True       # type: ignore[misc]
-    def _get_multiplier(name: str) -> float: return 1.0           # type: ignore[misc]
-    _ADAPTATION_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -254,10 +251,6 @@ def run_decision_engine(
                 logger.warning("Strategy %s failed: %s", name, e)
                 continue
 
-            multiplier = _get_multiplier(name)
-            if multiplier != 1.0:
-                res.confidence = res.confidence * multiplier
-
             pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
             # Pull per-condition breakdown from strategy debug
             # Direction that fired determines which side's conditions to show
@@ -278,7 +271,6 @@ def run_decision_engine(
                 "conditions_met": res.conditions_met,
                 "total": res.total_conditions,
                 "pct": round(pct * 100),
-                "adaptation_multiplier": multiplier,
                 "tier": "primary" if name in routing["primary"] else "secondary",
                 "early_reject": res.debug.get("early_reject"),
                 "conditions": conds,
