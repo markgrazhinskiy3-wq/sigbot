@@ -1,0 +1,86 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/f9833074-d8a0-49b7-b3d9-e3b0323c9b3b/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-03-23 22:21:09,336 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-03-23 22:21:09,336 [INFO] __main__: Initializing strategy adaptation module...
+2026-03-23 22:21:09,336 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-03-23 22:21:09,335 [INFO] __main__: Loading admin cache...
+2026-03-23 22:21:09,336 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-03-23 22:21:09,333 [INFO] __main__: Initializing Signal Bot database...
+2026-03-23 22:21:09,335 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-03-23 22:21:09,942 [INFO] services.po_ws_client: HTTP polling handshake: status=200 body=0{"sid":"iwZCiY39gn7NttYgPr2-","upgrades":["websocket"],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}
+2026-03-23 22:21:09,942 [INFO] services.po_ws_client: HTTP polling: got sid=iwZCiY39gn7NttYgPr2-
+2026-03-23 22:21:10,233 [INFO] services.po_ws_client: HTTP polling CONNECT ACK: {"code":1,"message":"Session ID unknown"}
+2026-03-23 22:21:15,676 [INFO] services.po_ws_client: fetch_payouts_http_polling done — 0 events seen, 0 payouts found
+2026-03-23 22:21:15,676 [INFO] services.pairs_cache: No live payout data yet — showing all 24 config pairs
+2026-03-23 22:21:15,676 [INFO] __main__: OTC pairs loaded: 24 pairs
+2026-03-23 22:21:15,676 [INFO] services.candle_cache: Cache refresher task created for 24 pairs.
+2026-03-23 22:21:15,933 [INFO] services.candle_cache: Candle cache refresher started — 24 pairs, TTL=90s, interval=45s
+2026-03-23 22:21:15,934 [INFO] services.candle_cache: Initial cache warm-up via WS (24 pairs)...
+2026-03-23 22:21:16,761 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-03-23 22:21:16,758 [INFO] __main__: Bot command menu registered (4 user + 17 admin commands)
+2026-03-23 22:21:16,758 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-03-23 22:21:16,759 [INFO] aiogram.dispatcher: Start polling
+2026-03-23 22:21:16,903 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'signal test'
+2026-03-23 22:21:17,019 [INFO] services.po_ws_client: WS handshake binary event: 'updateAssets'  raw_len=41931  hex_preview=5b5b352c22234141504c222c224170706c65222c2273746f636b222c322c3530
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: updateAssets parsed: 25 total assets, 12 OTC pairs with payouts
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: OTC payouts from updateAssets: {'aapl_otc': 92, 'axp_otc': 92, 'ba_otc': 65, 'csco_otc': 67, 'fb_otc': 92, 'intc_otc': 92, 'jnj_otc': 56, 'mcd_otc': 92, 'msft_otc': 92, 'pfe_otc': 50, 'tsla_otc': 92, 'xom_otc': 80}
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'successauth'  raw_len=29  hex_preview=7b226964223a22416a5f6f564e4e735853385a56333456506d705f227d
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'successupdatePending'  raw_len=2  hex_preview=5b5d
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'updateOpenedDeals'  raw_len=2  hex_preview=5b5d
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'successupdateBalance'  raw_len=31  hex_preview=7b22697344656d6f223a312c2262616c616e6365223a35333136302e32347d
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'updateCharts'  raw_len=496  hex_preview=5b7b2263686172745f6964223a2263686172742d31222c2273657474696e6773
+2026-03-23 22:21:17,020 [INFO] services.po_ws_client: WS handshake binary event: 'updateClosedDeals'  raw_len=2  hex_preview=5b5d
+2026-03-23 22:21:17,160 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-03-23 22:21:17,161 [INFO] __main__: Monitor WS auth done
+2026-03-23 22:21:17,160 [INFO] __main__: Playwright chromium ready
+2026-03-23 22:21:18,021 [INFO] services.po_ws_client: Direct WS: authenticated (uid=86535816) — handshake drained 7 events, 25 payouts captured
+2026-03-23 22:21:18,429 [INFO] services.pocket_browser: Parsed 55 candles from EURJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:18,429 [INFO] services.po_ws_client: Direct WS: #EURJPY_otc → 55 candles
+2026-03-23 22:21:18,181 [INFO] services.pocket_browser: Parsed 54 candles from EURUSD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:18,181 [INFO] services.po_ws_client: Direct WS: #EURUSD_otc → 54 candles
+2026-03-23 22:21:18,589 [INFO] services.pocket_browser: Parsed 54 candles from GBPJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:18,589 [INFO] services.po_ws_client: Direct WS: #GBPJPY_otc → 54 candles
+2026-03-23 22:21:18,748 [INFO] services.pocket_browser: Parsed 55 candles from AUDUSD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:18,748 [INFO] services.po_ws_client: Direct WS: #AUDUSD_otc → 55 candles
+2026-03-23 22:21:18,907 [INFO] services.pocket_browser: Parsed 55 candles from AUDCAD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:18,907 [INFO] services.po_ws_client: Direct WS: #AUDCAD_otc → 55 candles
+2026-03-23 22:21:19,066 [INFO] services.pocket_browser: Parsed 54 candles from AUDNZD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,066 [INFO] services.po_ws_client: Direct WS: #AUDNZD_otc → 54 candles
+2026-03-23 22:21:19,225 [INFO] services.pocket_browser: Parsed 55 candles from CADCHF_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,225 [INFO] services.po_ws_client: Direct WS: #CADCHF_otc → 55 candles
+2026-03-23 22:21:19,384 [INFO] services.pocket_browser: Parsed 54 candles from AEDCNY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,384 [INFO] services.po_ws_client: Direct WS: #AEDCNY_otc → 54 candles
+2026-03-23 22:21:19,576 [INFO] services.pocket_browser: Parsed 54 candles from BHDCNY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,576 [INFO] services.po_ws_client: Direct WS: #BHDCNY_otc → 54 candles
+2026-03-23 22:21:19,735 [INFO] services.pocket_browser: Parsed 55 candles from CADJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,735 [INFO] services.po_ws_client: Direct WS: #CADJPY_otc → 55 candles
+2026-03-23 22:21:19,894 [INFO] services.pocket_browser: Parsed 55 candles from EURCHF_otc history (updateHistoryNewFast)
+2026-03-23 22:21:19,894 [INFO] services.po_ws_client: Direct WS: #EURCHF_otc → 55 candles
+2026-03-23 22:21:20,057 [INFO] services.pocket_browser: Parsed 54 candles from GBPAUD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,057 [INFO] services.po_ws_client: Direct WS: #GBPAUD_otc → 54 candles
+2026-03-23 22:21:20,375 [INFO] services.po_ws_client: Direct WS: #GBPUSD_otc → 54 candles
+2026-03-23 22:21:20,214 [INFO] services.pocket_browser: Parsed 53 candles from KESUSD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,214 [INFO] services.po_ws_client: Direct WS: #KESUSD_otc → 53 candles
+2026-03-23 22:21:20,374 [INFO] services.pocket_browser: Parsed 54 candles from GBPUSD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,559 [INFO] services.pocket_browser: Parsed 54 candles from USDJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,559 [INFO] services.po_ws_client: Direct WS: #USDJPY_otc → 54 candles
+2026-03-23 22:21:20,718 [INFO] services.pocket_browser: Parsed 54 candles from USDCAD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,718 [INFO] services.po_ws_client: Direct WS: #USDCAD_otc → 54 candles
+2026-03-23 22:21:20,877 [INFO] services.pocket_browser: Parsed 54 candles from USDCHF_otc history (updateHistoryNewFast)
+2026-03-23 22:21:20,877 [INFO] services.po_ws_client: Direct WS: #USDCHF_otc → 54 candles
+2026-03-23 22:21:21,086 [INFO] services.pocket_browser: Parsed 54 candles from NZDUSD_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,086 [INFO] services.po_ws_client: Direct WS: #NZDUSD_otc → 54 candles
+2026-03-23 22:21:21,450 [INFO] services.po_ws_client: Direct WS: #AUDJPY_otc → 54 candles
+2026-03-23 22:21:21,246 [INFO] services.pocket_browser: Parsed 55 candles from EURGBP_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,247 [INFO] services.po_ws_client: Direct WS: #EURGBP_otc → 55 candles
+2026-03-23 22:21:21,450 [INFO] services.pocket_browser: Parsed 54 candles from AUDJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,609 [INFO] services.pocket_browser: Parsed 54 candles from AUDCHF_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,609 [INFO] services.po_ws_client: Direct WS: #AUDCHF_otc → 54 candles
+2026-03-23 22:21:21,768 [INFO] services.pocket_browser: Parsed 54 candles from NZDJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,768 [INFO] services.po_ws_client: Direct WS: #NZDJPY_otc → 54 candles
+2026-03-23 22:21:21,927 [INFO] services.pocket_browser: Parsed 55 candles from CHFJPY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:21,927 [INFO] services.po_ws_client: Direct WS: #CHFJPY_otc → 55 candles
+2026-03-23 22:21:22,087 [INFO] services.pocket_browser: Parsed 55 candles from EURTRY_otc history (updateHistoryNewFast)
+2026-03-23 22:21:22,087 [INFO] services.po_ws_client: Direct WS: #EURTRY_otc → 55 candles
+2026-03-23 22:21:22,087 [INFO] services.candle_cache: Cache warm-up complete (24/24 pairs). WS auth available: True
