@@ -49,6 +49,7 @@ _MIN_CANDLES = 10
 # {normalised_symbol: payout_int}  e.g. {"eurusd_otc": 82}
 # Written by _fetch_symbol(), read by get_live_payouts().
 _live_payouts: dict[str, int] = {}
+_seen_fetch_binary_events: set[str] = set()  # tracks non-candle event names seen in _fetch_symbol
 
 
 def _parse_pct_simple(v) -> int:
@@ -508,6 +509,20 @@ async def _fetch_symbol(
             _capture_payout_from_text(item[1], asset)
         elif kind == "binary":
             _, event_name, raw = item
+            # Log non-candle binary events — they may contain payout data for forex OTC
+            if event_name and event_name != "updateHistoryNewFast":
+                if event_name not in _seen_fetch_binary_events:
+                    _seen_fetch_binary_events.add(event_name)
+                    logger.info(
+                        "_fetch_symbol(%s): non-candle binary event %r len=%d  preview=%s",
+                        asset, event_name, len(raw), raw[:60],
+                    )
+                    # Try JSON decode — might contain payout
+                    try:
+                        obj = json.loads(raw.decode("utf-8"))
+                        logger.info("  → decoded as JSON: %s", str(obj)[:300])
+                    except Exception:
+                        pass
             binary_frames.append((event_name, raw))
             candles = _parse_frames(binary_frames, asset)
             if len(candles) >= _MIN_CANDLES:
