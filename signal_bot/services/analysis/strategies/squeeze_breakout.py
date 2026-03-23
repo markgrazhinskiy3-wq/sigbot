@@ -106,6 +106,14 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     parts = []
     conds: dict[str, bool] = {}
 
+    # 0. Exhaustion guard — RSI < 70 AND Stoch K < 85
+    #    If already overbought the breakout move is exhausted; skip immediately.
+    c0 = ind.rsi < 70 and ind.stoch_k < 85
+    conds["not_exhausted"] = c0
+    if not c0:
+        parts.append(f"Перекупленность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск")
+        return 0, parts, conds
+
     # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
     c1 = ind.atr_ratio < 0.85
     conds["atr_compressed"] = c1
@@ -166,6 +174,14 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
     met = 0
     parts = []
     conds: dict[str, bool] = {}
+
+    # 0. Exhaustion guard — RSI > 30 AND Stoch K > 15
+    #    If already oversold the breakdown move is exhausted; skip immediately.
+    c0 = ind.rsi > 30 and ind.stoch_k > 15
+    conds["not_exhausted"] = c0
+    if not c0:
+        parts.append(f"Перепроданность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск")
+        return 0, parts, conds
 
     # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
     c1 = ind.atr_ratio < 0.85
