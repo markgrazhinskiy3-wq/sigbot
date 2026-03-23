@@ -605,6 +605,31 @@ async def cmd_debug(message: Message) -> None:
             await message.answer("\n".join(chunk), parse_mode="HTML")
 
 
+# ─── /pairsinfo — show pairs cache with payout (admin only) ─────────────────
+
+@router.message(Command("pairsinfo"))
+async def cmd_pairsinfo(message: Message) -> None:
+    """Show the current pairs cache with payout % for debugging."""
+    if not _is_primary_admin(message.from_user.id):
+        return
+
+    cached = pairs_cache.get_cached()
+    is_live = pairs_cache.is_fresh()
+
+    lines = [
+        f"📊 <b>Кэш пар</b> ({'живые данные' if is_live else 'fallback из конфига'})\n",
+    ]
+    for p in cached:
+        payout = _extract_payout(p)
+        sym    = p.get("symbol", "?")
+        name   = p.get("name") or p.get("label", "?").split("|")[0].strip()
+        payout_str = f"  →  <b>{payout}%</b>" if payout > 0 else "  →  нет данных"
+        lines.append(f"• <code>{sym}</code>  {name}{payout_str}")
+
+    lines.append(f"\nВсего: {len(cached)} пар")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 # ─── Callback handlers ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("admin:approve:"))
@@ -938,6 +963,17 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 # ─── Recommended pairs ───────────────────────────────────────────────────────
 
 
+def _extract_payout(p: dict) -> int:
+    """Extract payout % from pair dict: use 'payout' field, or parse from label 'Name | 82%'."""
+    import re as _re
+    payout = int(p.get("payout") or 0)
+    if payout == 0:
+        m = _re.search(r'\|\s*(\d+)\s*%', p.get("label", ""))
+        if m:
+            payout = int(m.group(1))
+    return payout
+
+
 def _build_pairs_map() -> tuple[dict[str, str], dict[str, int]]:
     """Return (pairs_map, payout_map) built from the live cache + config fallback."""
     pairs_map:  dict[str, str] = {}
@@ -945,7 +981,7 @@ def _build_pairs_map() -> tuple[dict[str, str], dict[str, int]]:
     for p in pairs_cache.get_cached():
         sym = p["symbol"]
         pairs_map[sym]  = p.get("name") or p["label"].split("|")[0].strip()
-        payout_map[sym] = int(p.get("payout") or 0)
+        payout_map[sym] = _extract_payout(p)
     for p in config.OTC_PAIRS:
         if p["symbol"] not in pairs_map:
             pairs_map[p["symbol"]] = p["label"]
