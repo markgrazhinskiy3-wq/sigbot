@@ -321,27 +321,40 @@ def run_decision_engine(
     # ── Pick best candidate ────────────────────────────────────────────────────
     best = max(candidates, key=lambda r: r.confidence)
 
-    # If two strategies disagree on direction → discard conflicting, use majority
+    # If two strategies disagree on direction → pick by confidence, then by priority
+    _STRATEGY_PRIORITY = {
+        "level_bounce":    1,
+        "level_breakout":  2,
+        "ema_bounce":      3,
+        "squeeze_breakout": 4,
+    }
+
     buy_cands  = [r for r in candidates if r.direction == "BUY"]
     sell_cands = [r for r in candidates if r.direction == "SELL"]
     if buy_cands and sell_cands:
-        # Conflicting strategies — pick whichever direction is stronger
         best_buy  = max(buy_cands,  key=lambda r: r.confidence)
         best_sell = max(sell_cands, key=lambda r: r.confidence)
         if abs(best_buy.confidence - best_sell.confidence) < 6:
-            # Too close — skip
-            return _no_signal(
-                "Противоречие стратегий — сигнал пропущен",
-                {
-                    "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
-                    "mode_debug": mode_obj.debug,
-                    "strategies": debug_strategies,
-                    "buy_conf": round(best_buy.confidence, 1),
-                    "sell_conf": round(best_sell.confidence, 1),
-                    **_bar_debug, **_ind_dbg, **_lvl_dbg,
-                }
-            )
-        best = best_buy if best_buy.confidence > best_sell.confidence else best_sell
+            # Confidence too close — break tie by strategy priority
+            pri_buy  = _STRATEGY_PRIORITY.get(best_buy.strategy_name,  99)
+            pri_sell = _STRATEGY_PRIORITY.get(best_sell.strategy_name, 99)
+            if pri_buy == pri_sell:
+                # Same strategy on both sides (shouldn't happen) — skip
+                return _no_signal(
+                    f"Противоречие стратегий — равный conf и приоритет ({best_buy.strategy_name})",
+                    {
+                        "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                        "mode_debug": mode_obj.debug,
+                        "strategies": debug_strategies,
+                        "buy_conf": round(best_buy.confidence, 1),
+                        "sell_conf": round(best_sell.confidence, 1),
+                        **_bar_debug, **_ind_dbg, **_lvl_dbg,
+                    }
+                )
+            # Lower priority number = higher priority strategy wins
+            best = best_buy if pri_buy < pri_sell else best_sell
+        else:
+            best = best_buy if best_buy.confidence > best_sell.confidence else best_sell
 
     direction = best.direction
     conf_raw  = best.confidence

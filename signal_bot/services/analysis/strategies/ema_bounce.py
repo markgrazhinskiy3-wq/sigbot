@@ -148,12 +148,17 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     check = min(5, n)
 
     # 1. EMA aligned up — relaxed: EMA5 > EMA13 in 3+ of 5 bars, OR EMA5 trending up + 2+ bars
+    #    Also requires minimum EMA5-EMA21 spread ≥ 0.005% — flat EMAs don't count as aligned
     ema5_arr  = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
     ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
-    c1 = (int(np.sum(ema5_arr > ema13_arr)) >= 3) or \
-         (ema5_slope > 0 and int(np.sum(ema5_arr > ema13_arr)) >= 2)
+    ema_spread_pct = abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
+    ema_has_spread = ema_spread_pct >= 0.00005   # 0.005% minimum spread
+    c1 = ema_has_spread and (
+        (int(np.sum(ema5_arr > ema13_arr)) >= 3) or
+        (ema5_slope > 0 and int(np.sum(ema5_arr > ema13_arr)) >= 2)
+    )
     conds["ema_aligned_up"] = c1
     if c1:
         met += 1; parts.append("EMA выровнены вверх")
@@ -219,12 +224,17 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
     check = min(5, n)
 
     # 1. EMA aligned down — relaxed: EMA5 < EMA13 in 3+ of 5 bars, OR EMA5 trending down + 2+ bars
+    #    Also requires minimum EMA5-EMA21 spread ≥ 0.005% — flat EMAs don't count as aligned
     ema5_arr  = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
     ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
-    c1 = (int(np.sum(ema5_arr < ema13_arr)) >= 3) or \
-         (ema5_slope < 0 and int(np.sum(ema5_arr < ema13_arr)) >= 2)
+    ema_spread_pct = abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
+    ema_has_spread = ema_spread_pct >= 0.00005   # 0.005% minimum spread
+    c1 = ema_has_spread and (
+        (int(np.sum(ema5_arr < ema13_arr)) >= 3) or
+        (ema5_slope < 0 and int(np.sum(ema5_arr < ema13_arr)) >= 2)
+    )
     conds["ema_aligned_down"] = c1
     if c1:
         met += 1; parts.append("EMA выровнены вниз")
