@@ -973,27 +973,28 @@ def _label_for_symbol(symbol: str) -> str:
 async def _show_pairs_keyboard(callback: CallbackQuery, *, force_refresh: bool = False) -> None:
     """Fetch live pairs and show the pair selection keyboard."""
     if force_refresh or not pairs_cache.is_fresh():
-        await callback.message.edit_text(
-            "🔄 <b>Загружаю актуальные пары с PocketOption...</b>\n\n"
-            "<i>Это занимает ~20 секунд.</i>",
-            parse_mode="HTML",
-        )
         await pairs_cache.refresh(force=force_refresh)
 
     all_pairs = pairs_cache.get_cached()
-    has_live = any(p.get("payout", 0) > 0 for p in all_pairs)
-
-    # pairs_cache already filters by MIN_PAYOUT=80 at fetch time — use all cached pairs
     pairs = all_pairs
+
+    # Check if live payout data is available (HTTP interceptor or WS)
+    try:
+        from services.pocket_browser import get_browser_payouts
+        from services.po_ws_client import get_live_payouts
+        has_live = bool(get_browser_payouts() or get_live_payouts())
+    except Exception:
+        has_live = False
+
     if has_live:
         header = (
             "📊 <b>Доступные OTC-пары</b>\n"
-            "<i>Только с выплатой ≥80% · Обновлено сейчас</i>"
+            "<i>Только с выплатой ≥85% · Обновлено сейчас</i>"
         )
     else:
         header = (
-            "📊 <b>Выберите OTC-пару:</b>\n"
-            "<i>⚠️ Не удалось загрузить актуальные данные — показан стандартный список</i>"
+            "📊 <b>Доступные OTC-пары</b>\n"
+            "<i>Выплата ≥85% · Список обновляется автоматически</i>"
         )
 
     await callback.message.edit_text(

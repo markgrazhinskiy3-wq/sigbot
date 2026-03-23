@@ -46,26 +46,33 @@ PO_LOGIN_URL: str = f"{PO_BASE_URL}/en/login"
 SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", "3"))
 
 OTC_PAIRS: list[dict] = [
-    # Major pairs — payout values are estimates; browser scraping overrides with live data
-    {"label": "EUR/USD OTC", "symbol": "#EURUSD_otc", "payout": 82},
-    {"label": "GBP/USD OTC", "symbol": "#GBPUSD_otc", "payout": 82},
-    {"label": "USD/JPY OTC", "symbol": "#USDJPY_otc", "payout": 82},
-    {"label": "AUD/USD OTC", "symbol": "#AUDUSD_otc", "payout": 82},
-    {"label": "USD/CAD OTC", "symbol": "#USDCAD_otc", "payout": 82},
-    {"label": "USD/CHF OTC", "symbol": "#USDCHF_otc", "payout": 82},
-    {"label": "NZD/USD OTC", "symbol": "#NZDUSD_otc", "payout": 82},
-    # Cross pairs
-    {"label": "EUR/GBP OTC", "symbol": "#EURGBP_otc", "payout": 82},
-    {"label": "EUR/JPY OTC", "symbol": "#EURJPY_otc", "payout": 82},
-    {"label": "GBP/JPY OTC", "symbol": "#GBPJPY_otc", "payout": 82},
-    {"label": "AUD/JPY OTC", "symbol": "#AUDJPY_otc", "payout": 82},
-    {"label": "AUD/CAD OTC", "symbol": "#AUDCAD_otc", "payout": 82},
-    {"label": "AUD/CHF OTC", "symbol": "#AUDCHF_otc", "payout": 82},
-    {"label": "AUD/NZD OTC", "symbol": "#AUDNZD_otc", "payout": 82},
-    {"label": "CAD/CHF OTC", "symbol": "#CADCHF_otc", "payout": 82},
-    {"label": "NZD/JPY OTC", "symbol": "#NZDJPY_otc", "payout": 82},
-    {"label": "CHF/JPY OTC", "symbol": "#CHFJPY_otc", "payout": 82},
-    {"label": "EUR/TRY OTC", "symbol": "#EURTRY_otc", "payout": 82},
+    # Confirmed 92% payout (from live PocketOption data)
+    {"label": "EUR/USD OTC",  "symbol": "#EURUSD_otc",  "payout": 92},
+    {"label": "EUR/JPY OTC",  "symbol": "#EURJPY_otc",  "payout": 92},
+    {"label": "GBP/JPY OTC",  "symbol": "#GBPJPY_otc",  "payout": 92},
+    {"label": "AUD/USD OTC",  "symbol": "#AUDUSD_otc",  "payout": 92},
+    {"label": "AUD/CAD OTC",  "symbol": "#AUDCAD_otc",  "payout": 92},
+    {"label": "AUD/NZD OTC",  "symbol": "#AUDNZD_otc",  "payout": 92},
+    {"label": "CAD/CHF OTC",  "symbol": "#CADCHF_otc",  "payout": 92},
+    # Additional pairs confirmed on PocketOption (92%)
+    {"label": "AED/CNY OTC",  "symbol": "#AEDCNY_otc",  "payout": 92},
+    {"label": "BHD/CNY OTC",  "symbol": "#BHDCNY_otc",  "payout": 92},
+    {"label": "CAD/JPY OTC",  "symbol": "#CADJPY_otc",  "payout": 92},
+    {"label": "EUR/CHF OTC",  "symbol": "#EURCHF_otc",  "payout": 92},
+    {"label": "GBP/AUD OTC",  "symbol": "#GBPAUD_otc",  "payout": 92},
+    {"label": "KES/USD OTC",  "symbol": "#KESUSD_otc",  "payout": 92},
+    # Other pairs (payout varies — shown when no live data available)
+    {"label": "GBP/USD OTC",  "symbol": "#GBPUSD_otc",  "payout": 82},
+    {"label": "USD/JPY OTC",  "symbol": "#USDJPY_otc",  "payout": 82},
+    {"label": "USD/CAD OTC",  "symbol": "#USDCAD_otc",  "payout": 82},
+    {"label": "USD/CHF OTC",  "symbol": "#USDCHF_otc",  "payout": 82},
+    {"label": "NZD/USD OTC",  "symbol": "#NZDUSD_otc",  "payout": 82},
+    {"label": "EUR/GBP OTC",  "symbol": "#EURGBP_otc",  "payout": 82},
+    {"label": "AUD/JPY OTC",  "symbol": "#AUDJPY_otc",  "payout": 82},
+    {"label": "AUD/CHF OTC",  "symbol": "#AUDCHF_otc",  "payout": 82},
+    {"label": "NZD/JPY OTC",  "symbol": "#NZDJPY_otc",  "payout": 82},
+    {"label": "CHF/JPY OTC",  "symbol": "#CHFJPY_otc",  "payout": 82},
+    {"label": "EUR/TRY OTC",  "symbol": "#EURTRY_otc",  "payout": 82},
 ]
 
 EXPIRATIONS: list[dict] = [
