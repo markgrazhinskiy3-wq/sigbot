@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY signal_bot/requirements.txt ./
-RUN pip install --no-cache-dir --pre -r requirements.txt
+RUN pip install --no-cache-dir aiogram==3.13.1 playwright==1.48.0 aiosqlite==0.20.0 pandas==2.2.3 python-dotenv==1.0.1 aiofiles==24.1.0 "numpy>=1.26.4"
+RUN pip install --no-cache-dir --pre pandas-ta
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
