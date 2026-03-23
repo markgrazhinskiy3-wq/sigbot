@@ -69,8 +69,8 @@ def _filtered_pairs(live_payouts: dict) -> list[dict] | None:
         )
         return None
 
-    # Alphabetical order — matches PocketOption UI (sorted by name)
-    result.sort(key=lambda x: x["label"])
+    # Sort by payout desc, then alphabetically within same payout — matches PocketOption "Выплата ▼"
+    result.sort(key=lambda x: (-x["payout"], x["label"]))
     return result
 
 
