@@ -17,7 +17,7 @@ AUTO_TRADE: bool = os.getenv("AUTO_TRADE", "false").lower() == "true"
 
 HEADLESS: bool = os.getenv("HEADLESS", "true").lower() == "true"
 
-DB_PATH: str = os.path.join(os.path.dirname(__file__), "signal_bot.db")
+DB_PATH: str = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "signal_bot.db"))
 
 PO_BASE_URL: str = "https://pocketoption.com"
 PO_TRADE_URL: str = f"{PO_BASE_URL}/en/cabinet/demo-quick-high-low/"

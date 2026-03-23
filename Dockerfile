@@ -18,4 +18,6 @@ RUN playwright install-deps chromium
 
 COPY signal_bot/ ./signal_bot/
 
+RUN mkdir -p /data
+
 CMD ["python3", "signal_bot/main.py"]
