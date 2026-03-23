@@ -1,0 +1,183 @@
+{
+  "message": "[5/8] RUN pip install --no-cache-dir --pre -r requirements.txt",
+  "timestamp": "2026-03-23T10:50:44.551190276Z",
+  "severity": "error",
+  "children": [
+    {
+      "message": "Collecting aiogram==3.13.1 (from -r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:12.136008386Z"
+    },
+    {
+      "message": "  Downloading aiogram-3.13.1-py3-none-any.whl.metadata (7.5 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.17821199Z"
+    },
+    {
+      "message": "Collecting playwright==1.48.0 (from -r requirements.txt (line 2))\n",
+      "timestamp": "2026-03-23T10:51:12.233142526Z"
+    },
+    {
+      "message": "  Downloading playwright-1.48.0-py3-none-manylinux1_x86_64.whl.metadata (3.5 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.24427224Z"
+    },
+    {
+      "message": "Collecting aiosqlite==0.20.0 (from -r requirements.txt (line 3))\n",
+      "timestamp": "2026-03-23T10:51:12.261279247Z"
+    },
+    {
+      "message": "  Downloading aiosqlite-0.20.0-py3-none-any.whl.metadata (4.3 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.271003746Z"
+    },
+    {
+      "message": "Collecting pandas==2.2.3 (from -r requirements.txt (line 4))\n",
+      "timestamp": "2026-03-23T10:51:12.389862581Z"
+    },
+    {
+      "message": "  Downloading pandas-2.2.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (89 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.400143879Z"
+    },
+    {
+      "message": "Collecting pandas-ta (from -r requirements.txt (line 5))\n",
+      "timestamp": "2026-03-23T10:51:12.470161436Z"
+    },
+    {
+      "message": "  Downloading pandas_ta-0.4.71b0-py3-none-any.whl.metadata (2.3 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.481166135Z"
+    },
+    {
+      "message": "Collecting python-dotenv==1.0.1 (from -r requirements.txt (line 6))\n",
+      "timestamp": "2026-03-23T10:51:12.50413965Z"
+    },
+    {
+      "message": "  Downloading python_dotenv-1.0.1-py3-none-any.whl.metadata (23 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.515771343Z"
+    },
+    {
+      "message": "Collecting aiofiles==24.1.0 (from -r requirements.txt (line 7))\n",
+      "timestamp": "2026-03-23T10:51:12.536643666Z"
+    },
+    {
+      "message": "  Downloading aiofiles-24.1.0-py3-none-any.whl.metadata (10 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.546780367Z"
+    },
+    {
+      "message": "  Downloading numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (61 kB)\n",
+      "timestamp": "2026-03-23T10:51:12.816495707Z"
+    },
+    {
+      "message": "Collecting aiohttp<3.11,>=3.9.0 (from aiogram==3.13.1->-r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:13.440256232Z"
+    },
+    {
+      "message": "  Downloading aiohttp-3.10.11-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (7.7 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.455353266Z"
+    },
+    {
+      "message": "Collecting certifi>=2023.7.22 (from aiogram==3.13.1->-r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:13.488716893Z"
+    },
+    {
+      "message": "  Downloading certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.498816523Z"
+    },
+    {
+      "message": "Collecting magic-filter<1.1,>=1.0.12 (from aiogram==3.13.1->-r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:13.516292014Z"
+    },
+    {
+      "message": "  Downloading magic_filter-1.0.12-py3-none-any.whl.metadata (1.5 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.526166872Z"
+    },
+    {
+      "message": "Collecting pydantic<2.10,>=2.4.1 (from aiogram==3.13.1->-r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:13.719869969Z"
+    },
+    {
+      "message": "  Downloading pydantic-2.9.2-py3-none-any.whl.metadata (149 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.730025317Z"
+    },
+    {
+      "message": "Collecting typing-extensions<=5.0,>=4.7.0 (from aiogram==3.13.1->-r requirements.txt (line 1))\n",
+      "timestamp": "2026-03-23T10:51:13.77540601Z"
+    },
+    {
+      "message": "  Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.786654016Z"
+    },
+    {
+      "message": "Collecting greenlet==3.1.1 (from playwright==1.48.0->-r requirements.txt (line 2))\n",
+      "timestamp": "2026-03-23T10:51:13.927251186Z"
+    },
+    {
+      "message": "  Downloading greenlet-3.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (3.8 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.93834261Z"
+    },
+    {
+      "message": "Collecting pyee==12.0.0 (from playwright==1.48.0->-r requirements.txt (line 2))\n",
+      "timestamp": "2026-03-23T10:51:13.962559989Z"
+    },
+    {
+      "message": "  Downloading pyee-12.0.0-py3-none-any.whl.metadata (2.8 kB)\n",
+      "timestamp": "2026-03-23T10:51:13.97234908Z"
+    },
+    {
+      "message": "Collecting python-dateutil>=2.8.2 (from pandas==2.2.3->-r requirements.txt (line 4))\n",
+      "timestamp": "2026-03-23T10:51:14.016930273Z"
+    },
+    {
+      "message": "  Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)\n",
+      "timestamp": "2026-03-23T10:51:14.026720378Z"
+    },
+    {
+      "message": "Collecting pytz>=2020.1 (from pandas==2.2.3->-r requirements.txt (line 4))\n",
+      "timestamp": "2026-03-23T10:51:14.087112985Z"
+    },
+    {
+      "message": "  Downloading pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)\n",
+      "timestamp": "2026-03-23T10:51:14.097150504Z"
+    },
+    {
+      "message": "Collecting tzdata>=2022.7 (from pandas==2.2.3->-r requirements.txt (line 4))\n",
+      "timestamp": "2026-03-23T10:51:14.117226294Z"
+    },
+    {
+      "message": "  Downloading tzdata-2025.3-py2.py3-none-any.whl.metadata (1.4 kB)\n",
+      "timestamp": "2026-03-23T10:51:14.126400386Z"
+    },
+    {
+      "message": "Collecting numba==0.61.2 (from pandas-ta->-r requirements.txt (line 5))\n",
+      "timestamp": "2026-03-23T10:51:14.240303284Z"
+    },
+    {
+      "message": "  Downloading numba-0.61.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.8 kB)\n",
+      "timestamp": "2026-03-23T10:51:14.250288109Z"
+    },
+    {
+      "message": "INFO: pip is looking at multiple versions of pandas-ta to determine which version is compatible with other requirements. This could take a while.\n",
+      "timestamp": "2026-03-23T10:51:14.259283648Z"
+    },
+    {
+      "message": "Collecting pandas-ta (from -r requirements.txt (line 5))\n",
+      "timestamp": "2026-03-23T10:51:14.259877256Z"
+    },
+    {
+      "message": "  Downloading pandas_ta-0.4.67b0-py3-none-any.whl.metadata (2.2 kB)\n",
+      "timestamp": "2026-03-23T10:51:14.270974008Z"
+    },
+    {
+      "message": "ERROR: Cannot install -r requirements.txt (line 4), -r requirements.txt (line 5) and numpy==1.26.4 because these package versions have conflicting dependencies.\n",
+      "timestamp": "2026-03-23T10:51:14.280783124Z"
+    },
+    {
+      "message": "\nThe conflict is caused by:\n    The user requested numpy==1.26.4\n    pandas 2.2.3 depends on numpy>=1.26.0; python_version >= \"3.12\"\n    pandas-ta 0.4.71b0 depends on numpy>=2.2.6\n    The user requested numpy==1.26.4\n    pandas 2.2.3 depends on numpy>=1.26.0; python_version >= \"3.12\"\n    pandas-ta 0.4.67b0 depends on numpy>=2.2.6\n\nTo fix this you could try to:\n1. loosen the range of package versions you've specified\n2. remove package versions to allow pip to attempt to solve the dependency conflict\n\n",
+      "timestamp": "2026-03-23T10:51:14.281702375Z"
+    },
+    {
+      "message": "\n[notice] A new release of pip is available: 25.0.1 -> 26.0.1\n[notice] To update, run: pip install --upgrade pip\n",
+      "timestamp": "2026-03-23T10:51:14.38203454Z"
+    },
+    {
+      "message": "ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts\n",
+      "timestamp": "2026-03-23T10:51:14.382979251Z"
+    }
+  ]
+}
