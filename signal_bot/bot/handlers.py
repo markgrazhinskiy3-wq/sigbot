@@ -868,16 +868,14 @@ async def _show_pairs_keyboard(callback: CallbackQuery, *, force_refresh: bool =
     all_pairs = pairs_cache.get_cached()
     has_live = any(p.get("payout", 0) > 0 for p in all_pairs)
 
-    # For the manual pair list, show only pairs with payout >= 85%
-    SIGNAL_MIN_PAYOUT = 85
+    # pairs_cache already filters by MIN_PAYOUT=80 at fetch time — use all cached pairs
+    pairs = all_pairs
     if has_live:
-        pairs = [p for p in all_pairs if p.get("payout", 0) >= SIGNAL_MIN_PAYOUT or p.get("payout", 0) == 0]
         header = (
-            f"📊 <b>Доступные OTC-пары</b>\n"
-            f"<i>Только с выплатой ≥{SIGNAL_MIN_PAYOUT}% · Обновлено сейчас</i>"
+            "📊 <b>Доступные OTC-пары</b>\n"
+            "<i>Только с выплатой ≥80% · Обновлено сейчас</i>"
         )
     else:
-        pairs = all_pairs
         header = (
             "📊 <b>Выберите OTC-пару:</b>\n"
             "<i>⚠️ Не удалось загрузить актуальные данные — показан стандартный список</i>"
