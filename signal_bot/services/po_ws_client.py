@@ -358,6 +358,7 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
     rather than hardcoding index 5, in case the schema differs for OTC pairs.
     """
     result: dict[str, int] = {}
+    _diag_logged = 0  # log up to 5 forex OTC entries that had no payout
     try:
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, list):
@@ -369,7 +370,8 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
             sym = next((str(f) for f in entry if isinstance(f, str) and str(f).startswith("#")), None)
             if not sym:
                 continue
-            # Payout: prefer index 5, but scan all ints in 30-100 range if missing
+            key = sym.lower().lstrip("#")  # "eurusd_otc", "aapl", etc.
+            # Payout: prefer index 5, but scan all numeric fields in 30-100 range if missing
             pct = 0
             if len(entry) > 5 and isinstance(entry[5], (int, float)):
                 v = entry[5]
@@ -387,8 +389,11 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
                             pct = int(round(f * 100))
                             break
             if pct:
-                key = sym.lower().lstrip("#")  # "eurusd_otc", "aapl", etc.
                 result[key] = pct
+            elif "_otc" in key and _diag_logged < 8:
+                # Log OTC entries where we couldn't find payout — reveals the schema
+                _diag_logged += 1
+                logger.info("updateAssets OTC no-payout entry: sym=%r  raw=%s", sym, entry)
     except Exception as e:
         logger.warning("_parse_update_assets_binary failed: %s", e)
     return result
