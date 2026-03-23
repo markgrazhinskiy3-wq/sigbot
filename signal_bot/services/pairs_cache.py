@@ -36,11 +36,51 @@ def _all_config_pairs() -> list[dict]:
     return result
 
 
+def _dynamic_pairs(live_assets: dict) -> list[dict] | None:
+    """
+    Build the full pair list from live PocketOption asset registry.
+    Includes ALL currency OTC pairs with payout >= MIN_PAYOUT.
+    This matches PocketOption's "Валюты" section exactly.
+    Returns None if no suitable pairs found (caller falls back to config).
+    """
+    if not live_assets:
+        return None
+
+    result = []
+    for key, asset in live_assets.items():
+        # Only currency OTC pairs (matches PocketOption "Валюты" tab)
+        if asset.get("category") != "currency":
+            continue
+        if "_otc" not in key:
+            continue
+        payout = asset["payout"]
+        if payout < MIN_PAYOUT:
+            continue
+        name = asset["name"]          # e.g. "AED/CNY OTC"
+        sym  = asset["symbol"]        # e.g. "AEDCNY_otc"  (no leading #)
+        result.append({
+            "label":  name,
+            "symbol": f"#{sym}",      # e.g. "#AEDCNY_otc"
+            "payout": payout,
+            "name":   name,
+        })
+
+    if not result:
+        logger.warning(
+            "live_assets present (%d entries) but no currency OTC >= %d%%",
+            len(live_assets), MIN_PAYOUT,
+        )
+        return None
+
+    # Sort: payout desc, then alphabetically — matches PocketOption "Выплата ▼"
+    result.sort(key=lambda x: (-x["payout"], x["label"]))
+    return result
+
+
 def _filtered_pairs(live_payouts: dict) -> list[dict] | None:
     """
-    Build filtered list using live payout data.
-    Returns None if live_payouts is empty (caller should use all pairs instead).
-    Labels are clean — no % shown.
+    Fallback: build filtered list from config pairs using live payout data.
+    Used only when live_assets is unavailable.
     """
     if not live_payouts:
         return None
@@ -63,13 +103,8 @@ def _filtered_pairs(live_payouts: dict) -> list[dict] | None:
             })
 
     if not result:
-        logger.warning(
-            "Live payouts present (%d entries) but none >= %d%% — showing all pairs",
-            len(live_payouts), MIN_PAYOUT,
-        )
         return None
 
-    # Sort by payout desc, then alphabetically within same payout — matches PocketOption "Выплата ▼"
     result.sort(key=lambda x: (-x["payout"], x["label"]))
     return result
 
@@ -98,52 +133,39 @@ async def refresh(force: bool = False) -> list[dict]:
 
         pairs: list[dict] | None = None
 
-        live: dict[str, int] = {}
-
-        # Source 1: browser HTTP response interceptor (most reliable — captures API calls on page load)
+        # Source 1: full asset registry from updateAssets WS event (most complete)
         try:
-            from services.pocket_browser import get_browser_payouts
-            bp = get_browser_payouts()
-            if bp:
-                live.update(bp)
-                logger.info("Payout source: browser HTTP interceptor — %d entries", len(bp))
+            from services.po_ws_client import get_live_assets
+            assets = get_live_assets()
+            if assets:
+                pairs = _dynamic_pairs(assets)
+                if pairs:
+                    logger.info(
+                        "Pairs from live assets (>= %d%%): %d currency OTC pairs",
+                        MIN_PAYOUT, len(pairs),
+                    )
         except Exception as e:
-            logger.warning("Could not read browser payouts: %s", e)
+            logger.warning("Could not read live assets: %s", e)
 
-        # Source 2: WS candle frames side-effect
-        if not live:
+        # Source 2: fallback — config pairs filtered by WS payout data
+        if not pairs:
             try:
                 from services.po_ws_client import get_live_payouts
                 wp = get_live_payouts()
                 if wp:
-                    live.update(wp)
-                    logger.info("Payout source: WS candle frames — %d entries", len(wp))
+                    pairs = _filtered_pairs(wp)
+                    if pairs:
+                        logger.info(
+                            "Pairs from live payouts fallback (>= %d%%): %d pairs",
+                            MIN_PAYOUT, len(pairs),
+                        )
             except Exception as e:
-                logger.warning("Could not read WS live payouts: %s", e)
-
-        # Source 3: Socket.IO HTTP polling (no browser — uses po.market not pocketoption.com)
-        if not live:
-            try:
-                from services.po_ws_client import fetch_payouts_http_polling
-                hp = await fetch_payouts_http_polling(timeout=12.0)
-                if hp:
-                    live.update(hp)
-                    logger.info("Payout source: HTTP polling — %d entries", len(hp))
-            except Exception as e:
-                logger.warning("Could not fetch payouts via HTTP polling: %s", e)
-
-        if live:
-            pairs = _filtered_pairs(live)
-            if pairs:
-                logger.info(
-                    "Pairs filtered by live payouts (>= %d%%): %d/%d pairs",
-                    MIN_PAYOUT, len(pairs), len(config.OTC_PAIRS),
-                )
+                logger.warning("Could not read live payouts: %s", e)
 
         # No live data — show all config pairs
         if not pairs:
             pairs = _all_config_pairs()
-            logger.info("No live payout data yet — showing all %d config pairs", len(pairs))
+            logger.info("No live asset data yet — showing all %d config pairs", len(pairs))
 
         _cache    = pairs
         _cache_ts = time.time()

@@ -51,6 +51,11 @@ _MIN_CANDLES = 10
 _live_payouts: dict[str, int] = {}
 _seen_fetch_binary_events: set[str] = set()  # tracks non-candle event names seen in _fetch_symbol
 
+# Full asset registry — populated from updateAssets binary event at auth handshake.
+# {normalised_key: {"name": str, "symbol": str, "payout": int, "category": str}}
+# e.g. {"eurusd_otc": {"name": "EUR/USD OTC", "symbol": "EURUSD_otc", "payout": 92, "category": "currency"}}
+_live_assets: dict[str, dict] = {}
+
 
 def _parse_pct_simple(v) -> int:
     """Parse a payout value: int/float ∈ (1,100] or (0,1) → integer percent."""
@@ -65,6 +70,15 @@ def _parse_pct_simple(v) -> int:
 def get_live_payouts() -> dict[str, int]:
     """Return the latest known payout dict, populated from WS candle fetches."""
     return dict(_live_payouts)
+
+
+def get_live_assets() -> dict[str, dict]:
+    """
+    Return the full asset registry from the last updateAssets handshake event.
+    Keys are normalised (e.g. "eurusd_otc"). Values: {name, symbol, payout, category}.
+    Empty until the first WS auth completes (~8 sec after startup).
+    """
+    return dict(_live_assets)
 
 
 def load_auth(path: Path | None = None) -> dict | None:
@@ -358,7 +372,9 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
     - All other OTC symbols don't: "EURUSD_otc", "AEDCNY_otc", "ADA-USD_otc"
     - Payout is always index 5 as integer percent (e.g. 92 = 92%, 0 = unavailable)
     """
+    global _live_assets
     result: dict[str, int] = {}
+    assets: dict[str, dict] = {}
     try:
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, list):
@@ -366,14 +382,15 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
         for entry in data:
             if not isinstance(entry, list) or len(entry) < 6:
                 continue
-            # Schema confirmed: [asset_id, "SYMBOL", "Name", "category", type_id, payout_pct, ...]
-            # Stock OTC symbols start with "#" (e.g. "#AAPL"), all others don't (e.g. "EURUSD_otc")
-            raw_sym = entry[1]
+            # Schema: [asset_id, "SYMBOL", "Name", "category", type_id, payout_pct, ...]
+            raw_sym  = entry[1]
+            name     = entry[2] if len(entry) > 2 and isinstance(entry[2], str) else ""
+            category = entry[3] if len(entry) > 3 and isinstance(entry[3], str) else ""
             if not isinstance(raw_sym, str) or not raw_sym:
                 continue
-            # Normalise to match candle-cache keys: "#EUR/JPY OTC" or "EURUSD_otc" → "eurjpy_otc"
+            # Normalise key: "EURUSD_otc" / "#AAPL_otc" → "eurusd_otc" / "aapl_otc"
             key = raw_sym.lstrip("#").lower().replace("/", "").replace(" ", "_")
-            # Payout is at index 5 (confirmed from schema logging)
+            # Payout at index 5
             v = entry[5]
             if not isinstance(v, (int, float)):
                 continue
@@ -384,11 +401,22 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
             else:
                 continue
             result[key] = pct
-        if result:
-            otc_count = sum(1 for k in result if "otc" in k)
+            # Store full asset info — used by pairs_cache for dynamic pair list
+            assets[key] = {
+                "name":     name,                         # e.g. "AED/CNY OTC"
+                "symbol":   raw_sym.lstrip("#"),          # e.g. "AEDCNY_otc"
+                "payout":   pct,
+                "category": category,                     # "currency", "stock", etc.
+            }
+        if assets:
+            _live_assets = assets
+            otc_currency = sum(
+                1 for k, a in assets.items()
+                if "_otc" in k and a["category"] == "currency"
+            )
             logger.info(
-                "updateAssets parsed %d assets total, %d with OTC in name",
-                len(result), otc_count,
+                "updateAssets: %d assets parsed, %d currency OTC pairs",
+                len(assets), otc_currency,
             )
     except Exception as e:
         logger.warning("_parse_update_assets_binary failed: %s", e)
