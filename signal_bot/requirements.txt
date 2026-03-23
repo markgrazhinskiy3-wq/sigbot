@@ -2,7 +2,7 @@ aiogram==3.13.1
 playwright==1.48.0
 aiosqlite==0.20.0
 pandas==2.2.3
-pandas-ta
+pandas-ta==0.3.14b0
 python-dotenv==1.0.1
 aiofiles==24.1.0
 numpy==1.26.4
