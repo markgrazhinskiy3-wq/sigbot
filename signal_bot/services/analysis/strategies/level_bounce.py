@@ -9,6 +9,7 @@ STEP 2: Detect reaction on 15s candles.
         Price approaching 1m level + rejection candle pattern.
 
 Need 4 of 6 conditions. Base confidence: 40 + (met-4)*10.
+All 6 conditions are always evaluated and returned in debug.
 """
 from __future__ import annotations
 import numpy as np
@@ -29,10 +30,10 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL       = 6
-_MIN_MET     = 4
-_CLUSTER_PCT = 0.0003   # 0.03% — cluster radius for grouping nearby pivots
-_APPROACH_PCT = 0.0003  # 0.03% — price is "at level" within this distance
+_TOTAL        = 6
+_MIN_MET      = 4
+_CLUSTER_PCT  = 0.0003   # 0.03% — cluster radius for grouping nearby pivots
+_APPROACH_PCT = 0.0003   # 0.03% — price is "at level" within this distance
 
 
 # ── 1m level detection ────────────────────────────────────────────────────────
@@ -47,13 +48,11 @@ def find_1m_levels(df1m: pd.DataFrame) -> tuple[list[tuple[float, int]], list[tu
     highs = df1m["high"].values[-n:].astype(float)
     lows  = df1m["low"].values[-n:].astype(float)
 
-    # Local highs — resistance pivots
     res_prices: list[float] = []
     for i in range(1, n - 1):
         if highs[i] >= highs[i - 1] and highs[i] >= highs[i + 1]:
             res_prices.append(highs[i])
 
-    # Local lows — support pivots
     sup_prices: list[float] = []
     for i in range(1, n - 1):
         if lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1]:
@@ -103,17 +102,17 @@ def level_bounce_strategy(
         return _none("ATR мёртвый",
                      {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.30"})
 
-    close  = df["close"].values
-    open_  = df["open"].values
-    high   = df["high"].values
-    low    = df["low"].values
-    price  = float(close[-1])
+    close    = df["close"].values
+    open_    = df["open"].values
+    high     = df["high"].values
+    low      = df["low"].values
+    price    = float(close[-1])
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 
     # STEP 1 — find 1m levels
     sup_levels, res_levels = find_1m_levels(df1m_ctx)
 
-    # STEP 2 — evaluate each direction
+    # STEP 2 — evaluate each direction (always returns full condition set for debug)
     best_buy  = _eval_buy(close, open_, high, low, n, price, avg_body, ind,
                           sup_levels, res_levels, mode)
     best_sell = _eval_sell(close, open_, high, low, n, price, avg_body, ind,
@@ -143,14 +142,14 @@ def level_bounce_strategy(
         strategy_name="level_bounce",
         reasoning=reason,
         debug={
-            "buy_score":      best_buy["conf"],
-            "sell_score":     best_sell["conf"],
-            "buy_conditions": best_buy["conds"],
-            "sell_conditions":best_sell["conds"],
-            "buy_met":        best_buy["met"],
-            "sell_met":       best_sell["met"],
-            "sup_levels_1m":  [(round(p, 5), t) for p, t in sup_levels[:5]],
-            "res_levels_1m":  [(round(p, 5), t) for p, t in res_levels[:5]],
+            "buy_score":       best_buy["conf"],
+            "sell_score":      best_sell["conf"],
+            "buy_conditions":  best_buy["conds"],
+            "sell_conditions": best_sell["conds"],
+            "buy_met":         best_buy["met"],
+            "sell_met":        best_sell["met"],
+            "sup_levels_1m":   [(round(p, 5), t) for p, t in sup_levels[:5]],
+            "res_levels_1m":   [(round(p, 5), t) for p, t in res_levels[:5]],
         }
     )
 
@@ -159,6 +158,11 @@ def level_bounce_strategy(
 
 def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
               sup_levels, res_levels, mode) -> dict:
+    """
+    Evaluate all 6 conditions for every candidate support level.
+    Always returns the best partial result (most conditions met),
+    even if below _MIN_MET — so debug always shows condition checkmarks.
+    """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for sup_price, touch_count in sup_levels[:5]:
@@ -172,16 +176,16 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         # 1. Strong 1m level: 2+ touches
         c1 = True  # already filtered above
         conds["strong_1m_level"] = c1
-        met += 1; parts.append(f"Уровень 1m {sup_price:.5f} ({touch_count}x)")
+        met += 1
+        parts.append(f"Уровень 1m {sup_price:.5f} ({touch_count}x)")
 
         # 2. Price at level: low of last 2 15s candles within 0.03%
         c2 = any(abs(float(low[-i]) - sup_price) / sup_price < _APPROACH_PCT
                  for i in range(1, min(3, n)))
         conds["price_at_level"] = c2
         if c2:
-            met += 1; parts.append("Цена у уровня (±0.03%)")
-        else:
-            continue  # not at level — skip
+            met += 1
+            parts.append("Цена у уровня (±0.03%)")
 
         # 3. Rejection candle 15s: lower wick > 2x body
         body     = abs(float(close[-1]) - float(open_[-1]))
@@ -190,36 +194,42 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         conds["rejection_candle_15s"] = c3
         if c3:
             ratio = wick_low / avg_body if avg_body > 0 else 0
-            met += 1; parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
+            met += 1
+            parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
 
         # 4. RSI extreme: RSI < 35
         c4 = ind.rsi < 35
         conds["rsi_extreme_15s"] = c4
         if c4:
-            met += 1; parts.append(f"RSI перепродан ({ind.rsi:.0f})")
+            met += 1
+            parts.append(f"RSI перепродан ({ind.rsi:.0f})")
 
         # 5. Stoch turning up from low
         c5 = ind.stoch_k < 30 and ind.stoch_k > ind.stoch_k_prev
         conds["stoch_confirm"] = c5
         if c5:
-            met += 1; parts.append(f"Stoch разворот вверх ({ind.stoch_k:.0f})")
+            met += 1
+            parts.append(f"Stoch разворот вверх ({ind.stoch_k:.0f})")
 
         # 6. Room to target: > 0.05% to nearest resistance
         nearest_res = res_levels[0][0] if res_levels else None
-        room = (nearest_res - price) / price * 100 if nearest_res and nearest_res > price else 0.0
+        room = (nearest_res - price) / price * 100 if (nearest_res and nearest_res > price) else 0.0
         c6 = room > 0.05
         conds["room_to_target"] = c6
         if c6:
-            met += 1; parts.append(f"Пространство {room:.2f}%")
+            met += 1
+            parts.append(f"Пространство {room:.2f}%")
 
-        if met < _MIN_MET:
-            continue
+        # Compute confidence (only meaningful when met >= _MIN_MET)
+        conf = 0.0
+        if met >= _MIN_MET:
+            conf = 40 + max(0, met - 4) * 10
+            if touch_count >= 3: conf += 5
+            if mode == "RANGE":  conf += 3
 
-        conf = 40 + max(0, met - 4) * 10
-        if touch_count >= 3: conf += 5
-        if mode == "RANGE":  conf += 3
-
-        if conf > best["conf"]:
+        # Always update best if this level has more conditions met
+        # (so debug always shows full condition set, even below threshold)
+        if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
 
     return best
@@ -229,6 +239,10 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
 
 def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
                res_levels, sup_levels, mode) -> dict:
+    """
+    Evaluate all 6 conditions for every candidate resistance level.
+    Always returns the best partial result for debug visibility.
+    """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for res_price, touch_count in res_levels[:5]:
@@ -242,16 +256,16 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         # 1. Strong 1m level
         c1 = True
         conds["strong_1m_level"] = c1
-        met += 1; parts.append(f"Сопротивление 1m {res_price:.5f} ({touch_count}x)")
+        met += 1
+        parts.append(f"Сопротивление 1m {res_price:.5f} ({touch_count}x)")
 
         # 2. Price at level: high of last 2 15s candles within 0.03%
         c2 = any(abs(float(high[-i]) - res_price) / res_price < _APPROACH_PCT
                  for i in range(1, min(3, n)))
         conds["price_at_level"] = c2
         if c2:
-            met += 1; parts.append("Цена у уровня (±0.03%)")
-        else:
-            continue
+            met += 1
+            parts.append("Цена у уровня (±0.03%)")
 
         # 3. Rejection candle 15s: upper wick > 2x body
         body      = abs(float(close[-1]) - float(open_[-1]))
@@ -260,36 +274,39 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         conds["rejection_candle_15s"] = c3
         if c3:
             ratio = wick_high / avg_body if avg_body > 0 else 0
-            met += 1; parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
+            met += 1
+            parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
 
         # 4. RSI extreme: RSI > 65
         c4 = ind.rsi > 65
         conds["rsi_extreme_15s"] = c4
         if c4:
-            met += 1; parts.append(f"RSI перекуплен ({ind.rsi:.0f})")
+            met += 1
+            parts.append(f"RSI перекуплен ({ind.rsi:.0f})")
 
         # 5. Stoch turning down from high
         c5 = ind.stoch_k > 70 and ind.stoch_k < ind.stoch_k_prev
         conds["stoch_confirm"] = c5
         if c5:
-            met += 1; parts.append(f"Stoch разворот вниз ({ind.stoch_k:.0f})")
+            met += 1
+            parts.append(f"Stoch разворот вниз ({ind.stoch_k:.0f})")
 
         # 6. Room to target: > 0.05% to nearest support
         nearest_sup = sup_levels[0][0] if sup_levels else None
-        room = (price - nearest_sup) / price * 100 if nearest_sup and nearest_sup < price else 0.0
+        room = (price - nearest_sup) / price * 100 if (nearest_sup and nearest_sup < price) else 0.0
         c6 = room > 0.05
         conds["room_to_target"] = c6
         if c6:
-            met += 1; parts.append(f"Пространство {room:.2f}%")
+            met += 1
+            parts.append(f"Пространство {room:.2f}%")
 
-        if met < _MIN_MET:
-            continue
+        conf = 0.0
+        if met >= _MIN_MET:
+            conf = 40 + max(0, met - 4) * 10
+            if touch_count >= 3: conf += 5
+            if mode == "RANGE":  conf += 3
 
-        conf = 40 + max(0, met - 4) * 10
-        if touch_count >= 3: conf += 5
-        if mode == "RANGE":  conf += 3
-
-        if conf > best["conf"]:
+        if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
 
     return best

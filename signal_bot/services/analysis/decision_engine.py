@@ -79,7 +79,7 @@ _MODE_STRATEGIES: dict[str, dict] = {
     },
     "SQUEEZE": {
         "primary":   ["squeeze_breakout", "ema_bounce"],
-        "secondary": ["level_breakout", "divergence", "rsi_reversal"],
+        "secondary": ["level_breakout", "level_bounce", "divergence", "rsi_reversal"],
     },
 }
 

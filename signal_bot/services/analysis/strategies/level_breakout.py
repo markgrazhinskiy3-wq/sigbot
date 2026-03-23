@@ -5,6 +5,7 @@ STEP 1: Find levels on 1m candles (need 3+ touches for breakout validity).
 STEP 2: Detect breakout close on 15s candles + momentum confirmation.
 
 Need 4 of 6 conditions. Base confidence: 40 + (met-4)*10.
+All 6 conditions are always evaluated and returned in debug.
 """
 from __future__ import annotations
 import numpy as np
@@ -46,22 +47,19 @@ def level_breakout_strategy(
     if n < 6:
         return _none("Мало 15s данных", {"early_reject": "n<6"})
 
-    # Breakout needs at least moderate volatility
     if ind.atr_ratio < 0.40:
         return _none("ATR слишком мал для пробоя",
                      {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.40"})
 
-    close  = df["close"].values
-    open_  = df["open"].values
-    high   = df["high"].values
-    low    = df["low"].values
-    price  = float(close[-1])
+    close    = df["close"].values
+    open_    = df["open"].values
+    high     = df["high"].values
+    low      = df["low"].values
+    price    = float(close[-1])
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
 
-    # STEP 1 — find 1m levels
     sup_levels, res_levels = find_1m_levels(df1m_ctx)
 
-    # STEP 2 — evaluate breakouts
     best_buy  = _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
                                    ind, res_levels, mode)
     best_sell = _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
@@ -107,11 +105,15 @@ def level_breakout_strategy(
 
 def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
                        ind, res_levels, mode) -> dict:
+    """
+    Evaluate all 6 conditions for every resistance level with 3+ touches.
+    Always returns best partial result for debug visibility.
+    """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for res_price, touch_count in res_levels[:5]:
         if touch_count < 3:
-            continue  # need 3+ touches for a breakout-worthy level
+            continue
 
         conds: dict[str, bool] = {}
         met   = 0
@@ -120,48 +122,51 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
         # 1. tested_level: 3+ touches on 1m chart
         c1 = True
         conds["tested_level"] = c1
-        met += 1; parts.append(f"Протестированное сопр. {res_price:.5f} ({touch_count}x)")
+        met += 1
+        parts.append(f"Протестир. сопр. {res_price:.5f} ({touch_count}x)")
 
         # 2. close_beyond: 15s close ABOVE resistance
         c2 = float(close[-1]) > res_price
         conds["close_beyond"] = c2
         if c2:
-            met += 1; parts.append(f"Закрылась выше {res_price:.5f}")
-        else:
-            continue  # must have closed beyond level
+            met += 1
+            parts.append(f"Закрылась выше {res_price:.5f}")
 
         # 3. momentum_candle: bullish body > 1.5x avg
         body = abs(float(close[-1]) - float(open_[-1]))
         c3 = body > avg_body * 1.5 and float(close[-1]) > float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
-            met += 1; parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            met += 1
+            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
 
         # 4. follow_through: previous 15s candle also bullish
         c4 = n >= 2 and float(close[-2]) > float(open_[-2])
         conds["follow_through"] = c4
         if c4:
-            met += 1; parts.append("Продолжение (пред. свеча бычья)")
+            met += 1
+            parts.append("Продолжение (пред. свеча бычья)")
 
-        # 5. ema_aligned: 15s EMA5 > EMA13 (momentum supports direction)
+        # 5. ema_aligned: EMA5 > EMA13
         c5 = ind.ema5 > ind.ema13
         conds["ema_aligned"] = c5
         if c5:
-            met += 1; parts.append("EMA вверх")
+            met += 1
+            parts.append("EMA вверх")
 
-        # 6. not_exhausted: RSI 35-65 (room to move, not overbought)
+        # 6. not_exhausted: RSI 35-65
         c6 = 35 <= ind.rsi <= 65
         conds["not_exhausted"] = c6
         if c6:
-            met += 1; parts.append(f"RSI в норме ({ind.rsi:.0f})")
+            met += 1
+            parts.append(f"RSI в норме ({ind.rsi:.0f})")
 
-        if met < _MIN_MET:
-            continue
+        conf = 0.0
+        if met >= _MIN_MET:
+            conf = 40 + max(0, met - 4) * 10
+            if touch_count >= 4: conf += 5
 
-        conf = 40 + max(0, met - 4) * 10
-        if touch_count >= 4: conf += 5  # extra-tested level bonus
-
-        if conf > best["conf"]:
+        if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
 
     return best
@@ -171,6 +176,10 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
 
 def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
                         ind, sup_levels, mode) -> dict:
+    """
+    Evaluate all 6 conditions for every support level with 3+ touches.
+    Always returns best partial result for debug visibility.
+    """
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for sup_price, touch_count in sup_levels[:5]:
@@ -184,48 +193,51 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
         # 1. tested_level: 3+ touches
         c1 = True
         conds["tested_level"] = c1
-        met += 1; parts.append(f"Протестированная пд. {sup_price:.5f} ({touch_count}x)")
+        met += 1
+        parts.append(f"Протестир. пд. {sup_price:.5f} ({touch_count}x)")
 
         # 2. close_beyond: 15s close BELOW support
         c2 = float(close[-1]) < sup_price
         conds["close_beyond"] = c2
         if c2:
-            met += 1; parts.append(f"Закрылась ниже {sup_price:.5f}")
-        else:
-            continue
+            met += 1
+            parts.append(f"Закрылась ниже {sup_price:.5f}")
 
         # 3. momentum_candle: bearish body > 1.5x avg
         body = abs(float(close[-1]) - float(open_[-1]))
         c3 = body > avg_body * 1.5 and float(close[-1]) < float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
-            met += 1; parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            met += 1
+            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
 
         # 4. follow_through: previous 15s candle also bearish
         c4 = n >= 2 and float(close[-2]) < float(open_[-2])
         conds["follow_through"] = c4
         if c4:
-            met += 1; parts.append("Продолжение (пред. свеча медвежья)")
+            met += 1
+            parts.append("Продолжение (пред. свеча медвежья)")
 
-        # 5. ema_aligned: 15s EMA5 < EMA13
+        # 5. ema_aligned: EMA5 < EMA13
         c5 = ind.ema5 < ind.ema13
         conds["ema_aligned"] = c5
         if c5:
-            met += 1; parts.append("EMA вниз")
+            met += 1
+            parts.append("EMA вниз")
 
         # 6. not_exhausted: RSI 35-65
         c6 = 35 <= ind.rsi <= 65
         conds["not_exhausted"] = c6
         if c6:
-            met += 1; parts.append(f"RSI в норме ({ind.rsi:.0f})")
+            met += 1
+            parts.append(f"RSI в норме ({ind.rsi:.0f})")
 
-        if met < _MIN_MET:
-            continue
+        conf = 0.0
+        if met >= _MIN_MET:
+            conf = 40 + max(0, met - 4) * 10
+            if touch_count >= 4: conf += 5
 
-        conf = 40 + max(0, met - 4) * 10
-        if touch_count >= 4: conf += 5
-
-        if conf > best["conf"]:
+        if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
             best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
 
     return best
