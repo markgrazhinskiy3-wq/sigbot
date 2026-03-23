@@ -359,7 +359,8 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
     rather than hardcoding index 5, in case the schema differs for OTC pairs.
     """
     result: dict[str, int] = {}
-    _diag_logged = 0  # log up to 5 forex OTC entries that had no payout
+    _diag_logged = 0  # log up to 8 entries without "#" symbol
+    _no_hash_logged = 0  # log up to 5 entries that had no "#" field at all
     try:
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, list):
@@ -367,11 +368,19 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
         for entry in data:
             if not isinstance(entry, list) or len(entry) < 3:
                 continue
-            # Symbol is the field starting with "#"
+            # Symbol: prefer field starting with "#", fall back to index 1
             sym = next((str(f) for f in entry if isinstance(f, str) and str(f).startswith("#")), None)
-            if not sym:
-                continue
-            # Normalise: "#EUR/JPY OTC" → "eurjpy_otc"
+            if sym is None:
+                # Log first few no-hash entries to discover forex OTC format
+                if _no_hash_logged < 5:
+                    _no_hash_logged += 1
+                    logger.info("updateAssets no-hash entry #%d: %s", _no_hash_logged, entry)
+                # Use index 1 as symbol if it's a non-empty string
+                if len(entry) > 1 and isinstance(entry[1], str) and entry[1]:
+                    sym = entry[1]
+                else:
+                    continue
+            # Normalise: "#EUR/JPY OTC" or "EUR/JPY OTC" or "EURUSD_otc" → "eurjpy_otc"
             key = sym.lstrip("#").lower().replace("/", "").replace(" ", "_")
             # Payout: prefer index 5, but scan all numeric fields in 30-100 range if missing
             pct = 0
