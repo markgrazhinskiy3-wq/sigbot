@@ -1,16 +1,34 @@
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-TELEGRAM_BOT_TOKEN: str = os.environ.get("SIGNAL_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
 
-ADMIN_USER_ID: int = int(os.environ["ADMIN_USER_ID"])
+def _require(name: str, retries: int = 5, delay: float = 3.0) -> str:
+    for attempt in range(retries):
+        val = os.environ.get(name)
+        if val:
+            return val
+        if attempt < retries - 1:
+            print(f"[config] {name} not found, retrying in {delay}s ({attempt+1}/{retries})...", flush=True)
+            time.sleep(delay)
+    raise RuntimeError(
+        f"Required env var '{name}' is not set after {retries} attempts. "
+        f"Check Railway Variables."
+    )
 
-PO_LOGIN: str = os.environ["PO_LOGIN"]
-PO_PASSWORD: str = os.environ["PO_PASSWORD"]
+
+TELEGRAM_BOT_TOKEN: str = (
+    os.environ.get("SIGNAL_BOT_TOKEN")
+    or os.environ.get("TELEGRAM_BOT_TOKEN")
+    or _require("SIGNAL_BOT_TOKEN")
+)
+
+ADMIN_USER_ID: int = int(_require("ADMIN_USER_ID"))
+
+PO_LOGIN: str = _require("PO_LOGIN")
+PO_PASSWORD: str = _require("PO_PASSWORD")
 
 PP_LOGIN: str = os.environ.get("PP_LOGIN", "")
 PP_PASSWORD: str = os.environ.get("PP_PASSWORD", "")
