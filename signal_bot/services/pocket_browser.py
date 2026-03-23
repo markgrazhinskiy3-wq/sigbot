@@ -872,12 +872,60 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
     Falls back to an empty list on any error.
 
     Strategy priority:
-      1. Incoming WS frames during page load (most reliable — PO sends asset list on connect)
-      2. HTTP JSON API responses intercepted during page load
-      3. DOM scraping of the asset panel (existing code)
+      0a. Direct Playwright API requests (context.request.get) with browser cookies
+      0b. JS fetch() probing of known API endpoints
+      1.  Incoming WS frames during page load
+      2.  HTTP JSON API responses intercepted during page load
+      3.  DOM scraping of the asset panel
     """
+    logger.info(">>> PAYOUT SCRAPE: _get_available_otc_pairs_impl started")
     context = await _get_context()
+    logger.info(">>> PAYOUT SCRAPE: browser context obtained: %s", type(context).__name__)
+
+    # ── Strategy 0a: Playwright context.request API with browser cookies ──────
+    # Uses the session cookies from the logged-in browser context, no page load.
+    try:
+        API_CANDIDATES = [
+            "https://pocketoption.com/api/v1/binary-options/assets",
+            "https://pocketoption.com/en/cabinet/api/binary-options/practice/high-low/",
+            "https://pocketoption.com/en/cabinet/api/get-client-data/",
+            "https://pocketoption.com/api/binary/v1/assets",
+            "https://pocketoption.com/api/v1/assets",
+            "https://pocketoption.com/en/cabinet/api/assets/",
+            "https://pocketoption.com/api/v1/cabinet/binary-options/assets",
+            "https://pocketoption.com/en/cabinet/high-low/assets/",
+            "https://pocketoption.com/api/v1/cabinet/instruments",
+        ]
+        ctx_assets: list[dict] = []
+        for ep in API_CANDIDATES:
+            try:
+                resp = await context.request.get(
+                    ep,
+                    headers={"Accept": "application/json"},
+                    timeout=5_000,
+                )
+                ct = resp.headers.get("content-type", "")
+                logger.info("Strategy 0a GET %s → status=%s ct=%s", ep, resp.status, ct[:40])
+                if resp.status == 200 and "json" in ct:
+                    body = await resp.json()
+                    import json as _j2
+                    logger.info("Strategy 0a body preview: %s", _j2.dumps(body)[:200])
+                    before = len(ctx_assets)
+                    _try_parse_assets_from_ws_payload("0a:" + ep, body, ctx_assets)
+                    if len(ctx_assets) > before:
+                        logger.info("Strategy 0a: %s yielded %d asset entries", ep, len(ctx_assets) - before)
+            except Exception as exc:
+                logger.info("Strategy 0a GET %s → error: %s", ep, exc)
+        if ctx_assets:
+            pairs0a = _normalise_pairs_raw(ctx_assets, min_payout)
+            if pairs0a:
+                logger.info("Strategy 0a yielded %d pairs — returning early", len(pairs0a))
+                return pairs0a
+    except Exception as exc:
+        logger.warning("Strategy 0a (context.request) error: %s", exc)
+
     page = await context.new_page()
+    logger.info(">>> PAYOUT SCRAPE: new page created")
 
     # ── Strategy 1 & 2: intercept network data before DOM interaction ──────────
     ws_assets: list[dict] = []
@@ -956,8 +1004,11 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
 
     try:
         await _ensure_logged_in(context, page)
+        logger.info(">>> PAYOUT SCRAPE: login OK, navigating to trade URL: %s", config.PO_TRADE_URL)
         await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+        logger.info(">>> PAYOUT SCRAPE: page loaded — url=%s", page.url)
         await page.wait_for_timeout(3500)  # give the Vue app time to populate its store
+        logger.info(">>> PAYOUT SCRAPE: 3.5s wait done, starting strategies")
 
         # ── Strategy 0: extract payout from the Vue/JS in-memory state ──────────
         # This runs BEFORE any panel interaction, so it works even in headless env.
