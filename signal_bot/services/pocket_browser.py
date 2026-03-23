@@ -990,11 +990,35 @@ async def init_monitor_ws_auth() -> bool:
                 logger.warning("Could not save monitor cookies: %s", e)
             # Navigate to trading page — this triggers the WS handshake that sends auth
             await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
+
+        logger.info("init_monitor: page URL after navigation: %s", page.url)
+        # Save screenshot for debugging (stored on Railway volume)
+        try:
+            import pathlib as _pl
+            _ss_path = str(_pl.Path(config.DB_PATH).parent / "po_debug.png")
+            await page.screenshot(path=_ss_path, full_page=False)
+            logger.info("init_monitor: screenshot saved → %s", _ss_path)
+        except Exception as _ss_err:
+            logger.warning("init_monitor: screenshot failed: %s", _ss_err)
+
+        # Check page has OTC content
+        try:
+            has_otc = await page.evaluate("() => document.body.innerText.toLowerCase().includes('otc')")
+            logger.info("init_monitor: page contains OTC text: %s", has_otc)
+            # Log first 1000 chars of visible text for diagnosis
+            page_text = await page.evaluate("() => document.body.innerText.slice(0, 1000)")
+            logger.info("init_monitor: page text preview: %s", page_text.replace('\n', ' ')[:500])
+        except Exception as _txt_err:
+            logger.warning("init_monitor: page text check failed: %s", _txt_err)
+
         # Wait up to 15 seconds for WS auth capture + HTTP payout responses
         for _ in range(30):
             if captured:
                 break
             await page.wait_for_timeout(500)
+
+        logger.info("init_monitor: WS auth captured=%s, seen WS events=%s",
+                    bool(captured), list(seen_ws_events)[:10])
 
         # Extra 5s wait so the Vue app fully initialises and loads asset data
         await page.wait_for_timeout(5000)
@@ -1115,10 +1139,12 @@ async def init_monitor_ws_auth() -> bool:
             except Exception as exc:
                 logger.info("init_monitor probe %s → %s", ep, exc)
 
+        logger.info("init_monitor: final intercepted_payouts (%d entries): %s",
+                    len(intercepted_payouts), dict(list(intercepted_payouts.items())[:8]))
         if intercepted_payouts:
             save_live_payouts(intercepted_payouts)
         else:
-            logger.warning("init_monitor: no payout data captured from HTTP responses or API probes")
+            logger.warning("init_monitor: no payout data captured — all strategies returned 0")
 
         if captured:
             _save_ws_auth(captured["ws_url"], captured["auth"], path=WS_AUTH_PATH_MON)
