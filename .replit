@@ -26,10 +26,6 @@ author = "agent"
 task = "workflow.run"
 args = "Telegram Bot"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Signal Bot"
-
 [[workflows.workflow]]
 name = "Telegram Bot"
 author = "agent"
@@ -37,17 +33,6 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python main.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "Signal Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 signal_bot/main.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
