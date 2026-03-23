@@ -371,7 +371,8 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
             sym = next((str(f) for f in entry if isinstance(f, str) and str(f).startswith("#")), None)
             if not sym:
                 continue
-            key = sym.lower().lstrip("#")  # "eurusd_otc", "aapl", etc.
+            # Normalise: "#EUR/JPY OTC" → "eurjpy_otc"
+            key = sym.lstrip("#").lower().replace("/", "").replace(" ", "_")
             # Payout: prefer index 5, but scan all numeric fields in 30-100 range if missing
             pct = 0
             if len(entry) > 5 and isinstance(entry[5], (int, float)):
@@ -397,11 +398,15 @@ def _parse_update_assets_binary(raw: bytes) -> dict[str, int]:
                 if "otc" in entry_str or "forex" in entry_str or "currency" in entry_str:
                     _diag_logged += 1
                     logger.info("updateAssets non-stock entry (no payout): sym=%r  raw=%s", sym, entry)
-        # Also log first 3 raw entries to see full schema
+        # Diagnostic summary
         if data:
             logger.info("updateAssets first entry schema: %s", data[0])
-            if len(data) > 1:
-                logger.info("updateAssets total entries in array: %d", len(data))
+            logger.info("updateAssets total entries in array: %d", len(data))
+            otc_keys = {k: v for k, v in result.items() if "otc" in k}
+            logger.info(
+                "updateAssets OTC payouts captured (%d): %s",
+                len(otc_keys), otc_keys,
+            )
     except Exception as e:
         logger.warning("_parse_update_assets_binary failed: %s", e)
     return result
