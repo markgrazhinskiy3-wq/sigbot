@@ -1,0 +1,66 @@
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+  File "/app/signal_bot/main.py", line 15, in <module>
+Traceback (most recent call last):
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+Traceback (most recent call last):
+  File "/app/signal_bot/main.py", line 15, in <module>
+    import config
+  File "/app/signal_bot/config.py", line 8, in <module>
+    raise RuntimeError("SIGNAL_BOT_TOKEN is not set in Railway Variables")
+RuntimeError: SIGNAL_BOT_TOKEN is not set in Railway Variables
