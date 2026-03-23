@@ -886,11 +886,15 @@ async def init_monitor_ws_auth() -> bool:
                 age_hours,
             )
 
-    if not config.PP_LOGIN or not config.PP_PASSWORD:
-        logger.warning("init_monitor_ws_auth: PP_LOGIN/PP_PASSWORD not set — monitor will share main auth")
+    # Use secondary account if configured, otherwise fall back to primary account
+    _login = config.PP_LOGIN or config.PO_LOGIN
+    _password = config.PP_PASSWORD or config.PO_PASSWORD
+    if not _login or not _password:
+        logger.warning("init_monitor_ws_auth: no login credentials configured — skipping")
         return False
-
-    logger.info("Initialising monitoring WebSocket auth (secondary account)…")
+    if not config.PP_LOGIN:
+        logger.info("init_monitor_ws_auth: PP_LOGIN not set — using primary PO account for payout capture")
+    logger.info("Initialising monitoring WebSocket auth…")
 
     from playwright.async_api import async_playwright as _ap
 
@@ -974,7 +978,7 @@ async def init_monitor_ws_auth() -> bool:
 
         if not cookie_login_ok:
             # Fall back to credentials login
-            await _login_with_credentials(page, config.PP_LOGIN, config.PP_PASSWORD)
+            await _login_with_credentials(page, _login, _password)
             # Save cookies for future runs (avoid reCAPTCHA)
             try:
                 saved = await context.cookies()
