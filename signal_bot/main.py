@@ -117,8 +117,17 @@ async def main() -> None:
     start_refresher(pairs=live_pairs)
 
     # Initialise secondary account WS auth for real-time monitoring.
-    # Runs in the background so it doesn't block bot startup.
-    asyncio.create_task(init_monitor_ws_auth())
+    # After it completes, refresh pairs cache so live payouts get picked up.
+    async def _init_monitor_then_refresh():
+        await init_monitor_ws_auth()
+        logger.info("Monitor auth done — re-refreshing pairs cache with live payouts…")
+        try:
+            await pairs_cache.refresh(force=True)
+            logger.info("Pairs cache re-refreshed after monitor auth: %d pairs", len(pairs_cache.get_cached()))
+        except Exception as e:
+            logger.warning("Post-monitor pairs refresh failed: %s", e)
+
+    asyncio.create_task(_init_monitor_then_refresh())
 
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,

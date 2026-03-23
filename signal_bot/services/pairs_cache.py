@@ -64,43 +64,70 @@ async def refresh(force: bool = False) -> list[dict]:
 
         logger.info("Refreshing OTC pairs cache (force=%s)…", force)
 
-        # ── Strategy 0: live payouts captured from candle-fetch WS frames ────────
-        # These are the most reliable: captured as a side-effect of the candle
-        # loop that we KNOW works on Railway (same auth, same connection).
+        # ── Strategy 0: live payouts from po_payouts.json (captured by browser) ──
+        # File is written by init_monitor_ws_auth() which runs in a known-working
+        # browser session on Railway. Fresh if < 6 hours old.
         pairs: list[dict] = []
         try:
-            from services.po_ws_client import get_live_payouts
-            live = get_live_payouts()
-            if live:
-                live_pairs: list[dict] = []
+            from services.pocket_browser import load_live_payouts
+            file_payouts = load_live_payouts(max_age_hours=6.0)
+            if file_payouts:
+                file_pairs: list[dict] = []
                 for p in config.OTC_PAIRS:
-                    sym_key = p["symbol"].lstrip("#").lower()
-                    payout = live.get(sym_key, p.get("payout", 0))
+                    sym_key = p["symbol"].lstrip("#").lower().replace("_", "").replace("/", "")
+                    # Try multiple key variants: eurusd_otc, eurusdotc, #eurusd_otc
+                    payout = (
+                        file_payouts.get(sym_key)
+                        or file_payouts.get(p["symbol"].lstrip("#").lower())
+                        or file_payouts.get(p["symbol"].lower())
+                        or p.get("payout", 0)
+                    )
                     if payout >= MIN_PAYOUT:
                         name  = p["label"]
                         label = f"{name} | {payout}%"
-                        live_pairs.append({
-                            "label":  label,
-                            "symbol": p["symbol"],
-                            "payout": payout,
-                            "name":   name,
-                        })
-                live_pairs.sort(key=lambda x: -x["payout"])
-                if live_pairs:
-                    logger.info(
-                        "Strategy 0 (live WS payouts): %d pairs. "
-                        "Payload keys seen: %s",
-                        len(live_pairs), list(live)[:5],
-                    )
-                    pairs = live_pairs
-                else:
-                    logger.warning(
-                        "Strategy 0: live payout map has %d entries but none "
-                        "passed min_payout=%d. Keys: %s",
-                        len(live), MIN_PAYOUT, list(live)[:10],
-                    )
+                        file_pairs.append({"label": label, "symbol": p["symbol"], "payout": payout, "name": name})
+                file_pairs.sort(key=lambda x: -x["payout"])
+                if file_pairs:
+                    logger.info("Strategy 0 (po_payouts.json): %d pairs with live payouts", len(file_pairs))
+                    pairs = file_pairs
         except Exception as e:
-            logger.warning("Strategy 0 (live payouts) error: %s", e)
+            logger.warning("Strategy 0 (po_payouts.json) error: %s", e)
+
+        # ── Strategy 0b: live payouts captured from candle-fetch WS frames ───────
+        if not pairs:
+            try:
+                from services.po_ws_client import get_live_payouts
+                live = get_live_payouts()
+                if live:
+                    live_pairs: list[dict] = []
+                    for p in config.OTC_PAIRS:
+                        sym_key = p["symbol"].lstrip("#").lower()
+                        payout = live.get(sym_key, p.get("payout", 0))
+                        if payout >= MIN_PAYOUT:
+                            name  = p["label"]
+                            label = f"{name} | {payout}%"
+                            live_pairs.append({
+                                "label":  label,
+                                "symbol": p["symbol"],
+                                "payout": payout,
+                                "name":   name,
+                            })
+                    live_pairs.sort(key=lambda x: -x["payout"])
+                    if live_pairs:
+                        logger.info(
+                            "Strategy 0b (live WS payouts): %d pairs. "
+                            "Payload keys seen: %s",
+                            len(live_pairs), list(live)[:5],
+                        )
+                        pairs = live_pairs
+                    else:
+                        logger.warning(
+                            "Strategy 0b: live payout map has %d entries but none "
+                            "passed min_payout=%d. Keys: %s",
+                            len(live), MIN_PAYOUT, list(live)[:10],
+                        )
+            except Exception as e:
+                logger.warning("Strategy 0b (live payouts) error: %s", e)
 
         # ── Strategy 1: browser scraping ─────────────────────────────────────
         if not pairs:

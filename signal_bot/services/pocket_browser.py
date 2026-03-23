@@ -37,6 +37,37 @@ COOKIES_PATH       = Path(os.path.dirname(__file__)).parent / "po_cookies.json"
 COOKIES_PATH_MON   = Path(os.path.dirname(__file__)).parent / "po_cookies_monitor.json"
 WS_AUTH_PATH       = Path(os.path.dirname(__file__)).parent / "po_ws_auth.json"
 WS_AUTH_PATH_MON   = Path(os.path.dirname(__file__)).parent / "po_ws_auth_monitor.json"
+PO_PAYOUTS_PATH    = Path(os.path.dirname(__file__)).parent / "po_payouts.json"
+
+
+def save_live_payouts(payout_map: dict) -> None:
+    """Persist {symbol_key: pct} map to po_payouts.json so pairs_cache can read it."""
+    import time as _t
+    try:
+        data = {"payouts": payout_map, "ts": _t.time()}
+        PO_PAYOUTS_PATH.write_text(json.dumps(data, indent=2))
+        logger.info("Saved %d live payouts → %s", len(payout_map), PO_PAYOUTS_PATH)
+    except Exception as e:
+        logger.warning("Could not save live payouts: %s", e)
+
+
+def load_live_payouts(max_age_hours: float = 6.0) -> dict:
+    """Load {symbol_key: pct} map from po_payouts.json. Returns {} if missing or stale."""
+    import time as _t
+    try:
+        if not PO_PAYOUTS_PATH.exists():
+            return {}
+        data = json.loads(PO_PAYOUTS_PATH.read_text())
+        age = (_t.time() - data.get("ts", 0)) / 3600
+        if age > max_age_hours:
+            logger.info("po_payouts.json is %.1fh old (> %.1fh) — ignoring", age, max_age_hours)
+            return {}
+        payouts = data.get("payouts", {})
+        logger.info("Loaded %d live payouts from file (%.1fh old)", len(payouts), age)
+        return payouts
+    except Exception as e:
+        logger.warning("Could not load live payouts: %s", e)
+        return {}
 
 
 def _save_ws_auth(ws_url: str, auth_payload: dict, path: Path | None = None) -> None:
@@ -627,6 +658,47 @@ async def _login_with_credentials(page, login: str, password: str) -> None:
     logger.info("Secondary account login OK, URL: %s", page.url)
 
 
+def _parse_payouts_from_response(body, out: dict) -> None:
+    """
+    Recursively search a JSON body (dict or list) for asset payout data.
+    Populates `out` as {symbol_key: pct_int}, e.g. {"eurusd_otc": 87}.
+    Looks for any object that has BOTH a symbol/name field AND a profit/payout field.
+    """
+    def _sym_key(s: str) -> str:
+        return s.lower().replace("#", "").replace("/", "").replace(" ", "").replace("-", "")
+
+    def _dig(obj, depth=0):
+        if depth > 8:
+            return
+        if isinstance(obj, list):
+            for item in obj:
+                _dig(item, depth + 1)
+        elif isinstance(obj, dict):
+            # Try to extract payout from this dict
+            pct = 0
+            for pk in ("profit", "payout", "profitability", "return", "percent", "winrate", "win_rate"):
+                v = obj.get(pk)
+                if isinstance(v, (int, float)) and v > 0:
+                    pct = int(v) if v > 1 else int(round(v * 100))
+                    break
+            sym = ""
+            for sk in ("symbol", "asset", "ticker", "code", "name", "title", "id"):
+                v = obj.get(sk, "")
+                if isinstance(v, str) and v.strip():
+                    sym = v.strip()
+                    break
+            if pct > 30 and sym:
+                key = _sym_key(sym)
+                out[key] = pct
+                logger.debug("_parse_payouts: %s → %d%%", key, pct)
+            # Recurse into values
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    _dig(v, depth + 1)
+
+    _dig(body)
+
+
 async def init_monitor_ws_auth() -> bool:
     """
     Log in with the secondary PocketOption account (PP_LOGIN/PP_PASSWORD) in a
@@ -635,6 +707,7 @@ async def init_monitor_ws_auth() -> bool:
 
     Returns True if successful, False if credentials not configured or login fails.
     Called once at bot startup; stream_pair() then uses this auth file.
+    Also captures live payout data from HTTP responses during page load.
     """
     import time as _time
     # If a fresh monitor auth file already exists (< 12 hours old), skip re-init
@@ -688,6 +761,31 @@ async def init_monitor_ws_auth() -> bool:
         page = await context.new_page()
         page.on("websocket", _on_ws)
 
+        # ── Payout interception: capture any JSON with asset/payout data ───────
+        intercepted_payouts: dict = {}
+
+        async def _on_resp(resp):
+            try:
+                if resp.status != 200:
+                    return
+                ct = resp.headers.get("content-type", "")
+                if "json" not in ct:
+                    return
+                cl = int(resp.headers.get("content-length", "0") or "0")
+                if cl > 2_000_000:
+                    return
+                url_short = resp.url[:120]
+                body = await resp.json()
+                import json as _jj
+                logger.info("init_monitor HTTP JSON [%s]: %s", url_short, _jj.dumps(body)[:200])
+                _parse_payouts_from_response(body, intercepted_payouts)
+                if intercepted_payouts:
+                    logger.info("Intercepted %d payouts from %s", len(intercepted_payouts), url_short)
+            except Exception:
+                pass
+
+        page.on("response", _on_resp)
+
         # Try cookie login first for secondary account
         cookie_login_ok = False
         if COOKIES_PATH_MON.exists():
@@ -721,11 +819,43 @@ async def init_monitor_ws_auth() -> bool:
                 logger.warning("Could not save monitor cookies: %s", e)
             # Navigate to trading page — this triggers the WS handshake that sends auth
             await page.goto(config.PO_TRADE_URL, wait_until="domcontentloaded", timeout=30_000)
-        # Wait up to 10 seconds for WS auth capture
-        for _ in range(20):
+        # Wait up to 15 seconds for WS auth capture + HTTP payout responses
+        for _ in range(30):
             if captured:
                 break
             await page.wait_for_timeout(500)
+
+        # Extra 3s wait so HTTP JSON responses (including asset/payout data) can arrive
+        await page.wait_for_timeout(3000)
+
+        # Also try direct API endpoint probing with browser cookies
+        API_PROBE_URLS = [
+            "https://pocketoption.com/api/v1/binary-options/assets",
+            "https://pocketoption.com/en/cabinet/api/binary-options/practice/high-low/",
+            "https://pocketoption.com/en/cabinet/api/get-client-data/",
+            "https://pocketoption.com/api/binary/v1/assets",
+            "https://pocketoption.com/api/v1/assets",
+            "https://pocketoption.com/en/cabinet/api/assets/",
+            "https://pocketoption.com/api/v1/cabinet/binary-options/assets",
+            "https://pocketoption.com/en/cabinet/high-low/assets/",
+        ]
+        for ep in API_PROBE_URLS:
+            try:
+                r = await context.request.get(ep, headers={"Accept": "application/json"}, timeout=5_000)
+                ct = r.headers.get("content-type", "")
+                logger.info("init_monitor probe GET %s → %d %s", ep, r.status, ct[:40])
+                if r.status == 200 and "json" in ct:
+                    body = await r.json()
+                    import json as _jj2
+                    logger.info("init_monitor probe body: %s", _jj2.dumps(body)[:300])
+                    _parse_payouts_from_response(body, intercepted_payouts)
+            except Exception as exc:
+                logger.info("init_monitor probe %s → %s", ep, exc)
+
+        if intercepted_payouts:
+            save_live_payouts(intercepted_payouts)
+        else:
+            logger.warning("init_monitor: no payout data captured from HTTP responses or API probes")
 
         if captured:
             _save_ws_auth(captured["ws_url"], captured["auth"], path=WS_AUTH_PATH_MON)
