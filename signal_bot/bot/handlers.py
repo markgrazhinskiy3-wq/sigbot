@@ -979,23 +979,22 @@ async def _show_pairs_keyboard(callback: CallbackQuery, *, force_refresh: bool =
     all_pairs = pairs_cache.get_cached()
     pairs = all_pairs
 
-    # Check if live payout data is available (HTTP interceptor or WS)
+    # Check if live payout data is available from WS updateAssets
     try:
-        from services.pocket_browser import get_browser_payouts
-        from services.po_ws_client import get_live_payouts
-        has_live = bool(get_browser_payouts() or get_live_payouts())
+        from services.po_ws_client import get_live_assets
+        has_live = bool(get_live_assets())
     except Exception:
         has_live = False
 
     if has_live:
         header = (
             "📊 <b>Доступные OTC-пары</b>\n"
-            "<i>Только с выплатой ≥85% · Обновлено сейчас</i>"
+            "<i>Только с выплатой ≥80% · Обновлено сейчас</i>"
         )
     else:
         header = (
             "📊 <b>Доступные OTC-пары</b>\n"
-            "<i>Выплата ≥85% · Список обновляется автоматически</i>"
+            "<i>Выплата ≥80% · Список обновляется автоматически</i>"
         )
 
     await callback.message.edit_text(
