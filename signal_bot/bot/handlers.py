@@ -18,7 +18,7 @@ from db.database import (
     get_daily_admin_stats, get_performance_report,
     get_all_admin_ids, get_all_admins, add_admin, remove_admin,
     get_condition_stats, reset_condition_stats,
-    get_pair_outcomes, get_last_trades,
+    get_pair_outcomes, get_last_trades, get_outcome_by_id,
 )
 from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
@@ -182,9 +182,10 @@ async def _monitor_pair(
         d            = result.details if isinstance(result.details, dict) else {}
         signal_price = d.get("debug", {}).get("last_close")
         strategy     = d.get("primary_strategy")
+        outcome_id_snap = None
         if signal_price:
             meta = _extract_signal_meta(d)
-            outcome_id = await save_signal_outcome(
+            outcome_id_snap = await save_signal_outcome(
                 user_id=chat_id, symbol=symbol, pair_label=pair_label,
                 direction=signal.direction, confidence=signal.confidence,
                 strategy=strategy, expiration_sec=exp,
@@ -192,7 +193,7 @@ async def _monitor_pair(
                 **meta,
             )
             asyncio.create_task(track_outcome(
-                bot=bot, chat_id=chat_id, outcome_id=outcome_id,
+                bot=bot, chat_id=chat_id, outcome_id=outcome_id_snap,
                 symbol=symbol, pair_label=pair_label,
                 direction=signal.direction, strategy=strategy,
                 expiration_sec=exp, signal_price=signal_price,
@@ -207,6 +208,7 @@ async def _monitor_pair(
             "confidence": signal.confidence,
             "details":    result.details if isinstance(result.details, dict) else {},
             "fired_at":   _time.time(),
+            "outcome_id": outcome_id_snap,
         }
 
         signal_found = True
@@ -452,6 +454,15 @@ async def cmd_debug(message: Message) -> None:
         symbol      = stored["symbol"]
         header_line = f"🔬 <b>DEBUG {symbol}</b>  <i>(сигнал: {age_str})</i>"
         _signal_conf = stored.get("confidence", "?")
+
+        # Fetch trade outcome from DB if available
+        _outcome_row = None
+        _oid = stored.get("outcome_id")
+        if _oid:
+            try:
+                _outcome_row = await get_outcome_by_id(_oid)
+            except Exception:
+                pass
     else:
         # ── /debug SYMBOL → свежий анализ ────────────────────────────────────
         symbol = raw_symbol
@@ -467,6 +478,7 @@ async def cmd_debug(message: Message) -> None:
         debug   = details.get("debug", {}) if isinstance(details, dict) else {}
         header_line  = f"🔬 <b>DEBUG {symbol}</b>  <i>(свежий анализ)</i>"
         _signal_conf = signal_resp.confidence
+        _outcome_row = None   # fresh analysis — no DB outcome to show
 
     if not debug:
         await message.answer("Нет данных debug (не удалось получить свечи).")
@@ -612,6 +624,32 @@ async def cmd_debug(message: Message) -> None:
         lines.append(f"  Причина: {html.escape(str(reject))}")
         if conf_r is not None and thresh is not None:
             lines.append(f"  conf={conf_r} &lt; порог={thresh}")
+
+    # ── Trade outcome (only for stored signals with a DB record) ──────────────
+    if _outcome_row:
+        o_status = _outcome_row.get("outcome", "pending")
+        s_price  = _outcome_row.get("signal_price")
+        r_price  = _outcome_row.get("result_price")
+        exp_s    = _outcome_row.get("expiration_sec", 0)
+        exp_str  = f"{exp_s // 60}м" if exp_s else "?"
+
+        lines.append("")
+        if o_status == "win":
+            pct_move = abs((r_price - s_price) / s_price * 100) if s_price and r_price else 0
+            lines.append(f"📊 <b>Результат сделки: ✅ ПРОФИТ</b>  (экспирация {exp_str})")
+            lines.append(f"  Вход: {s_price}  →  Закрытие: {r_price}  ({pct_move:+.4f}%)")
+        elif o_status == "loss":
+            pct_move = (r_price - s_price) / s_price * 100 if s_price and r_price else 0
+            lines.append(f"📊 <b>Результат сделки: ❌ УБЫТОК</b>  (экспирация {exp_str})")
+            lines.append(f"  Вход: {s_price}  →  Закрытие: {r_price}  ({pct_move:+.4f}%)")
+        elif o_status == "pending":
+            lines.append(f"📊 <b>Результат сделки: ⏳ ожидание</b>  (экспирация {exp_str})")
+        else:
+            lines.append(f"📊 <b>Результат сделки: ⚠️ ошибка проверки</b>")
+    elif stored.get("outcome_id") is None and not raw_symbol:
+        # Signal was fired but signal_price wasn't available — outcome not tracked
+        lines.append("")
+        lines.append("📊 <i>Результат не отслеживается (цена входа не определена)</i>")
 
     text = "\n".join(lines)
     LIMIT = 4000
@@ -945,27 +983,17 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
-        # ── Store for /debug (snapshot of conditions at signal time) ──────────
+        # ── Save to DB, start result watcher, store /debug snapshot ──────────
         if signal.direction in ("BUY", "SELL"):
             import time as _time
-            _last_fired_signal[callback.from_user.id] = {
-                "symbol":     symbol,
-                "pair_label": pair_label,
-                "direction":  signal.direction,
-                "confidence": signal.confidence,
-                "details":    signal.details if isinstance(signal.details, dict) else {},
-                "fired_at":   _time.time(),
-            }
-
-        # ── Save to DB & start result watcher ─────────────────────────────────
-        if signal.direction in ("BUY", "SELL"):
             d = signal.details if isinstance(signal.details, dict) else {}
             signal_price = d.get("debug", {}).get("last_close")
             strategy     = d.get("primary_strategy")
 
+            outcome_id_snap = None
             if signal_price:
                 meta = _extract_signal_meta(d)
-                outcome_id = await save_signal_outcome(
+                outcome_id_snap = await save_signal_outcome(
                     user_id        = callback.from_user.id,
                     symbol         = symbol,
                     pair_label     = pair_label,
@@ -979,7 +1007,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                 asyncio.create_task(track_outcome(
                     bot            = callback.bot,
                     chat_id        = callback.from_user.id,
-                    outcome_id     = outcome_id,
+                    outcome_id     = outcome_id_snap,
                     symbol         = symbol,
                     pair_label     = pair_label,
                     direction      = signal.direction,
@@ -987,6 +1015,16 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                     expiration_sec = expiration_sec,
                     signal_price   = signal_price,
                 ))
+
+            _last_fired_signal[callback.from_user.id] = {
+                "symbol":     symbol,
+                "pair_label": pair_label,
+                "direction":  signal.direction,
+                "confidence": signal.confidence,
+                "details":    d,
+                "fired_at":   _time.time(),
+                "outcome_id": outcome_id_snap,
+            }
 
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)

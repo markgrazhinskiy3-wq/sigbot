@@ -499,6 +499,22 @@ async def get_pair_outcomes(symbol: str, limit: int = 15) -> list[dict]:
             return [dict(r) for r in rows]
 
 
+async def get_outcome_by_id(outcome_id: int) -> dict | None:
+    """Return a single signal_outcomes row by id (all fields)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, direction, confidence, strategy, expiration_sec,
+                   signal_price, result_price, outcome, created_at, resolved_at
+            FROM signal_outcomes WHERE id = ?
+            """,
+            (outcome_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
 async def get_strategy_stats(user_id: int) -> list[dict]:
     """Return win/loss breakdown by strategy for a user."""
     async with aiosqlite.connect(DB_PATH) as db:
