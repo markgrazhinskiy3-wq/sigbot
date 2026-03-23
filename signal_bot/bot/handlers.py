@@ -34,6 +34,11 @@ _monitor_tasks: dict[int, asyncio.Task] = {}
 
 # ── Last selected pair per user (for /debug without args) ─────────────────────
 _last_pair: dict[int, str] = {}
+
+# ── Last FIRED signal per user — stored when BUY/SELL is sent ─────────────────
+# Value: {"symbol": str, "pair_label": str, "direction": str,
+#          "confidence": float, "details": dict, "fired_at": float}
+_last_fired_signal: dict[int, dict] = {}
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
@@ -192,6 +197,17 @@ async def _monitor_pair(
                 direction=signal.direction, strategy=strategy,
                 expiration_sec=exp, signal_price=signal_price,
             ))
+
+        # Store for /debug (allows reviewing this signal after market moves on)
+        import time as _time
+        _last_fired_signal[chat_id] = {
+            "symbol":     symbol,
+            "pair_label": pair_label,
+            "direction":  signal.direction,
+            "confidence": signal.confidence,
+            "details":    result.details if isinstance(result.details, dict) else {},
+            "fired_at":   _time.time(),
+        }
 
         signal_found = True
         return True  # stop streaming
@@ -407,40 +423,50 @@ async def cmd_broadcast(message: Message) -> None:
 @router.message(Command("debug"))
 async def cmd_debug(message: Message) -> None:
     """
-    /debug [PAIR_SYMBOL]
-    Example: /debug #AUDCAD_otc
-    Returns the full module scoring breakdown for the requested pair.
-    Admin-only. No-args: uses last remembered pair.
+    /debug          — показывает анализ последнего BUY/SELL сигнала (снапшот момента сигнала)
+    /debug SYMBOL   — запускает СВЕЖИЙ анализ указанной пары прямо сейчас
+    Admin-only.
     """
     if not _is_admin(message.from_user.id):
         return
 
-    msg_parts = message.text.split(maxsplit=1)
+    import time as _time
+    msg_parts  = message.text.split(maxsplit=1)
     raw_symbol = msg_parts[1].strip() if len(msg_parts) > 1 else None
 
-    if raw_symbol:
+    # ── /debug без аргументов → показать ПОСЛЕДНИЙ сохранённый сигнал ──────
+    if not raw_symbol:
+        stored = _last_fired_signal.get(message.from_user.id)
+        if not stored:
+            await message.answer(
+                "ℹ️ Нет сохранённого сигнала.\n\n"
+                "Сигнал сохраняется автоматически при каждом BUY/SELL.\n"
+                "Для свежего анализа: <code>/debug SYMBOL</code>",
+                parse_mode="HTML",
+            )
+            return
+        details = stored["details"]
+        debug   = details.get("debug", {}) if isinstance(details, dict) else {}
+        age_sec = int(_time.time() - stored.get("fired_at", _time.time()))
+        age_str = f"{age_sec // 60} мин {age_sec % 60} сек назад" if age_sec >= 60 else f"{age_sec} сек назад"
+        symbol      = stored["symbol"]
+        header_line = f"🔬 <b>DEBUG {symbol}</b>  <i>(сигнал: {age_str})</i>"
+        _signal_conf = stored.get("confidence", "?")
+    else:
+        # ── /debug SYMBOL → свежий анализ ────────────────────────────────────
         symbol = raw_symbol
         _last_pair[message.from_user.id] = symbol
-    else:
-        symbol = _last_pair.get(message.from_user.id)
-        if not symbol:
-            pairs = pairs_cache.get_cached()
-            if not pairs:
-                await message.answer("Сначала выберите пару через меню, чтобы /debug запомнил её.")
-                return
-            symbol = pairs[0]["symbol"]
-
-    await message.answer(f"🔬 Запускаю анализ <code>{symbol}</code>...", parse_mode="HTML")
-
-    try:
-        pair_label  = _label_for_symbol(symbol)
-        signal_resp = await get_signal(symbol=symbol, pair_label=pair_label, expiration_sec=60)
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: <code>{e}</code>", parse_mode="HTML")
-        return
-
-    details = signal_resp.details if hasattr(signal_resp, "details") else {}
-    debug   = details.get("debug", {}) if isinstance(details, dict) else {}
+        await message.answer(f"🔬 Запускаю свежий анализ <code>{symbol}</code>...", parse_mode="HTML")
+        try:
+            pair_label  = _label_for_symbol(symbol)
+            signal_resp = await get_signal(symbol=symbol, pair_label=pair_label, expiration_sec=60)
+        except Exception as e:
+            await message.answer(f"❌ Ошибка: <code>{e}</code>", parse_mode="HTML")
+            return
+        details = signal_resp.details if hasattr(signal_resp, "details") else {}
+        debug   = details.get("debug", {}) if isinstance(details, dict) else {}
+        header_line  = f"🔬 <b>DEBUG {symbol}</b>  <i>(свежий анализ)</i>"
+        _signal_conf = signal_resp.confidence
 
     if not debug:
         await message.answer("Нет данных debug (не удалось получить свечи).")
@@ -456,7 +482,7 @@ async def cmd_debug(message: Message) -> None:
     abp = debug.get("avg_body_pct", 0)
 
     lines = [
-        f"🔬 <b>DEBUG {symbol}</b>",
+        header_line,
         f"Цена: <code>{last_close}</code> | Направление: <b>{direction}</b>",
         "",
         f"📊 <b>Свечи</b>",
@@ -565,7 +591,7 @@ async def cmd_debug(message: Message) -> None:
     lines.append("")
     if direction in ("BUY", "SELL"):
         conf_raw = details.get("confidence_raw", debug.get("conf_after_multipliers", "?"))
-        conf_5   = details.get("confidence_5", signal_resp.confidence)
+        conf_5   = details.get("confidence_5", _signal_conf)
         quality  = details.get("signal_quality", "?")
         expiry   = details.get("expiry_hint", "?")
         strat    = details.get("primary_strategy", "?")
@@ -918,6 +944,18 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
             else signal_result_keyboard(symbol, expiration_sec)
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+        # ── Store for /debug (snapshot of conditions at signal time) ──────────
+        if signal.direction in ("BUY", "SELL"):
+            import time as _time
+            _last_fired_signal[callback.from_user.id] = {
+                "symbol":     symbol,
+                "pair_label": pair_label,
+                "direction":  signal.direction,
+                "confidence": signal.confidence,
+                "details":    signal.details if isinstance(signal.details, dict) else {},
+                "fired_at":   _time.time(),
+            }
 
         # ── Save to DB & start result watcher ─────────────────────────────────
         if signal.direction in ("BUY", "SELL"):
