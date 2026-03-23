@@ -3,8 +3,28 @@ import logging
 import signal
 import sys
 import os
+import subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+# ── Ensure Playwright Chromium is installed before anything else ──────────────
+# Railway may not preserve the browser cache between deploys even if the
+# Dockerfile has `playwright install chromium`. Running it here is a no-op
+# when browsers are already present and takes ~20s on first run.
+def _ensure_playwright_browsers() -> None:
+    try:
+        result = subprocess.run(
+            ["playwright", "install", "chromium"],
+            capture_output=True, text=True, timeout=180
+        )
+        if result.returncode == 0:
+            print("[startup] Playwright chromium browsers ready", flush=True)
+        else:
+            print(f"[startup] playwright install chromium failed: {result.stderr[:300]}", flush=True)
+    except Exception as e:
+        print(f"[startup] Could not run playwright install: {e}", flush=True)
+
+_ensure_playwright_browsers()
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
