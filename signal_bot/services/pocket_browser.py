@@ -926,21 +926,22 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
             if resp.status != 200:
                 return
             ct = resp.headers.get("content-type", "")
-            if "json" not in ct and "javascript" not in ct:
+            if "json" not in ct:
                 return
-            url_lower = resp.url.lower()
-            # Only check URLs that might serve asset data
-            if not any(kw in url_lower for kw in (
-                "asset", "symbol", "instrument", "pair", "market",
-                "product", "trade", "option", "quote"
-            )):
+            # Skip tiny or huge responses (JS bundles, analytics payloads etc)
+            cl = int(resp.headers.get("content-length", "0") or "0")
+            if cl > 2_000_000:
                 return
+            # Log every JSON URL for diagnostics — helps identify the assets API
+            url_short = resp.url[:120]
+            logger.debug("HTTP JSON response: %s", url_short)
             body = await resp.json()
             before = len(http_assets)
             _try_parse_assets_from_ws_payload("http:" + resp.url, body, http_assets)
             after = len(http_assets)
             if after > before:
-                logger.info("HTTP response %s yielded %d asset entries", resp.url[:80], after - before)
+                logger.info("HTTP response yielded %d asset entries: %s",
+                            after - before, url_short)
         except Exception:
             pass
 
@@ -1055,6 +1056,52 @@ async def _get_available_otc_pairs_impl(min_payout: int = 80) -> list[dict]:
                 logger.info("Strategy 0 (JS store): no OTC assets found in page JS context")
         except Exception as exc:
             logger.warning("Strategy 0 (JS store) error: %s", exc)
+
+        # ── Strategy 0b: direct authenticated fetch() to known API endpoints ────
+        # Browser is already logged in, so any fetch() call has session cookies.
+        # We try a list of candidate URLs that PocketOption might use for assets.
+        if not ws_assets and not http_assets:
+            try:
+                api_data = await page.evaluate(r"""async () => {
+                    const CANDIDATES = [
+                        '/api/v1/binary-options/assets',
+                        '/en/cabinet/api/binary-options/practice/high-low/',
+                        '/en/cabinet/api/get-client-data/',
+                        '/api/binary/v1/assets',
+                        '/api/v1/assets',
+                        '/en/cabinet/api/assets/',
+                        '/api/v1/cabinet/binary-options/assets',
+                        '/en/cabinet/high-low/assets/',
+                        '/api/v1/cabinet/instruments',
+                    ];
+                    const results = [];
+                    for (const url of CANDIDATES) {
+                        try {
+                            const r = await fetch(url, {
+                                credentials: 'include',
+                                headers: {'Accept': 'application/json, */*'},
+                            });
+                            if (!r.ok) continue;
+                            const ct = r.headers.get('content-type') || '';
+                            if (!ct.includes('json')) continue;
+                            const data = await r.json();
+                            results.push({url, data});
+                        } catch(e) {}
+                    }
+                    return results;
+                }""")
+                for item in (api_data or []):
+                    url = item.get("url", "?")
+                    data = item.get("data")
+                    before = len(http_assets)
+                    _try_parse_assets_from_ws_payload("fetch:" + url, data, http_assets)
+                    after = len(http_assets)
+                    if after > before:
+                        logger.info("Strategy 0b fetch(%s): got %d asset entries", url, after - before)
+                    else:
+                        logger.info("Strategy 0b fetch(%s): responded but no asset data in result", url)
+            except Exception as exc:
+                logger.warning("Strategy 0b (fetch probing) error: %s", exc)
 
         # ── Strategy 1 & 2 results from network interception ─────────────────────
         # (ws_assets and http_assets were collected via page event listeners above)
