@@ -1001,8 +1001,9 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
             )
             return
 
+        text = format_scan_output(results)
         await callback.message.edit_text(
-            "📊 <b>Рекомендованные пары</b>",
+            text,
             parse_mode="HTML",
             reply_markup=recommended_pairs_keyboard(results),
         )
