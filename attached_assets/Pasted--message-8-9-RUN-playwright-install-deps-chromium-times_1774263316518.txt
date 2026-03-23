@@ -1,0 +1,79 @@
+{
+  "message": "[8/9] RUN playwright install-deps chromium",
+  "timestamp": "2026-03-23T10:54:53.485385885Z",
+  "severity": "error",
+  "children": [
+    {
+      "message": "BEWARE: your OS is not officially supported by Playwright; installing dependencies for ubuntu20.04-x64 as a fallback.\n",
+      "timestamp": "2026-03-23T10:54:53.854987668Z"
+    },
+    {
+      "message": "Installing dependencies...\n",
+      "timestamp": "2026-03-23T10:54:53.855472359Z"
+    },
+    {
+      "message": "Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]\n",
+      "timestamp": "2026-03-23T10:54:53.898806244Z"
+    },
+    {
+      "message": "Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]\n",
+      "timestamp": "2026-03-23T10:54:53.92363891Z"
+    },
+    {
+      "message": "Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]\n",
+      "timestamp": "2026-03-23T10:54:53.929034632Z"
+    },
+    {
+      "message": "Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9671 kB]\n",
+      "timestamp": "2026-03-23T10:54:53.950675064Z"
+    },
+    {
+      "message": "Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [5412 B]\n",
+      "timestamp": "2026-03-23T10:54:54.054281595Z"
+    },
+    {
+      "message": "Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [114 kB]\n",
+      "timestamp": "2026-03-23T10:54:54.054556457Z"
+    },
+    {
+      "message": "Fetched 10.0 MB in 1s (9176 kB/s)\nReading package lists...",
+      "timestamp": "2026-03-23T10:54:54.971364706Z"
+    },
+    {
+      "message": "\n",
+      "timestamp": "2026-03-23T10:54:55.54124417Z"
+    },
+    {
+      "message": "Reading package lists...",
+      "timestamp": "2026-03-23T10:54:55.560668561Z"
+    },
+    {
+      "message": "\n",
+      "timestamp": "2026-03-23T10:54:56.135481637Z"
+    },
+    {
+      "message": "Building dependency tree...",
+      "timestamp": "2026-03-23T10:54:56.14931779Z"
+    },
+    {
+      "message": "\nReading state information...",
+      "timestamp": "2026-03-23T10:54:56.313082545Z"
+    },
+    {
+      "message": "\n",
+      "timestamp": "2026-03-23T10:54:56.313528417Z"
+    },
+    {
+      "message": "Package ttf-ubuntu-font-family is not available, but is referred to by another package.\nThis may mean that the package is missing, has been obsoleted, or\nis only available from another source\n\nPackage ttf-unifont is not available, but is referred to by another package.\nThis may mean that the package is missing, has been obsoleted, or\nis only available from another source\nHowever the following packages replace it:\n  fonts-unifont\n\n",
+      "timestamp": "2026-03-23T10:54:56.334843123Z"
+    },
+    {
+      "message": "E: Package 'ttf-unifont' has no installation candidate\nE: Package 'ttf-ubuntu-font-family' has no installation candidate\n",
+      "timestamp": "2026-03-23T10:54:56.337702373Z"
+    },
+    {
+      "message": "Failed to install browser dependencies\nError: Installation process exited with code: 100\n",
+      "timestamp": "2026-03-23T10:54:56.339903716Z"
+    }
+  ]
+}
