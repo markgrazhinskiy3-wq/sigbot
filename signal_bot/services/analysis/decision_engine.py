@@ -410,15 +410,13 @@ def run_decision_engine(
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────
-    if   conf_raw >= 88: stars = 5
-    elif conf_raw >= 80: stars = 4
-    elif conf_raw >= 70: stars = 3
-    elif conf_raw >= 52: stars = 2
-    else:                stars = 1
+    if   conf_raw >= 75: stars = 5
+    elif conf_raw >= 65: stars = 4
+    else:                stars = 3
 
-    if   conf_raw >= 70: quality = "strong"
-    elif conf_raw >= 52: quality = "moderate"
-    else:                quality = "weak"
+    if   conf_raw >= 75: quality = "strong"
+    elif conf_raw >= 65: quality = "good"
+    else:                quality = "moderate"
 
     # ── Expiry hint ────────────────────────────────────────────────────────────
     expiry = _pick_expiry(best.strategy_name, quality)

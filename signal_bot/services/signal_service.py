@@ -80,14 +80,10 @@ def _conf_bar(confidence: int, total: int = 5) -> str:
 
 def _conf_label(confidence: int) -> str:
     if confidence >= 5:
-        return "максимальная"
+        return "сильная"
     if confidence >= 4:
-        return "высокая"
-    if confidence >= 3:
-        return "средняя"
-    if confidence >= 2:
-        return "умеренная"
-    return "низкая"
+        return "хорошая"
+    return "умеренная"
 
 
 def _mode_label(mode: str) -> str:
@@ -233,7 +229,7 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
         items.append("Индикаторы подтверждают: цена слишком выросла и готова падать.")
 
     # 4. Quality note
-    if quality == "strong":
+    if quality in ("strong", "good"):
         items.append("Сразу несколько признаков указывают в одну сторону — сигнал надёжный.")
 
     return items[:4]
