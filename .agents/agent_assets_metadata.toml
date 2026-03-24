@@ -6,3 +6,9 @@ id = "d-O7UVfLsMqw5ju_jWMN8"
 uri = "file://signal_bot/ANALYSIS_LOGIC.md"
 type = "text"
 title = "Логика анализа сигналов"
+
+[[outputs]]
+id = "WsSjcr5r4flsWK1YhF4Vb"
+uri = "file://decision_engine_v2.txt"
+type = "text"
+title = "decision_engine_v2.py"
