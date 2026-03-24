@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.analysis.candle_validator  import validate_and_fix
 from services.analysis.decision_engine  import run_decision_engine, EngineResult
-from services.analysis.decision_engine_v2 import run_decision_engine_v2
+from services.analysis.decision_engine_v2 import run_decision_engine_v2  # kept, not called
+from services.analysis.decision_engine_v3 import run_decision_engine_v3
 from services.candle_cache               import resample_to_1m, resample_to_5m
 from services.strategy_adaptation       import update_strategy_statuses
 from dataclasses import dataclass
@@ -118,8 +119,8 @@ async def calculate_signal(
     except Exception as e:
         logger.warning("5-min resampling failed: %s", e, exc_info=True)
 
-    # ── Decision Engine V2 (Pattern-First) ────────────────────────────────────
-    eng: EngineResult = run_decision_engine_v2(
+    # ── Decision Engine V3 (Level MACD, 1m candles) ───────────────────────────
+    eng: EngineResult = run_decision_engine_v3(
         df1m=df,
         df5m=df5m,
         df1m_ctx=df1m_ctx,

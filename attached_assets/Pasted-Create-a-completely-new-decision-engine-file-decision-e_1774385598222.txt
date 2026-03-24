@@ -1,0 +1,125 @@
+Create a completely new decision engine file: decision_engine_v3.py
+
+The current engine (v2/v5) produces 90 signals/hour at 49% WR analyzing 15-second candles. It has no edge. We're rebuilding from scratch.
+
+CRITICAL CHANGE: All analysis must use 1-MINUTE candles, NOT 15-second candles.
+
+The bot currently receives df1m (1-minute OHLC DataFrame). Use ONLY this data. Do not use 15-second data for any calculations.
+
+## Architecture
+
+One file, under 300 lines. Two strategies: Level Bounce + Level Break.
+
+## Step 1: Calculate indicators on 1M data
+
+RSI(14) on 1M candles
+MACD(12, 26, 9) on 1M candles — we need histogram values
+CCI(20) on 1M candles
+ATR(14) on 1M candles
+EMA(20) on 1M candles
+
+Calculate these manually using numpy/pandas. Do NOT import TA-Lib or any external TA library. Simple formulas only.
+
+## Step 2: Build support/resistance levels from 1M candles
+
+Scan all available 1M candles (typically 30-50)
+Find price zones where highs/lows cluster
+Level = zone where price touched 2+ times
+Strong level = 3+ touches
+Touch = high or low within 0.05% of level price
+Track number of touches for each level
+
+## Step 3: Strategy 1 — Level Bounce
+
+BUY signal (bounce from support):
+  1. Current price within 0.08% of a support level
+  2. MACD histogram: current bar > previous bar (momentum shifting up, slowing decline)
+  3. Current candle shows bounce: lower_shadow > body_size
+  4. RSI(14) is NOT above 70 (not overbought)
+  5. CCI(20) < 50 (room to move up)
+
+SELL signal (bounce from resistance):
+  1. Current price within 0.08% of resistance level
+  2. MACD histogram: current bar < previous bar (momentum shifting down)
+  3. Current candle: upper_shadow > body_size
+  4. RSI(14) is NOT below 30
+  5. CCI(20) > -50 (room to move down)
+
+## Step 4: Strategy 2 — Level Break
+
+BUY signal (break above resistance):
+  1. Resistance level with 3+ touches (strong level)
+  2. Current candle CLOSED above the level
+  3. Current candle body > average body of last 10 candles (strong impulse)
+  4. MACD histogram growing for last 2+ bars (increasing momentum behind the break)
+  5. RSI between 45-75 (has momentum but not exhausted)
+  6. CCI > 0 (confirms bullish)
+
+SELL signal (break below support):
+  1. Support level with 3+ touches
+  2. Current candle closed below level
+  3. Body > average body
+  4. MACD histogram declining 2+ bars
+  5. RSI between 25-55
+  6. CCI < 0
+
+## Step 5: Filters (only 2)
+
+1. Dead market: ATR(14) < 0.001% of current price → NO signal
+2. Conflict: if bounce says BUY and break says SELL simultaneously → NO signal
+
+## Step 6: Signal priority and stars
+
+If both strategies trigger same direction → 5 stars (strongest)
+If only bounce triggers → 4 stars
+If only break triggers → 3 stars
+
+## Step 7: Return format
+
+Must return the same EngineResult namedtuple that current engine uses:
+
+EngineResult(
+    direction="BUY" or "SELL" or "NO_SIGNAL",
+    strategy="level_bounce" or "level_break" or "bounce+break",
+    raw_pattern_score=0,
+    final_score=stars * 20,  # 60, 80, or 100
+    stars=3 or 4 or 5,
+    expiry="1m",
+    debug={
+        "engine": "v3_level_macd",
+        "strategy": strategy_name,
+        "rsi": current_rsi,
+        "macd_hist": current_macd_hist,
+        "cci": current_cci,
+        "nearest_support": nearest_sup,
+        "nearest_resistance": nearest_res,
+        "level_touches": n_touches,
+        "atr": current_atr,
+        "reason": "human readable reason for signal"
+    }
+)
+
+## Function signature
+
+def run_decision_engine_v3(
+    df1m,
+    df5m=None,
+    df1m_ctx=None,
+    raised_threshold=False,
+    n_bars_15s=0,
+    n_bars_1m=0,
+    n_bars_5m=0,
+    expiry="1m"
+) -> EngineResult:
+
+## Also update strategy_engine.py
+
+Find where it calls the old engine (v2 or v5) and change to call run_decision_engine_v3 instead. Keep all old files intact — just stop calling them. Change only the one line that invokes the engine.
+
+## IMPORTANT RULES:
+- Under 300 lines total for decision_engine_v3.py
+- No external TA libraries (no TA-Lib, no pandas_ta)
+- All calculations on 1M candles ONLY
+- Simple, readable code
+- Every condition clearly commented
+- Keep all old engine files, do not delete them
