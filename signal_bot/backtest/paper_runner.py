@@ -465,7 +465,11 @@ class PaperRunner:
         for label, lo, hi in buckets:
             rs = [
                 r for r in results
-                if lo <= (r.trade.details.get("debug", {}).get("final_score") or 0) < hi
+                if lo <= (
+                    r.trade.details.get("debug", {}).get("final_score")
+                    or r.trade.details.get("confidence_raw")
+                    or 0
+                ) < hi
             ]
             if not rs:
                 continue
