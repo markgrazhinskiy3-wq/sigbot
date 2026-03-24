@@ -1,17 +1,28 @@
 """
-Impulse + Pullback Strategy — v4
-Detects: dominant directional move → pullback → resumption candle.
+Impulse + Pullback Strategy — v5
 
-Changes from v3:
-  - Scan window: last 25 bars only (not 45) — stale patterns are irrelevant
-  - Confirmation: bar must CLOSE in direction (not just "not strongly against")
-  - Dominant-direction fallback: capped at 24 (below PARTIAL_MATCH_MIN=30),
-    so it can only reinforce a real pattern, never create a standalone signal
-  - Dominant-direction thresholds raised: 70% bars + last 6 bars 4/6+ + last bar in direction
+Changes from v4:
+  - Impulse minimum raised: avg_body * 1.0 (was 0.6) — must be a typical-sized move
+  - Pullback ceiling tightened: < 55% of impulse (was 95%) — shallow retracement only
+  - Confirmation bar must be strong: >= 0.35 × avg_body (was just "close > open")
+  - Entry score threshold raised: 35 (was 25)
+  - Direction dominance enforced: winner_score - loser_score >= 13
+  - Countertrend detection: if 60%+ recent bars oppose signal direction → flag
+  - All detail fields in debug: imp_bars, pb_bars, retracement_pct, conf_bar_idx,
+    bars_ago, impulse_q, pullback_q, recency, conf_bonus, score_formula,
+    direction_gap, countertrend
 """
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+
+# ── Thresholds ─────────────────────────────────────────────────────────────────
+_MIN_IMPULSE_RATIO = 1.0     # impulse avg body must be >= 1.0× avg_body
+_MAX_PB_RATIO      = 0.55    # pullback avg body must be < 55% of impulse
+_MIN_CONF_RATIO    = 0.35    # confirmation body must be >= 0.35× avg_body
+_MIN_SCORE         = 35.0    # pattern score threshold (was 25)
+_MIN_DIRECTION_GAP = 13.0    # winner must beat loser by at least 13 pts
+_COUNTERTREND_PCT  = 0.60    # if 60%+ of last-15 bars are against direction → countertrend
 
 
 @dataclass
@@ -45,8 +56,8 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
     best_bull, bull_detail = _find_pattern(body, body_abs, avg_body, "bull", scan_start, n)
     best_bear, bear_detail = _find_pattern(body, body_abs, avg_body, "bear", scan_start, n)
 
-    # Dominant direction fallback — capped at 24 (below PARTIAL_MATCH_MIN=30)
-    # Can boost a real but weak pattern; cannot create a standalone partial match
+    # Dominant direction fallback — capped at 24 (below _MIN_SCORE=35)
+    # Can boost a real but weak pattern; cannot create a standalone signal on its own
     if best_bull is None or best_bull < 20:
         dom_bull = _dominant_direction_score(body, body_abs, "bull", scan_start, n)
         if dom_bull > (best_bull or 0):
@@ -64,39 +75,56 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
 
     buy_score  = float(best_bull or 0.0)
     sell_score = float(best_bear or 0.0)
+    direction_gap = round(abs(buy_score - sell_score), 1)
 
     direction = "none"
-    if buy_score >= sell_score and buy_score >= 25:
-        direction = "buy"
-    elif sell_score > buy_score and sell_score >= 25:
-        direction = "sell"
+    if buy_score >= sell_score and buy_score >= _MIN_SCORE:
+        if (buy_score - sell_score) >= _MIN_DIRECTION_GAP:
+            direction = "buy"
+    elif sell_score > buy_score and sell_score >= _MIN_SCORE:
+        if (sell_score - buy_score) >= _MIN_DIRECTION_GAP:
+            direction = "sell"
+
+    # ── Countertrend detection ─────────────────────────────────────────────────
+    # If the last 15 bars are mostly AGAINST the signal direction, it's a
+    # countertrend setup — flag it so the engine can reject for 1m expiry.
+    countertrend = False
+    if direction != "none" and n >= 15:
+        sign = 1 if direction == "buy" else -1
+        last15 = body[-15:]
+        against = sum(1 for b in last15 if sign * b < 0)
+        against_ratio = against / len(last15)
+        if against_ratio > _COUNTERTREND_PCT:
+            countertrend = True
 
     parts = []
-    if buy_score >= 25:
+    if buy_score >= _MIN_SCORE:
         parts.append(f"Бычий паттерн (score {buy_score:.0f})")
-    if sell_score >= 25:
+    if sell_score >= _MIN_SCORE:
         parts.append(f"Медвежий паттерн (score {sell_score:.0f})")
 
     # Pick the winning side detail for debug
     winner_detail = (bull_detail if direction == "buy" else bear_detail) or {}
 
     debug: dict = {
-        "bull_score":     round(buy_score, 1),
-        "bear_score":     round(sell_score, 1),
-        "avg_body":       round(avg_body, 6),
-        "scan_bars":      n - scan_start,
-        # Pattern structure detail (populated when a full impulse+pb+confirm found)
-        "imp_bars":       winner_detail.get("imp_bars"),
-        "pb_bars":        winner_detail.get("pb_bars"),
+        "bull_score":      round(buy_score, 1),
+        "bear_score":      round(sell_score, 1),
+        "direction_gap":   direction_gap,
+        "avg_body":        round(avg_body, 6),
+        "scan_bars":       n - scan_start,
+        "countertrend":    countertrend,
+        # Pattern structure detail
+        "imp_bars":        winner_detail.get("imp_bars"),
+        "pb_bars":         winner_detail.get("pb_bars"),
         "retracement_pct": winner_detail.get("retracement_pct"),
-        "conf_bar_idx":   winner_detail.get("conf_bar_idx"),
-        "bars_ago":       winner_detail.get("bars_ago"),
+        "conf_bar_idx":    winner_detail.get("conf_bar_idx"),
+        "bars_ago":        winner_detail.get("bars_ago"),
         # Score breakdown
-        "impulse_q":      winner_detail.get("impulse_q"),
-        "pullback_q":     winner_detail.get("pullback_q"),
-        "recency":        winner_detail.get("recency"),
-        "conf_bonus":     winner_detail.get("conf_bonus"),
-        "score_formula":  winner_detail.get("score_formula"),
+        "impulse_q":       winner_detail.get("impulse_q"),
+        "pullback_q":      winner_detail.get("pullback_q"),
+        "recency":         winner_detail.get("recency"),
+        "conf_bonus":      winner_detail.get("conf_bonus"),
+        "score_formula":   winner_detail.get("score_formula"),
     }
     # Remove None entries for cleaner output
     debug = {k: v for k, v in debug.items() if v is not None}
@@ -121,17 +149,21 @@ def _find_pattern(
 ) -> tuple[float | None, dict | None]:
     """
     Impulse + pullback + confirmation scan over last 25 bars.
-    Confirmation bar MUST close in the signal direction.
+
+    Requirements (tightened in v5):
+      - Impulse avg body >= 1.0× avg_body  (was 0.6)
+      - Pullback avg body < 55% of impulse  (was 95%)
+      - Confirmation body >= 0.35× avg_body (new hard requirement)
+      - Confirmation must CLOSE in signal direction (unchanged)
+
     Returns (best_score, detail_dict) or (None, None).
-    detail_dict contains full breakdown: imp_bars, pb_bars, retracement_pct,
-    conf_bar_idx, bars_ago, impulse_q, pullback_q, recency, conf_bonus, score_formula.
     """
     sign = 1 if side == "bull" else -1
     best_score: float | None = None
     best_detail: dict | None = None
 
     for imp_start in range(start, n - 3):
-        # ── Impulse: 2-6 bars in direction ───────────────────────────────
+        # ── Impulse: 2-6 consecutive bars in direction ────────────────────
         imp_count = 0
         imp_size  = 0.0
         for i in range(imp_start, min(imp_start + 6, n - 2)):
@@ -147,11 +179,11 @@ def _find_pattern(
         imp_end = imp_start + imp_count
         imp_avg = imp_size / imp_count
 
-        # Impulse must be meaningful (>= 60% of avg body)
-        if imp_avg < avg_body * 0.6:
+        # Impulse must be a meaningful move (>= 1.0× avg body — was 0.6)
+        if imp_avg < avg_body * _MIN_IMPULSE_RATIO:
             continue
 
-        # ── Pullback: 1-3 bars in opposite direction ─────────────────────
+        # ── Pullback: 1-3 bars against direction ──────────────────────────
         pb_start = imp_end
         pb_count = 0
         pb_size  = 0.0
@@ -167,24 +199,27 @@ def _find_pattern(
 
         pb_avg = pb_size / pb_count
 
-        # Pullback must be weaker than impulse
-        if pb_avg >= imp_avg * 0.95:
+        # Pullback must be shallow (< 55% of impulse — was 95%)
+        if pb_avg >= imp_avg * _MAX_PB_RATIO:
             continue
 
-        # ── Confirmation: bar must CLOSE in signal direction ─────────────
+        # ── Confirmation: must close in direction AND be a real body ──────
         conf_idx = pb_start + pb_count
         if conf_idx >= n:
             continue
 
         conf_body = body[conf_idx]
-        if sign * conf_body <= 0:   # must close in direction — no doji/neutral allowed
+        # Close in direction (new: also require min body size)
+        if sign * conf_body <= 0:
+            continue
+        if abs(conf_body) < avg_body * _MIN_CONF_RATIO:
             continue
 
-        # ── Score ─────────────────────────────────────────────────────────
+        # ── Score ──────────────────────────────────────────────────────────
         impulse_q  = min(1.0, imp_avg / (avg_body * 1.2))
-        pullback_q = max(0.0, 1.0 - (pb_avg / imp_avg))
+        pullback_q = max(0.0, 1.0 - (pb_avg / (imp_avg * _MAX_PB_RATIO)))  # peaks at 0% retracement
         recency    = 1.0 - (n - conf_idx - 1) / max(1, n - start)
-        conf_bonus = 0.15 if sign * conf_body > avg_body * 0.3 else 0.0
+        conf_bonus = 0.15 if abs(conf_body) > avg_body * 0.6 else 0.0      # strong confirm
 
         raw   = (impulse_q * 0.40 + pullback_q * 0.25 + recency * 0.25 + conf_bonus) * 100
         score = float(min(100.0, max(0.0, raw)))
@@ -221,8 +256,8 @@ def _dominant_direction_score(
 ) -> float:
     """
     Fallback: checks if recent bars are strongly and consistently in direction.
-    Capped at 24 — cannot create a partial match on its own (PARTIAL_MATCH_MIN=30).
-    Requires: 70%+ of bars in direction, last 6 bars 4/6+ in direction, last bar in direction.
+    Capped at 24 — below _MIN_SCORE=35, so cannot create a standalone signal.
+    Requires: 70%+ of bars in direction, last 6 bars 4/6+, last bar in direction.
     """
     sign = 1 if side == "bull" else -1
     recent = body[start:]
@@ -236,15 +271,13 @@ def _dominant_direction_score(
     if ratio < 0.70:
         return 0.0
 
-    # Last 6 bars: need 4+ in direction
     last6 = body[-6:]
     last6_dir = int(np.sum(sign * last6 > 0))
     if last6_dir < 4:
         return 0.0
 
-    # Last bar must be in direction
     if sign * body[-1] <= 0:
         return 0.0
 
-    dominance = (ratio - 0.70) / 0.30   # 0 at 70%, 1 at 100%
+    dominance = (ratio - 0.70) / 0.30
     return float(min(24.0, dominance * 20.0 + (last6_dir / 6) * 10.0))

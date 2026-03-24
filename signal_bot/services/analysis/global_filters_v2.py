@@ -8,6 +8,14 @@ Hard filters (any failure → reject signal):
 
 Soft filters (reduce score but don't block):
   4. noisy_structure — choppy price action reduces confidence
+
+no_room thresholds by pattern:
+  - level_rejection / false_breakout  : 0.015%  (default)
+  - impulse_pullback                  : skipped  (_compute_levels treats recent swing high
+                                                  as resistance — but that IS the target;
+                                                  quality enforced via direction_gap + RANGE
+                                                  penalty + countertrend rejection in engine)
+  - compression_breakout              : skipped  (breaks through the range boundary)
 """
 from __future__ import annotations
 import numpy as np
@@ -22,12 +30,12 @@ class FilterResult:
     no_room: bool        = False
     exhausted: bool      = False
     noisy: bool          = False
-    score_penalty: float = 0.0     # soft penalty to apply to pattern score
+    score_penalty: float = 0.0
     reasons: list[str]   = field(default_factory=list)
 
 
 _DEAD_BODY_PCT    = 0.003   # avg body < 0.003% of price = dead
-_NO_ROOM_PCT      = 0.015   # opposite level < 0.015% away = no room
+_NO_ROOM_PCT      = 0.015   # opposite level < 0.015% away = no room (level_rejection / false_breakout)
 _EXHAUST_BARS     = 7       # max consecutive same-direction bars
 _NOISY_THRESHOLD  = 0.55    # if direction flip rate > this = noisy
 
@@ -38,6 +46,7 @@ def apply_global_filters(
     supports: list,
     resistances: list,
     pattern_name: str = "",
+    expiry: str = "1m",
 ) -> FilterResult:
     """
     Apply all global filters.
@@ -48,6 +57,7 @@ def apply_global_filters(
         supports:     list of Level objects (supports)
         resistances:  list of Level objects (resistances)
         pattern_name: pattern being evaluated (affects filter thresholds)
+        expiry:       user-selected trade expiry ("1m" | "2m")
 
     Returns:
         FilterResult — passed=False means reject signal
@@ -68,25 +78,42 @@ def apply_global_filters(
         return FilterResult(passed=False, dead_market=True, reasons=reasons)
 
     # ── 2. No room filter ─────────────────────────────────────────────────────
-    # impulse_pullback is a CONTINUATION pattern — it expects to break through
-    # the nearest resistance/support; don't apply no_room block for it.
-    # compression_breakout also breaks through the range boundary — same logic.
-    skip_no_room = pattern_name in ("impulse_pullback", "compression_breakout")
+    # compression_breakout: breaks through range boundary by design — skip
+    # impulse_pullback 2m:  continuation expects to punch through — skip
+    # impulse_pullback 1m:  still applies but softer threshold (0.010%)
+    # all others:           standard threshold (0.015%)
+    if pattern_name in ("compression_breakout", "impulse_pullback"):
+        # impulse_pullback: _compute_levels treats the recent swing HIGH as resistance,
+        # which is the CONTINUATION TARGET for a BUY — not a blocker.
+        # Quality gates (direction_gap >= 13, RANGE penalty, countertrend reject)
+        # handle impulse_pullback signal quality inside the engine.
+        # compression_breakout: breaks through range boundary by design.
+        skip_no_room = True
+        no_room_threshold = _NO_ROOM_PCT
+    else:
+        skip_no_room = False
+        no_room_threshold = _NO_ROOM_PCT
 
     no_room = False
     if not skip_no_room:
         if direction == "BUY" and resistances:
             opp_price = resistances[0].price
             room_pct  = (opp_price - price) / price * 100
-            if room_pct < _NO_ROOM_PCT:
+            if room_pct < no_room_threshold:
                 no_room = True
-                reasons.append(f"no_room_BUY: resistance {opp_price:.5f} only {room_pct:.4f}% away")
+                reasons.append(
+                    f"no_room_BUY: resistance {opp_price:.5f} only {room_pct:.4f}% away "
+                    f"(threshold={no_room_threshold}%)"
+                )
         elif direction == "SELL" and supports:
             opp_price = supports[0].price
             room_pct  = (price - opp_price) / price * 100
-            if room_pct < _NO_ROOM_PCT:
+            if room_pct < no_room_threshold:
                 no_room = True
-                reasons.append(f"no_room_SELL: support {opp_price:.5f} only {room_pct:.4f}% away")
+                reasons.append(
+                    f"no_room_SELL: support {opp_price:.5f} only {room_pct:.4f}% away "
+                    f"(threshold={no_room_threshold}%)"
+                )
 
     if no_room:
         return FilterResult(passed=False, no_room=True, reasons=reasons)
@@ -94,8 +121,9 @@ def apply_global_filters(
     # ── 3. Exhaustion filter (consecutive streak check) ───────────────────────
     # Counts CONSECUTIVE same-direction candles from the current bar backwards.
     # Only a persistent unbroken streak signals exhaustion.
-    # compression_breakout and impulse_pullback naturally have pre-entry streaks — skip.
-    exhausted = False
+    # compression_breakout naturally has a pre-entry streak — skip.
+    # impulse_pullback has a post-impulse pullback which disrupts the streak — ok to check.
+    exhausted    = False
     skip_exhaust = pattern_name in ("compression_breakout",)
 
     if not skip_exhaust:

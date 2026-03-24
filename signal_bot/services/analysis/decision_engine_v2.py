@@ -123,16 +123,22 @@ def run_decision_engine_v2(
     if ip.direction in ("buy", "sell"):
         ip_result = _wrap_ip(ip, supports, resistances)
         candidates.append(ip_result)
-    logger.debug("Pattern impulse_pullback: %s buy=%.1f sell=%.1f",
-                 ip.direction, ip.buy_score, ip.sell_score)
+    logger.debug(
+        "Pattern impulse_pullback: %s buy=%.1f sell=%.1f gap=%.1f countertrend=%s",
+        ip.direction, ip.buy_score, ip.sell_score,
+        ip.debug.get("direction_gap", 0), ip.debug.get("countertrend", False),
+    )
 
-    # ── 4. Apply global filters ───────────────────────────────────────────────
+    # ── 4. Apply global filters (now with expiry) ─────────────────────────────
     valid: list[dict] = []
     filter_log: list[str] = []
 
     for cand in candidates:
-        filt = apply_global_filters(df, cand["direction"], supports, resistances,
-                                    pattern_name=cand["name"])
+        filt = apply_global_filters(
+            df, cand["direction"], supports, resistances,
+            pattern_name=cand["name"],
+            expiry=expiry,
+        )
         if not filt.passed:
             reason = f"{cand['name']} {cand['direction']} REJECTED by filter: {'; '.join(filt.reasons)}"
             filter_log.append(reason)
@@ -144,6 +150,57 @@ def run_decision_engine_v2(
         cand["filter_penalty"] = filt.score_penalty
         cand["filter_reasons"] = filt.reasons
         valid.append(cand)
+
+    # ── 4.5 Impulse-specific guards: countertrend & RANGE rejection ───────────
+    # These checks need context (regime), so they run after basic filters but
+    # before context scoring. We compute a quick regime proxy here.
+    _ema5_quick  = _ema(df["close"].values, 5)
+    _ema13_quick = _ema(df["close"].values, 13)
+    _regime_quick = "RANGE"
+    _ema_spread_q = abs(_ema5_quick - _ema13_quick) / (price + 1e-10) * 100
+    # 0.015% spread ≈ 1-2 typical pip moves — real impulses exceed this;
+    # flat chop stays well below → safe to separate RANGE from TRENDING
+    if _ema_spread_q > 0.015:
+        _regime_quick = "TRENDING"
+
+    guarded: list[dict] = []
+    for cand in valid:
+        if cand["name"] != "impulse_pullback":
+            guarded.append(cand)
+            continue
+
+        # ── Countertrend: only allowed in TRENDING + 2m expiry ─────────────
+        is_countertrend = cand.get("pattern_debug", {}).get("countertrend", False)
+        if is_countertrend and expiry == "1m":
+            reason = (
+                f"impulse_pullback {cand['direction']} REJECTED: "
+                f"countertrend setup not allowed on 1m expiry"
+            )
+            filter_log.append(reason)
+            logger.debug(reason)
+            continue
+
+        # ── RANGE restriction ───────────────────────────────────────────────
+        # In a ranging market impulse_pullback is a reversal trap.
+        # Apply a heavy score penalty; only keep if score survives threshold.
+        if _regime_quick == "RANGE":
+            range_penalty = 20.0
+            cand["score"] = max(0.0, cand["score"] - range_penalty)
+            cand["filter_penalty"] = cand.get("filter_penalty", 0.0) + range_penalty
+            if cand.get("filter_reasons") is None:
+                cand["filter_reasons"] = []
+            cand["filter_reasons"].append(
+                f"range_penalty: RANGE regime detected — "
+                f"EMA spread={_ema_spread_q:.4f}% (-{range_penalty:.0f} pts)"
+            )
+            logger.debug(
+                "impulse_pullback %s: RANGE penalty -%d → new score=%.1f",
+                cand["direction"], range_penalty, cand["score"],
+            )
+
+        guarded.append(cand)
+
+    valid = guarded
 
     # ── 5. Filter by expiry ───────────────────────────────────────────────────
     expiry_filtered: list[dict] = []
@@ -185,6 +242,13 @@ def run_decision_engine_v2(
 
     best = max(expiry_filtered, key=lambda c: c["final_score"])
     score = best["final_score"]
+
+    # Score gap: winner vs second-best (shows how dominant the winner is)
+    others = sorted(
+        [c["final_score"] for c in expiry_filtered if c is not best],
+        reverse=True,
+    )
+    score_gap = round(score - others[0], 1) if others else None
 
     # ── 8. Threshold check ────────────────────────────────────────────────────
     if score < min_score:
@@ -233,6 +297,7 @@ def run_decision_engine_v2(
         "pattern_q":     best.get("pattern_quality", 0.0),
         "level_q":       best.get("level_quality", 0.0),
         "filter_penalty": best.get("filter_penalty", 0.0),
+        "score_gap":     score_gap,
         "all_patterns":  [_cand_summary(c) for c in expiry_filtered],
         "filter_log":    filter_log,
         "levels":        levels_debug,

@@ -1,0 +1,55 @@
+The new engine is live, but current debug results show a clear issue:
+
+All winning patterns are still `impulse_pullback`.
+So the engine is no longer EMA-bounce-driven, but it is now effectively becoming an impulse_pullback-dominant engine.
+
+Recent live results suggest:
+- impulse_pullback is too permissive
+- no_room filter is too weak for 1m expiry
+- direction dominance is not enforced strongly enough
+- continuation pattern is firing even in RANGE or weak-direction cases
+- countertrend impulse_pullback setups are being allowed too easily
+
+Please make the following adjustments:
+
+1. Tighten `impulse_pullback`
+- require clearer impulse quality
+- require shallower pullback
+- require stronger confirmation candle
+- reject weak / ambiguous continuation cases
+
+2. Add direction dominance threshold
+- if winner side score minus opposite side score is too small, reject signal
+- for 1m expiry, require at least ~12-15 points advantage
+
+3. Strengthen `no_room` filter for 1m
+- if BUY and resistance is too close, reject
+- if SELL and support is too close, reject
+- current 1m signals are still entering too close to opposite level
+
+4. Restrict impulse_pullback in RANGE
+- either reject completely in RANGE
+- or require much stronger dominance / score
+- continuation pattern should not trigger freely in flat conditions
+
+5. Disallow countertrend impulse_pullback for 1m
+- continuation pattern should trade with local structure
+- countertrend setups should come from false_breakout or level_rejection, not impulse_pullback
+
+6. Investigate why other patterns are not winning
+- level_rejection
+- false_breakout
+- compression_breakout
+Currently none of them are winning in live debug.
+Please verify whether:
+- they are too strict
+- they are under-scored
+- or impulse_pullback is over-scored
+
+Also improve debug output for impulse_pullback to include:
+- impulse length
+- pullback length
+- retracement depth
+- confirmation candle quality
+- winner-minus-loser score gap
+- exact no_room distance and threshold used
