@@ -119,8 +119,8 @@ async def calculate_signal(
     except Exception as e:
         logger.warning("5-min resampling failed: %s", e, exc_info=True)
 
-    # ── Decision Engine V3 (Level MACD, 1m candles) ───────────────────────────
-    eng: EngineResult = run_decision_engine_v3(
+    # ── Decision Engine V1 (original) ────────────────────────────────────────
+    eng: EngineResult = run_decision_engine(
         df1m=df,
         df5m=df5m,
         df1m_ctx=df1m_ctx,
@@ -128,7 +128,7 @@ async def calculate_signal(
         n_bars_15s=len(df),
         n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,
         n_bars_5m=len(df5m)     if df5m     is not None else 0,
-        expiry=expiry,
+        # v1 does not accept expiry — it picks expiry internally via _pick_expiry()
     )
 
     logger.info(

@@ -514,7 +514,12 @@ async def scan_pairs_fresh(
             if direction in ("BUY", "SELL"):
                 quality_score = int(details.get("confidence_raw", max_met * 10))
             else:
-                quality_score = int(debug.get("conf_after_multipliers", max_met * 10))
+                # v1 NO_SIGNAL: may have "conf_raw" (threshold rejection) or just max_met
+                fallback = max_met * 10
+                quality_score = int(
+                    debug.get("conf_raw",
+                    debug.get("conf_after_multipliers", fallback))
+                )
 
         market_mode = details.get("market_mode") or debug.get("mode", "")
         label = pairs_map.get(symbol, symbol)
