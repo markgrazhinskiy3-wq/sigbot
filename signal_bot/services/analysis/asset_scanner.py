@@ -478,28 +478,42 @@ async def scan_pairs_fresh(
         debug: dict = details.get("debug", {})
         direction: str = result.direction  # "BUY" | "SELL" | "NO_SIGNAL"
 
-        # Find best conditions_met across all strategies
-        strategies: dict = debug.get("strategies", {})
-        max_met = 0
-        for sd in strategies.values():
-            if sd.get("skipped") or sd.get("early_reject"):
+        is_v2 = debug.get("engine") == "v2_pattern_first"
+
+        if is_v2:
+            # V2 pattern-first: no "strategies" dict / "conditions_met".
+            # Use pattern candidates as the market-health proxy.
+            n_candidates = len(debug.get("candidates_checked", []))
+            if direction not in ("BUY", "SELL") and n_candidates == 0:
+                # Truly dead market — no patterns detected at all
                 continue
-            met = sd.get("conditions_met", 0)
-            if met > max_met:
-                max_met = met
 
-        # Skip pairs where market has no structure (all strategies met < 3 conditions)
-        if max_met < 3:
-            continue
+            if direction in ("BUY", "SELL"):
+                # Real signal: use raw confidence score
+                quality_score = int(details.get("confidence_raw", 70))
+            else:
+                # Patterns were found but didn't pass threshold/filters —
+                # pair has structure, worth showing as a candidate
+                quality_score = max(30, n_candidates * 20)
 
-        # Quality score: use engine confidence for accurate ranking.
-        # For BUY/SELL: use confidence_raw (above threshold, most reliable).
-        # For NO_SIGNAL: use conf_after_multipliers from debug (computed but below
-        # threshold) — still reflects real market quality for ranking purposes.
-        if direction in ("BUY", "SELL"):
-            quality_score = int(result.details.get("confidence_raw", max_met * 10))
         else:
-            quality_score = int(debug.get("conf_after_multipliers", max_met * 10))
+            # V1 legacy path: conditions_met across strategy dict
+            strategies: dict = debug.get("strategies", {})
+            max_met = 0
+            for sd in strategies.values():
+                if sd.get("skipped") or sd.get("early_reject"):
+                    continue
+                met = sd.get("conditions_met", 0)
+                if met > max_met:
+                    max_met = met
+
+            if max_met < 3:
+                continue
+
+            if direction in ("BUY", "SELL"):
+                quality_score = int(details.get("confidence_raw", max_met * 10))
+            else:
+                quality_score = int(debug.get("conf_after_multipliers", max_met * 10))
 
         market_mode = details.get("market_mode") or debug.get("mode", "")
         label = pairs_map.get(symbol, symbol)
