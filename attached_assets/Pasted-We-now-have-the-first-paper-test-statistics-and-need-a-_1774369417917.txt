@@ -1,0 +1,200 @@
+We now have the first paper_test statistics and need a data-driven balancing pass.
+
+This is NOT a full redesign.
+This is a focused optimization pass based on actual trade statistics.
+
+==================================================
+CURRENT PAPER TEST FINDINGS
+==================================================
+
+Approximate findings from the first 100 paper trades:
+
+- Overall winrate ≈ 52%
+- false_breakout winrate ≈ 75%
+- level_rejection winrate ≈ 60%
+- impulse_pullback winrate ≈ 50%
+
+Pattern distribution is heavily imbalanced:
+- impulse_pullback ≈ 86 trades
+- level_rejection ≈ 10 trades
+- false_breakout ≈ 4 trades
+
+Score buckets show:
+- 70–75 score range performs poorly (~40% winrate)
+- 75–80 performs much better
+- 80–85 performs much better
+- 85+ is mixed, not clearly superior
+
+Conclusion:
+1. Engine is already functional
+2. Main issue is pattern distribution and threshold quality
+3. impulse_pullback dominates too much and drags winrate down
+4. false_breakout and level_rejection look stronger but are underrepresented
+5. borderline low-score trades should be filtered more aggressively
+
+==================================================
+GOAL OF THIS PASS
+==================================================
+
+Improve quality while preserving active signal flow across many OTC pairs.
+
+We do NOT want:
+- a silent engine
+- a new architecture rewrite
+- indicator-based logic coming back
+
+We DO want:
+- fewer weak continuation trades
+- more weight on stronger reversal/level-based patterns
+- better score filtering
+- better pattern distribution
+- better overall winrate
+
+==================================================
+1. RAISE MINIMUM THRESHOLDS
+==================================================
+
+Based on paper test, the 70–75 score range performs poorly.
+
+Please increase thresholds approximately as follows:
+
+- 1m expiry minimum threshold: raise from current level to about 72
+- 2m expiry minimum threshold: raise from current level to about 70
+
+If exact values differ slightly in implementation, that is acceptable,
+but the idea is:
+- remove weak low-score trades
+- preserve 75+ setups
+- keep signal flow reasonable
+
+Please document exact final threshold values used.
+
+==================================================
+2. REDUCE IMPULSE_PULLBACK DOMINANCE
+==================================================
+
+Impulse_pullback currently dominates trade flow and has the weakest performance among active patterns.
+
+Required adjustments:
+- slightly reduce impulse_pullback selection frequency
+- do NOT kill the pattern entirely
+- keep strong clean continuation setups
+- reject more borderline continuation cases
+
+Possible implementations:
+- small class penalty for impulse_pullback
+- slightly higher effective threshold for impulse_pullback only
+- stronger room requirement for impulse_pullback
+- stricter tie-break loss vs level_rejection / false_breakout
+
+Goal:
+Impulse_pullback should no longer dominate ~85%+ of all trades.
+
+==================================================
+3. GIVE MORE ROOM TO LEVEL_REJECTION
+==================================================
+
+Level_rejection currently shows better quality than impulse_pullback but appears too rarely.
+
+Required adjustments:
+- give level_rejection a slightly better chance to win when scores are close
+- keep this controlled and small
+- only favor it when based on fresh / strong levels
+- do not let it dominate unrealistically
+
+Possible implementations:
+- slightly larger tie-break bonus than current
+- slightly lower threshold than impulse_pullback
+- slightly wider level approach tolerance, if detection is too narrow
+
+Goal:
+Increase level_rejection participation modestly without lowering quality.
+
+==================================================
+4. HELP FALSE_BREAKOUT APPEAR MORE OFTEN
+==================================================
+
+false_breakout currently looks very promising but is too rare.
+
+Please investigate and adjust carefully:
+- confirm it is being detected correctly
+- confirm no_room is no longer blocking it
+- inspect whether reclaim/confirmation logic is too strict
+- inspect whether its scoring is too low relative to impulse_pullback
+
+If appropriate:
+- slightly increase false_breakout score for strong reclaim setups on fresh levels
+- or slightly reduce its effective threshold
+- but do NOT blindly loosen the pattern
+
+Goal:
+Allow valid false_breakout setups to appear more often in live/paper results.
+
+==================================================
+5. STRONGER ROOM FILTER FOR IMPULSE_PULLBACK
+==================================================
+
+Paper/live results showed multiple continuation losses when price was too close to the opposite level.
+
+Please tighten room requirements for impulse_pullback:
+- if continuation setup has too little room to opposite level, reject more aggressively
+- especially for 1m expiry
+- keep smart internal/external level logic
+- but do not let continuation pass when room is clearly cramped
+
+This should affect impulse_pullback more than reversal patterns.
+
+==================================================
+6. DO NOT CHANGE THE CORE ARCHITECTURE
+==================================================
+
+Do NOT:
+- reintroduce old market-mode routing
+- reintroduce EMA bounce logic
+- make indicators the main trigger
+- rewrite the engine architecture again
+
+This is a balancing pass only.
+
+==================================================
+7. AFTER CHANGES — RUN NEW PAPER TEST
+==================================================
+
+After implementing the changes, run a new paper test and collect another sample.
+
+Target:
+- at least 100 new paper trades
+- preferably 150–200 if practical
+
+Then produce summary stats again:
+- overall winrate
+- winrate by pattern
+- winrate by expiry
+- winrate by score bucket
+- pattern distribution
+
+Most importantly, compare BEFORE vs AFTER:
+- overall WR
+- impulse_pullback WR
+- level_rejection WR
+- false_breakout WR
+- pattern frequencies
+
+==================================================
+8. EXPECTED RESPONSE
+==================================================
+
+Please report:
+
+1. Exact changes made
+2. Which files/functions were modified
+3. Final threshold values used for 1m and 2m
+4. What was changed specifically for impulse_pullback
+5. What was changed specifically for level_rejection
+6. What was changed specifically for false_breakout
+7. Whether room logic was tightened for continuation
+8. New paper test summary after changes
+9. Before/after comparison table
+
+Important:
+This pass should be based on paper-test statistics, not guesswork.

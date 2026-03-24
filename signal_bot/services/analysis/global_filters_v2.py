@@ -15,7 +15,7 @@ no_room thresholds by pattern:
   - compression_breakout              : SKIPPED  (breaks through range boundary)
   - impulse_pullback                  : smart check (1m only, 2m skipped):
       * internal swing high/low (1-touch, fresh, recent) → skip (it's the target)
-      * strong external level (>=2 touches, not broken)  → hard reject at 0.020%
+      * strong external level (>=2 touches, not broken)  → hard reject at 0.025%
       * ambiguous level (1-touch, older or broken)       → soft penalty up to 10pts
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ class FilterResult:
 
 _DEAD_BODY_PCT     = 0.003   # avg body < 0.003% of price = dead
 _NO_ROOM_PCT       = 0.015   # default: opposite level < 0.015% away = no room
-_NO_ROOM_IP_1M_PCT = 0.020   # impulse_pullback 1m: external level within 0.020% → hard reject
+_NO_ROOM_IP_1M_PCT = 0.025   # impulse_pullback 1m: external level within 0.025% → hard reject (was 0.020)
 _IP_INTERNAL_IDX   = 12      # last_touch_idx <= 12 = likely the impulse's own bar swing
 _EXHAUST_BARS      = 7       # max consecutive same-direction bars
 _NOISY_THRESHOLD   = 0.55    # if direction flip rate > this = noisy

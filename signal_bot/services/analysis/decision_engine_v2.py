@@ -41,9 +41,16 @@ from .false_breakout               import false_breakout_strategy
 logger = logging.getLogger(__name__)
 
 # ── Score thresholds ──────────────────────────────────────────────────────────
-_THRESHOLD_1M   = 68.0
-_THRESHOLD_2M   = 65.0
+# Raised from 68/65 after paper test showed 70-75 range performs ~40% WR.
+_THRESHOLD_1M   = 72.0
+_THRESHOLD_2M   = 70.0
 _RAISED_BONUS   = 5.0     # added to threshold after 2 losses
+
+# ── Pattern class adjustments (applied after wrap, before filters) ────────────
+# IP dominates ~86% of trades with weakest WR. Small penalty reduces frequency.
+_IP_CLASS_PENALTY   = 5.0   # flat score reduction for impulse_pullback
+# FB had 75% WR but only 4% of trades. Small bonus encourages valid setups.
+_FB_CLASS_BONUS     = 5.0   # flat score boost for false_breakout
 
 # ── Expiry → fit_for mapping ─────────────────────────────────────────────────
 _EXPIRY_FIT: dict[str, str] = {
@@ -129,6 +136,21 @@ def run_decision_engine_v2(
         ip.debug.get("direction_gap", 0), ip.debug.get("countertrend", False),
     )
 
+    # ── 3e. Apply class-level score adjustments ───────────────────────────────
+    # These are not hard filters — they shift the competitive balance between
+    # patterns without blocking anything outright.
+    for cand in candidates:
+        if cand["name"] == "impulse_pullback":
+            cand["score"] = max(0.0, cand["score"] - _IP_CLASS_PENALTY)
+            cand.setdefault("filter_reasons", []).append(
+                f"ip_class_penalty: -{_IP_CLASS_PENALTY:.0f}pts (reduce dominance)"
+            )
+        elif cand["name"] == "false_breakout":
+            cand["score"] = min(100.0, cand["score"] + _FB_CLASS_BONUS)
+            cand.setdefault("filter_reasons", []).append(
+                f"fb_class_bonus: +{_FB_CLASS_BONUS:.0f}pts (encourage valid setups)"
+            )
+
     # ── 4. Apply global filters (now with expiry) ─────────────────────────────
     valid: list[dict] = []
     filter_log: list[str] = []
@@ -204,7 +226,8 @@ def run_decision_engine_v2(
         if expiry == "1m":
             raw_score   = cand["score"]
             conf_ratio  = cand.get("pattern_debug", {}).get("conf_body_ratio", 1.0)
-            _IP_BORDERLINE_MAX  = 78.0   # below this = borderline zone
+            # Widened: more IP trades now require strong confirmation (was 78)
+            _IP_BORDERLINE_MAX  = 82.0   # below this = borderline zone (was 78)
             _IP_CONF_RATIO_1M   = 0.55   # need >= 55% of avg_body for borderline 1m
             if raw_score < _IP_BORDERLINE_MAX and conf_ratio < _IP_CONF_RATIO_1M:
                 reason = (
@@ -263,8 +286,9 @@ def run_decision_engine_v2(
     # tie-break bonus when its level is fresh or well-tested.
     # Rationale: LR has explicit level validation (approach + wick + confirm);
     #            IP can win on pattern alone — LR wins ties when both are valid.
-    _LR_TIE_WINDOW  = 5.0   # pts: LR must be within this of best IP to get bonus
-    _LR_TIE_BONUS   = 3.0   # pts added to LR final_score when conditions met
+    # Widened: LR had better WR (60%) vs IP (50%); give LR more room to win ties.
+    _LR_TIE_WINDOW  = 8.0   # pts: LR must be within this of best IP to get bonus (was 5)
+    _LR_TIE_BONUS   = 5.0   # pts added to LR final_score when conditions met (was 3)
 
     lr_cands = [c for c in expiry_filtered if c["name"] == "level_rejection"]
     ip_cands = [c for c in expiry_filtered if c["name"] == "impulse_pullback"]
