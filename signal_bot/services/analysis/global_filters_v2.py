@@ -10,12 +10,13 @@ Soft filters (reduce score but don't block):
   4. noisy_structure — choppy price action reduces confidence
 
 no_room thresholds by pattern:
-  - level_rejection / false_breakout  : 0.015%  (default, strongest level)
+  - level_rejection                   : 0.015%  (handled internally in LR pattern)
+  - false_breakout                    : SKIPPED  (pattern IS at the level; recovery is the check)
+  - compression_breakout              : SKIPPED  (breaks through range boundary)
   - impulse_pullback                  : smart check (1m only, 2m skipped):
       * internal swing high/low (1-touch, fresh, recent) → skip (it's the target)
-      * strong external level (>=2 touches, not broken)  → hard reject at 0.012%
+      * strong external level (>=2 touches, not broken)  → hard reject at 0.020%
       * ambiguous level (1-touch, older or broken)       → soft penalty up to 10pts
-  - compression_breakout              : skipped (breaks through range boundary)
 """
 from __future__ import annotations
 import numpy as np
@@ -36,10 +37,13 @@ class FilterResult:
 
 _DEAD_BODY_PCT     = 0.003   # avg body < 0.003% of price = dead
 _NO_ROOM_PCT       = 0.015   # default: opposite level < 0.015% away = no room
-_NO_ROOM_IP_1M_PCT = 0.012   # impulse_pullback 1m: softer threshold for EXTERNAL levels
+_NO_ROOM_IP_1M_PCT = 0.020   # impulse_pullback 1m: external level within 0.020% → hard reject
 _IP_INTERNAL_IDX   = 12      # last_touch_idx <= 12 = likely the impulse's own bar swing
 _EXHAUST_BARS      = 7       # max consecutive same-direction bars
 _NOISY_THRESHOLD   = 0.55    # if direction flip rate > this = noisy
+
+# Patterns that skip no_room entirely (they operate at/through levels)
+_SKIP_NO_ROOM_PATTERNS = frozenset({"compression_breakout", "false_breakout"})
 
 
 def _ip_no_room_check(
@@ -56,7 +60,7 @@ def _ip_no_room_check(
       - Internal impulse swing (1-touch, very fresh, recent bar):
             skip — it's the continuation target, not an external barrier
       - Strong external level (touches >= 2, not broken):
-            hard reject at _NO_ROOM_IP_1M_PCT
+            hard reject at _NO_ROOM_IP_1M_PCT (0.020%)
       - Ambiguous level (1-touch but older, or broken):
             soft penalty proportional to closeness
 
@@ -68,7 +72,7 @@ def _ip_no_room_check(
     if expiry == "2m":
         return "skip", "", 0.0
 
-    # Find the NEAREST level in the opposing direction (closest by price, not quality)
+    # Find the NEAREST level in the opposing direction
     if direction == "BUY":
         candidates = [
             (lvl, (lvl.price - price) / price * 100)
@@ -92,7 +96,6 @@ def _ip_no_room_check(
         return "skip", "", 0.0   # enough room, no issue
 
     # ── Classify the nearest level ──────────────────────────────────────────
-    # Internal impulse high/low: single touch that appeared from the recent impulse bars
     is_internal = (
         nearest.touches == 1
         and nearest.is_fresh
@@ -170,7 +173,9 @@ def apply_global_filters(
     # ── 2. No room filter ─────────────────────────────────────────────────────
     no_room = False
 
-    if pattern_name == "compression_breakout":
+    if pattern_name in _SKIP_NO_ROOM_PATTERNS:
+        # false_breakout: pattern IS at the level — recovery is the quality signal
+        # compression_breakout: breaks through range boundary
         skip_no_room = True
 
     elif pattern_name == "impulse_pullback":
@@ -212,9 +217,7 @@ def apply_global_filters(
     if no_room:
         return FilterResult(passed=False, no_room=True, reasons=reasons)
 
-    # ── 3. Exhaustion filter (consecutive streak check) ───────────────────────
-    # Counts CONSECUTIVE same-direction candles from the current bar backwards.
-    # compression_breakout naturally has a pre-entry streak — skip.
+    # ── 3. Exhaustion filter ───────────────────────────────────────────────────
     exhausted    = False
     skip_exhaust = pattern_name in ("compression_breakout",)
 

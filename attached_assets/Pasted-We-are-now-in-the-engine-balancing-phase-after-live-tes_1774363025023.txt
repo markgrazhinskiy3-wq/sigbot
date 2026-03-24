@@ -1,0 +1,160 @@
+We are now in the engine balancing phase after live testing.
+
+The engine is clearly better than before:
+- impulse_pullback and level_rejection both appear in live trades
+- overall results improved
+- signal flow is active across many OTC pairs
+
+However, live debug shows several issues that must be fixed in a focused balancing pass.
+This is NOT a full refactor. This is tuning and balancing.
+
+==================================================
+MAIN GOALS
+==================================================
+
+1. Tighten borderline 1m impulse_pullback setups
+2. Improve opposite-level protection (no_room) for 1m continuation trades
+3. Give level_rejection a small priority edge when scores are close
+4. Investigate why false_breakout and compression_breakout rarely win
+5. Improve debug transparency for further balancing
+
+Do NOT redesign the engine.
+Do NOT bring back EMA-based strategies.
+Do NOT over-tighten the engine so it stops producing signals.
+We want balanced signal flow with better quality.
+
+==================================================
+1. TIGHTEN IMPULSE_PULLBACK FOR 1M
+==================================================
+
+Impulse_pullback is now improved but still allows too many borderline 1m continuation trades.
+
+Required adjustments for 1m expiry:
+
+- When impulse_pullback final score is in a borderline range (roughly mid scores),
+  require stronger confirmation candle quality.
+- Weak confirmation bars should not pass just because impulse and pullback metrics are acceptable.
+- If setup quality is not clearly strong, prefer NO_SIGNAL rather than allowing a weak continuation trade.
+- Keep strong clean impulse_pullback setups alive — do NOT over-tighten high-quality setups.
+
+Goal:
+Strong continuation trades pass.
+Borderline continuation trades get filtered out.
+
+==================================================
+2. IMPROVE NO_ROOM FOR IMPULSE_PULLBACK (1M)
+==================================================
+
+Live results show some losing trades entered too close to the opposite level.
+
+Required changes:
+
+- Keep internal impulse level skip logic.
+- But if the nearest opposite level is a strong external level and is close,
+  use hard reject more aggressively for 1m expiry.
+- If opposite level distance is very small, soft penalty is not enough — reject more often.
+- Make sure internal-level classification does NOT accidentally bypass dangerous external levels.
+- Re-check whether the current distance threshold is too permissive in live cases.
+
+Goal:
+Prevent trades like:
+- BUY with almost no room to resistance
+- SELL with almost no room to support
+
+==================================================
+3. LEVEL_REJECTION PRIORITY EDGE
+==================================================
+
+Live results suggest level_rejection may be cleaner than impulse_pullback.
+
+Required adjustment:
+
+- If level_rejection and impulse_pullback scores are close,
+  give a small tie-break preference to level_rejection.
+- Apply this only when level_rejection is based on a fresh and strong level.
+- Keep this adjustment small and controlled.
+- Do NOT force level_rejection to dominate overall.
+
+Possible implementations:
+- small class bonus
+- tie-break logic
+- slightly lower threshold only when competing with impulse_pullback
+
+==================================================
+4. INVESTIGATE FALSE_BREAKOUT AND COMPRESSION_BREAKOUT
+==================================================
+
+These patterns are not appearing as winners in live debug.
+
+Please investigate:
+- Are candidates being detected?
+- Are they rejected by filters?
+- Are their scores too low?
+- Is impulse_pullback overshadowing them too easily?
+- Is level proximity logic too strict for breakout detection?
+
+Do NOT blindly loosen them.
+First diagnose:
+- detection frequency
+- candidate scores
+- rejection reasons
+
+If necessary, slightly improve scoring for strong false_breakout reclaim scenarios.
+
+==================================================
+5. DEBUG IMPROVEMENTS
+==================================================
+
+Improve debug output so we can properly tune the engine.
+
+For impulse_pullback include:
+- impulse length
+- pullback length
+- retracement depth
+- confirmation candle quality
+- direction gap (winner vs loser)
+- opposite level distance
+- opposite level classification:
+  internal / strong external / ambiguous
+- no_room result:
+  skip / penalty / hard reject
+
+For level_rejection include:
+- level touches
+- level freshness
+- wick quality
+- confirmation candle status
+- room to opposite level
+
+If possible, also add diagnostics:
+- pattern detected count
+- pattern winner count
+- pattern rejected by filters count
+
+==================================================
+IMPORTANT CONSTRAINTS
+==================================================
+
+Do NOT:
+- reintroduce EMA-based strategy logic
+- add indicator-based triggers
+- over-tighten the engine to the point of no signals
+- redesign the architecture again
+
+This is a balancing and tuning pass only.
+
+==================================================
+EXPECTED RESPONSE
+==================================================
+
+Please report:
+1. What exact changes were made
+2. Which files/functions were modified
+3. How impulse_pullback filtering changed
+4. How no_room logic changed
+5. Whether level_rejection priority was adjusted
+6. What you found about false_breakout / compression_breakout
+7. Example updated debug output for:
+   - one valid impulse_pullback
+   - one valid level_rejection
+   - one rejected borderline impulse_pullback

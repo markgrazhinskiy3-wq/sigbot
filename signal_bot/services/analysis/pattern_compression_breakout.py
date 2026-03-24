@@ -33,7 +33,7 @@ class PatternResult:
 
 _COMPRESSION_BARS  = 8     # look at last N bars for range measurement
 _EXPANSION_RATIO   = 1.6   # breakout body must be >= X * compressed avg body
-_RANGE_RATIO       = 0.75  # recent ATR must be <= X * baseline ATR to call "compressed"
+_RANGE_RATIO       = 0.80  # recent ATR must be <= X * baseline ATR to call "compressed" (was 0.75)
 _MIN_ATR_RATIO     = 0.30  # don't trade if market is dead (ATR vs baseline)
 _MIN_SCORE         = 38.0
 

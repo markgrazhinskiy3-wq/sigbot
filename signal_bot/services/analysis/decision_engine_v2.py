@@ -198,6 +198,24 @@ def run_decision_engine_v2(
                 cand["direction"], range_penalty, cand["score"],
             )
 
+        # ── Borderline 1m confirm quality check ────────────────────────────
+        # IP borderline setups (score in 68-78) must have a solid confirmation
+        # candle. Weak-confirm borderline trades are too marginal for 1m.
+        if expiry == "1m":
+            raw_score   = cand["score"]
+            conf_ratio  = cand.get("pattern_debug", {}).get("conf_body_ratio", 1.0)
+            _IP_BORDERLINE_MAX  = 78.0   # below this = borderline zone
+            _IP_CONF_RATIO_1M   = 0.55   # need >= 55% of avg_body for borderline 1m
+            if raw_score < _IP_BORDERLINE_MAX and conf_ratio < _IP_CONF_RATIO_1M:
+                reason = (
+                    f"impulse_pullback {cand['direction']} REJECTED: "
+                    f"borderline 1m score={raw_score:.1f} conf_ratio={conf_ratio:.2f} "
+                    f"< {_IP_CONF_RATIO_1M} — weak confirmation, prefer NO_SIGNAL"
+                )
+                filter_log.append(reason)
+                logger.debug(reason)
+                continue
+
         guarded.append(cand)
 
     valid = guarded
@@ -239,6 +257,42 @@ def run_decision_engine_v2(
                 "n_5m":                n_bars_5m,
             },
         )
+
+    # ── 7a. Level rejection priority edge ────────────────────────────────────
+    # If LR and IP are both present and scores are close, give LR a small
+    # tie-break bonus when its level is fresh or well-tested.
+    # Rationale: LR has explicit level validation (approach + wick + confirm);
+    #            IP can win on pattern alone — LR wins ties when both are valid.
+    _LR_TIE_WINDOW  = 5.0   # pts: LR must be within this of best IP to get bonus
+    _LR_TIE_BONUS   = 3.0   # pts added to LR final_score when conditions met
+
+    lr_cands = [c for c in expiry_filtered if c["name"] == "level_rejection"]
+    ip_cands = [c for c in expiry_filtered if c["name"] == "impulse_pullback"]
+
+    if lr_cands and ip_cands:
+        best_lr_now = max(lr_cands, key=lambda c: c["final_score"])
+        best_ip_now = max(ip_cands, key=lambda c: c["final_score"])
+        gap = best_ip_now["final_score"] - best_lr_now["final_score"]
+        if 0.0 <= gap <= _LR_TIE_WINDOW:
+            # Check if LR level is fresh or well-tested
+            lr_dir     = best_lr_now["direction"].lower()
+            lr_dir_dbg = best_lr_now.get("pattern_debug", {}).get(lr_dir, {})
+            lr_strong  = lr_dir_dbg.get("is_fresh", False) or lr_dir_dbg.get("touches", 0) >= 2
+            if lr_strong:
+                best_lr_now["final_score"] = round(
+                    best_lr_now["final_score"] + _LR_TIE_BONUS, 1
+                )
+                best_lr_now.setdefault("filter_reasons", []).append(
+                    f"lr_priority_bonus: +{_LR_TIE_BONUS}pts "
+                    f"(gap={gap:.1f}pts vs IP, level fresh/strong)"
+                )
+                logger.debug(
+                    "LR priority boost applied: LR %.1f → %.1f (IP was %.1f, gap=%.1f)",
+                    best_lr_now["final_score"] - _LR_TIE_BONUS,
+                    best_lr_now["final_score"],
+                    best_ip_now["final_score"],
+                    gap,
+                )
 
     best = max(expiry_filtered, key=lambda c: c["final_score"])
     score = best["final_score"]
@@ -284,6 +338,9 @@ def run_decision_engine_v2(
     if best.get("level_detail"):
         reason_parts.append(best["level_detail"])
 
+    # Pattern-specific debug fields (surfaced for easy log reading)
+    _pat_dbg = _extract_pattern_debug(best)
+
     debug_out = {
         "engine":        "v2_pattern_first",
         "expiry":        expiry,
@@ -297,12 +354,17 @@ def run_decision_engine_v2(
         "pattern_q":     best.get("pattern_quality", 0.0),
         "level_q":       best.get("level_quality", 0.0),
         "filter_penalty": best.get("filter_penalty", 0.0),
+        "filter_reasons": best.get("filter_reasons", []),
         "score_gap":     score_gap,
         "all_patterns":  [_cand_summary(c) for c in expiry_filtered],
         "filter_log":    filter_log,
         "levels":        levels_debug,
         "context":       ctx,
         "pattern_debug": best.get("pattern_debug", {}),
+        "pattern_detail": _pat_dbg,          # flattened, easy to read in logs
+        "n_detected":    len(candidates),    # how many patterns were detected
+        "n_passed_filter": len(valid),       # after global filters
+        "n_passed_expiry": len(expiry_filtered),  # after expiry fit check
         "n_15s":         n,
         "n_1m":          n_bars_1m,
         "n_5m":          n_bars_5m,
@@ -528,6 +590,58 @@ def _cand_summary(c: dict) -> dict:
     }
 
 
+def _extract_pattern_debug(best: dict) -> dict:
+    """
+    Flatten pattern-specific debug fields for easy log reading.
+    Surfaces the most useful fields per pattern without duplicating full debug.
+    """
+    name    = best.get("name", "")
+    pdbg    = best.get("pattern_debug", {})
+    result: dict = {"pattern": name}
+
+    if name == "impulse_pullback":
+        result.update({
+            "imp_bars":        pdbg.get("imp_bars"),
+            "pb_bars":         pdbg.get("pb_bars"),
+            "retracement_pct": pdbg.get("retracement_pct"),
+            "bars_ago":        pdbg.get("bars_ago"),
+            "conf_body_ratio": pdbg.get("conf_body_ratio"),
+            "impulse_q":       pdbg.get("impulse_q"),
+            "pullback_q":      pdbg.get("pullback_q"),
+            "recency":         pdbg.get("recency"),
+            "direction_gap":   pdbg.get("direction_gap"),
+            "countertrend":    pdbg.get("countertrend"),
+            "score_formula":   pdbg.get("score_formula"),
+        })
+    elif name == "level_rejection":
+        direction = best.get("direction", "BUY").lower()
+        dir_dbg   = pdbg.get(direction, {})
+        result.update({
+            "level_price":   dir_dbg.get("level_price"),
+            "level_touches": dir_dbg.get("touches"),
+            "level_fresh":   dir_dbg.get("is_fresh"),
+            "wick_ratio":    dir_dbg.get("rej_wick_ratio"),
+            "rej_q":         dir_dbg.get("rej_q"),
+            "conf_q":        dir_dbg.get("conf_q"),
+            "room_pct":      dir_dbg.get("room_pct"),
+        })
+    elif name == "false_breakout":
+        result.update({
+            "tolerance_pct": pdbg.get("tolerance_pct"),
+            "breakout_type": pdbg.get("breakout_type"),
+        })
+    elif name == "compression_breakout":
+        result.update({
+            "compression_q":   pdbg.get("compression_q"),
+            "expansion_ratio": pdbg.get("expansion_ratio"),
+            "shadow_pen":      pdbg.get("shadow_pen"),
+            "breakout_dist":   pdbg.get("breakout_dist"),
+        })
+
+    # Remove None values
+    return {k: v for k, v in result.items() if v is not None}
+
+
 def _to_stars(score: float) -> int:
     if score >= 88: return 5
     if score >= 80: return 4
@@ -625,15 +739,53 @@ def _log_v2_debug(
     for cand in all_valid:
         marker = "►" if cand is best else "│"
         logger.info(
-            "  %s  PATTERN %-22s %s score=%.1f (pat_q=%.0f lv_q=%.0f ctx=%.0f)",
+            "  %s  PATTERN %-22s %s score=%.1f (pat_q=%.0f lv_q=%.0f ctx=%.0f penalty=%.0f)",
             marker, cand["name"], cand["direction"],
             cand.get("final_score", cand.get("score", 0)),
             cand.get("pattern_quality", 0), cand.get("level_quality", 0),
-            cand.get("ctx_score", 0),
+            cand.get("ctx_score", 0), cand.get("filter_penalty", 0),
         )
+
+    # Pattern-specific detail for winning pattern
+    pat_detail = _extract_pattern_debug(best)
+    name = best.get("name", "")
+    if name == "impulse_pullback":
+        logger.info(
+            "  ►  IP DETAIL: imp=%s pb=%s ret=%.1f%% bars_ago=%s conf_ratio=%s "
+            "gap=%.1f countertrend=%s",
+            pat_detail.get("imp_bars"), pat_detail.get("pb_bars"),
+            pat_detail.get("retracement_pct", 0),
+            pat_detail.get("bars_ago"), pat_detail.get("conf_body_ratio"),
+            pat_detail.get("direction_gap", 0), pat_detail.get("countertrend"),
+        )
+        if pat_detail.get("score_formula"):
+            logger.info("  │  IP FORMULA: %s", pat_detail["score_formula"])
+    elif name == "level_rejection":
+        logger.info(
+            "  ►  LR DETAIL: level=%.5f touches=%s fresh=%s wick_ratio=%s "
+            "rej_q=%.0f conf_q=%.0f room=%.4f%%",
+            pat_detail.get("level_price", 0),
+            pat_detail.get("level_touches"), pat_detail.get("level_fresh"),
+            pat_detail.get("wick_ratio"),
+            pat_detail.get("rej_q", 0), pat_detail.get("conf_q", 0),
+            pat_detail.get("room_pct", 0),
+        )
+    elif name == "compression_breakout":
+        logger.info(
+            "  ►  CB DETAIL: comp_q=%.1f expand_ratio=%.2f shadow_pen=%.1f dist=%.4f%%",
+            pat_detail.get("compression_q", 0), pat_detail.get("expansion_ratio", 0),
+            pat_detail.get("shadow_pen", 0), pat_detail.get("breakout_dist", 0),
+        )
+
+    # Filter reasons for winning pattern
+    for fr in best.get("filter_reasons", []):
+        logger.info("  │  WIN FILTER: %s", fr)
+
     for rej in filter_log:
-        logger.info("  │  FILTER REJECT: %s", rej)
+        logger.info("  │  REJECT: %s", rej)
     logger.info(
-        "  └─ RESULT %s score=%.1f stars=%d",
+        "  └─ RESULT %s score=%.1f stars=%d | detected=%d passed_filter=%d",
         best["direction"], score, _to_stars(score),
+        len(all_valid) + len(filter_log),  # approximate
+        len(all_valid),
     )
