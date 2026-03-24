@@ -1729,6 +1729,141 @@ async def cmd_export_csv(message: Message) -> None:
             pass
 
 
+# ─── Paper Trading Test (/paper_test) ────────────────────────────────────────
+
+# Active paper test tasks per admin user_id
+_paper_test_tasks: dict[int, asyncio.Task] = {}
+
+
+@router.message(Command("paper_test"))
+async def cmd_paper_test(message: Message) -> None:
+    """
+    Admin-only: run a silent paper trading session.
+    Usage: /paper_test [n]  (default n=100)
+    Usage: /paper_test stop  — cancel running session
+
+    Scans all OTC pairs in real-time using the SAME engine as live trading.
+    No signals are sent to users. Results logged to signals_log (source='paper').
+    Summary printed after target trades are resolved.
+    """
+    if not _is_admin(message.from_user.id):
+        return
+
+    uid  = message.from_user.id
+    args = (message.text or "").split()
+
+    # ── Stop command ───────────────────────────────────────────────────────────
+    if len(args) >= 2 and args[1].lower() == "stop":
+        task = _paper_test_tasks.pop(uid, None)
+        if task and not task.done():
+            task.cancel()
+            await message.answer("⏹ Paper test остановлен.", parse_mode="HTML")
+        else:
+            await message.answer("Нет активного paper test.", parse_mode="HTML")
+        return
+
+    # ── Start command ──────────────────────────────────────────────────────────
+    # Cancel any existing task for this user
+    old_task = _paper_test_tasks.pop(uid, None)
+    if old_task and not old_task.done():
+        old_task.cancel()
+
+    try:
+        target = int(args[1]) if len(args) >= 2 else 100
+        target = max(1, min(target, 500))
+    except ValueError:
+        target = 100
+
+    expiry = "both"
+    if len(args) >= 3 and args[2] in ("1m", "2m"):
+        expiry = args[2]
+
+    await message.answer(
+        f"🧪 <b>Paper Trading Test запущен</b>\n\n"
+        f"Цель: <b>{target} сделок</b>\n"
+        f"Экспирация: <b>{expiry}</b>\n"
+        f"Все пары OTC сканируются в тихом режиме.\n"
+        f"Сигналы <b>НЕ</b> отправляются пользователям.\n\n"
+        f"Прогресс каждые 10 сделок.\n"
+        f"Остановить: /paper_test stop",
+        parse_mode="HTML",
+    )
+
+    bot = message.bot
+
+    async def _progress(msg: str) -> None:
+        try:
+            await bot.send_message(uid, msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+    async def _run_paper() -> None:
+        try:
+            from backtest.paper_runner import run_paper_test
+            results, summary = await run_paper_test(
+                target      = target,
+                expiry      = expiry,
+                progress_cb = _progress,
+            )
+            # Send summary in chunks (Telegram 4096 char limit)
+            _LIMIT = 3800
+            lines  = summary.split("\n")
+            chunk, length = [], 0
+            for line in lines:
+                length += len(line) + 1
+                if length > _LIMIT:
+                    await bot.send_message(
+                        uid, "<pre>" + "\n".join(chunk) + "</pre>",
+                        parse_mode="HTML",
+                    )
+                    chunk, length = [line], len(line) + 1
+                else:
+                    chunk.append(line)
+            if chunk:
+                await bot.send_message(
+                    uid, "<pre>" + "\n".join(chunk) + "</pre>",
+                    parse_mode="HTML",
+                )
+            # Also export CSV
+            import tempfile
+            from aiogram.types import FSInputFile
+            with tempfile.NamedTemporaryFile(
+                suffix=".csv", prefix="paper_export_", delete=False, mode="w"
+            ) as tmp:
+                fpath = tmp.name
+            n_rows = await analytics_logger.export_csv(fpath)
+            if n_rows > 0:
+                try:
+                    doc = FSInputFile(fpath, filename="paper_signals_log.csv")
+                    await bot.send_document(
+                        uid, doc,
+                        caption=(
+                            f"📊 <b>Paper signals_log.csv</b>\n"
+                            f"Строк (всего): <b>{n_rows}</b>"
+                        ),
+                        parse_mode="HTML",
+                    )
+                finally:
+                    try:
+                        os.unlink(fpath)
+                    except Exception:
+                        pass
+
+        except asyncio.CancelledError:
+            logger.info("Paper test cancelled for user %d", uid)
+        except Exception as exc:
+            logger.exception("Paper test error for user %d: %s", uid, exc)
+            try:
+                await bot.send_message(uid, f"❌ Paper test ошибка: {exc}", parse_mode="HTML")
+            except Exception:
+                pass
+        finally:
+            _paper_test_tasks.pop(uid, None)
+
+    task = asyncio.create_task(_run_paper())
+    _paper_test_tasks[uid] = task
+
+
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────
 
 @router.message(Command("addadmin"))

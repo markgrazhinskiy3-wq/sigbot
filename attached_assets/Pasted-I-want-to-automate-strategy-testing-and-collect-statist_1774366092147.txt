@@ -1,0 +1,142 @@
+I want to automate strategy testing and collect statistics instead of manually reviewing trades.
+
+Please implement an automated testing system for the OTC signal engine.
+
+==================================================
+GOAL
+==================================================
+
+I need the system to automatically generate and resolve at least 100 trades and produce statistics:
+- winrate
+- winrate by pattern
+- winrate by expiry
+- winrate by score
+- winrate by pair
+- pattern distribution
+
+==================================================
+STEP 1 — CHECK HISTORICAL DATA
+==================================================
+
+First, confirm whether we already store historical Pocket Option OTC 15-second candles locally:
+- Do we persist candle history?
+- For how many pairs?
+- How many hours/days of history?
+- In what format (CSV, DB, cache)?
+
+If historical data exists, implement a proper replay/backtest runner.
+
+==================================================
+STEP 2 — REPLAY / BACKTEST MODE (IF HISTORY EXISTS)
+==================================================
+
+Build a replay engine that simulates the bot in historical time.
+
+Important rules:
+- Feed candles sequentially bar by bar
+- At each step, only candles available at that moment may be used
+- Absolutely NO lookahead bias
+- The engine must behave exactly like live trading
+
+Replay logic:
+1. Load historical 15s candles
+2. For each new candle:
+   - Build df15s, df1m, df5m
+   - Run decision_engine_v2
+   - If signal appears → record trade
+3. After expiry (1m or 2m), resolve trade:
+   - Compare entry and exit price
+   - Determine WIN or LOSS
+4. Save trade to signals_log
+5. Continue until at least 100 trades collected
+
+==================================================
+STEP 3 — PAPER TRADING MODE (IF HISTORY NOT AVAILABLE)
+==================================================
+
+If historical replay is not possible, implement automatic paper trading mode:
+
+- Bot scans OTC pairs continuously
+- Generates signals normally
+- Does NOT send real signals
+- Automatically resolves trade after expiry
+- Logs result
+- Continue until at least 100 trades collected
+
+==================================================
+STEP 4 — LOGGING (VERY IMPORTANT)
+==================================================
+
+For each trade log the following fields:
+
+trade_id
+timestamp_signal
+pair
+direction
+expiry
+entry_price
+close_price
+result
+pnl_pct
+
+pattern
+final_score
+raw_pattern_score
+direction_gap
+regime
+countertrend
+
+dist_to_support_pct
+dist_to_resistance_pct
+level_count_sup
+level_count_res
+
+n_bars_15s
+n_bars_1m
+n_bars_5m
+
+If available also log:
+impulse_len
+pullback_len
+retracement_pct
+confirm_ratio
+level_touches
+level_fresh
+wick_ratio
+no_room_decision
+
+Store logs in:
+- SQLite or CSV
+- signals_log table/file
+
+==================================================
+STEP 5 — SUMMARY STATISTICS
+==================================================
+
+After at least 100 trades, automatically compute and print:
+
+1. Total trades
+2. Winrate overall
+3. Winrate by pattern
+4. Winrate by expiry
+5. Winrate by score buckets:
+   65–70
+   70–75
+   75–80
+   80–85
+   85+
+6. Winrate by pair
+7. Pattern frequency distribution
+8. Average pnl per trade
+9. Number of signals vs no-signals
+
+Print results as a summary report.
+
+==================================================
+IMPORTANT
+==================================================
+
+This must be a true sequential simulation.
+No future candles may be used when generating signals.
+Engine logic must be identical to live trading.
+Goal is realistic performance statistics, not optimistic backtest.

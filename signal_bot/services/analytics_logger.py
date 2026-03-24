@@ -41,7 +41,8 @@ _DB = config.DB_PATH
 _SIGNALS_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS signals_log (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-    outcome_id             INTEGER,          -- FK → signal_outcomes.id (nullable if tracking off)
+    outcome_id             INTEGER,          -- FK → signal_outcomes.id (NULL for paper trades)
+    source                 TEXT NOT NULL DEFAULT 'live',  -- 'live' | 'paper'
     timestamp_signal       TEXT NOT NULL,
     pair                   TEXT NOT NULL,
     symbol                 TEXT NOT NULL,
@@ -134,6 +135,7 @@ async def init_analytics() -> None:
             ("fb_side",                "TEXT"),
             ("fb_reclaim_type",        "TEXT"),
             ("fb_bars_ago",            "INTEGER"),
+            ("source",                 "TEXT"),
         ]
         for col, dtype in _new_cols:
             try:
@@ -156,6 +158,7 @@ async def log_signal(
     expiry: str,
     entry_price: float | None,
     details: dict,
+    source: str = "live",
 ) -> None:
     """
     Log a fired BUY/SELL signal to signals_log.
@@ -169,6 +172,7 @@ async def log_signal(
         expiry:      "1m" | "2m".
         entry_price: Close price at signal time.
         details:     Full details dict from SignalResult (contains "debug" subkey).
+        source:      "live" (default) or "paper" (paper trading runs).
     """
     try:
         d     = details if isinstance(details, dict) else {}
@@ -201,7 +205,7 @@ async def log_signal(
             cursor = await db.execute(
                 """
                 INSERT INTO signals_log (
-                    outcome_id, timestamp_signal, pair, symbol,
+                    outcome_id, source, timestamp_signal, pair, symbol,
                     direction, expiry, entry_price,
                     pattern_winner, final_score, raw_pattern_score,
                     direction_gap, regime, countertrend,
@@ -217,7 +221,7 @@ async def log_signal(
                     dead_market, exhaustion, noisy, range_penalty,
                     result
                 ) VALUES (
-                    ?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,
                     ?,?,?,
                     ?,?,?,
                     ?,?,?,
@@ -233,6 +237,7 @@ async def log_signal(
                 """,
                 (
                     outcome_id,
+                    source,
                     now,
                     pair,
                     symbol,
@@ -338,6 +343,47 @@ async def update_result(
         logger.warning("analytics_logger.update_result failed: %s", exc, exc_info=False)
 
 
+async def update_result_by_paper(
+    pair: str,
+    symbol: str,
+    entry_price: float,
+    close_price: float,
+    result: str,
+    pnl_pct: float | None = None,
+) -> None:
+    """
+    Update trade result for paper trades (no outcome_id).
+    Matches by symbol + entry_price + source='paper' + result='pending'.
+    Updates the most recent matching record.
+    """
+    try:
+        now = datetime.utcnow().isoformat()
+        result_norm = result.upper() if result in ("win", "loss") else result
+
+        async with aiosqlite.connect(_DB) as db:
+            await db.execute(
+                """
+                UPDATE signals_log
+                SET close_price = ?, result = ?, pnl_pct = ?, resolved_at = ?
+                WHERE id = (
+                    SELECT id FROM signals_log
+                    WHERE symbol = ? AND entry_price = ?
+                      AND source = 'paper' AND result = 'pending'
+                    ORDER BY id DESC LIMIT 1
+                )
+                """,
+                (close_price, result_norm, pnl_pct, now, symbol, entry_price),
+            )
+            await db.commit()
+
+        logger.debug(
+            "Analytics: paper result updated %s %s → %s pnl=%.4f%%",
+            pair, symbol, result_norm, pnl_pct or 0,
+        )
+    except Exception as exc:
+        logger.warning("analytics_logger.update_result_by_paper failed: %s", exc)
+
+
 # ── CSV export ────────────────────────────────────────────────────────────────
 
 async def export_csv(filepath: str) -> int:
@@ -371,39 +417,47 @@ async def export_csv(filepath: str) -> int:
         return 0
 
 
-async def get_summary() -> dict:
-    """Return quick summary stats for admin display."""
+async def get_summary(source: str | None = None) -> dict:
+    """
+    Return quick summary stats for admin display.
+
+    Args:
+        source: None = all, 'live' = only live signals, 'paper' = only paper trades.
+    """
     try:
+        _src_filter = "" if source is None else f" AND source='{source}'"
+        _src_resolved = f" AND source='{source}'" if source else ""
+
         async with aiosqlite.connect(_DB) as db:
             db.row_factory = aiosqlite.Row
 
             async with db.execute(
-                "SELECT COUNT(*) as total FROM signals_log"
+                f"SELECT COUNT(*) as total FROM signals_log WHERE 1=1{_src_filter}"
             ) as cur:
                 total = (await cur.fetchone())["total"]
 
             async with db.execute(
-                "SELECT COUNT(*) as n FROM signals_log WHERE result='WIN'"
+                f"SELECT COUNT(*) as n FROM signals_log WHERE result='WIN'{_src_resolved}"
             ) as cur:
                 wins = (await cur.fetchone())["n"]
 
             async with db.execute(
-                "SELECT COUNT(*) as n FROM signals_log WHERE result='LOSS'"
+                f"SELECT COUNT(*) as n FROM signals_log WHERE result='LOSS'{_src_resolved}"
             ) as cur:
                 losses = (await cur.fetchone())["n"]
 
             async with db.execute(
-                """SELECT pattern_winner, COUNT(*) as n,
+                f"""SELECT pattern_winner, COUNT(*) as n,
                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as w
-                   FROM signals_log WHERE result IN ('WIN','LOSS')
+                   FROM signals_log WHERE result IN ('WIN','LOSS'){_src_resolved}
                    GROUP BY pattern_winner ORDER BY n DESC"""
             ) as cur:
                 by_pattern = [dict(r) for r in await cur.fetchall()]
 
             async with db.execute(
-                """SELECT expiry, COUNT(*) as n,
+                f"""SELECT expiry, COUNT(*) as n,
                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as w
-                   FROM signals_log WHERE result IN ('WIN','LOSS')
+                   FROM signals_log WHERE result IN ('WIN','LOSS'){_src_resolved}
                    GROUP BY expiry"""
             ) as cur:
                 by_expiry = [dict(r) for r in await cur.fetchall()]
