@@ -10,12 +10,12 @@ Soft filters (reduce score but don't block):
   4. noisy_structure — choppy price action reduces confidence
 
 no_room thresholds by pattern:
-  - level_rejection / false_breakout  : 0.015%  (default)
-  - impulse_pullback                  : skipped  (_compute_levels treats recent swing high
-                                                  as resistance — but that IS the target;
-                                                  quality enforced via direction_gap + RANGE
-                                                  penalty + countertrend rejection in engine)
-  - compression_breakout              : skipped  (breaks through the range boundary)
+  - level_rejection / false_breakout  : 0.015%  (default, strongest level)
+  - impulse_pullback                  : smart check (1m only, 2m skipped):
+      * internal swing high/low (1-touch, fresh, recent) → skip (it's the target)
+      * strong external level (>=2 touches, not broken)  → hard reject at 0.012%
+      * ambiguous level (1-touch, older or broken)       → soft penalty up to 10pts
+  - compression_breakout              : skipped (breaks through range boundary)
 """
 from __future__ import annotations
 import numpy as np
@@ -34,10 +34,97 @@ class FilterResult:
     reasons: list[str]   = field(default_factory=list)
 
 
-_DEAD_BODY_PCT    = 0.003   # avg body < 0.003% of price = dead
-_NO_ROOM_PCT      = 0.015   # opposite level < 0.015% away = no room (level_rejection / false_breakout)
-_EXHAUST_BARS     = 7       # max consecutive same-direction bars
-_NOISY_THRESHOLD  = 0.55    # if direction flip rate > this = noisy
+_DEAD_BODY_PCT     = 0.003   # avg body < 0.003% of price = dead
+_NO_ROOM_PCT       = 0.015   # default: opposite level < 0.015% away = no room
+_NO_ROOM_IP_1M_PCT = 0.012   # impulse_pullback 1m: softer threshold for EXTERNAL levels
+_IP_INTERNAL_IDX   = 12      # last_touch_idx <= 12 = likely the impulse's own bar swing
+_EXHAUST_BARS      = 7       # max consecutive same-direction bars
+_NOISY_THRESHOLD   = 0.55    # if direction flip rate > this = noisy
+
+
+def _ip_no_room_check(
+    direction: str,
+    supports: list,
+    resistances: list,
+    price: float,
+    expiry: str,
+) -> tuple[str, str, float]:
+    """
+    Smart no_room check for impulse_pullback.
+
+    Distinguishes between:
+      - Internal impulse swing (1-touch, very fresh, recent bar):
+            skip — it's the continuation target, not an external barrier
+      - Strong external level (touches >= 2, not broken):
+            hard reject at _NO_ROOM_IP_1M_PCT
+      - Ambiguous level (1-touch but older, or broken):
+            soft penalty proportional to closeness
+
+    Only applies for 1m expiry. 2m continuation skips entirely.
+
+    Returns: (action, reason_str, penalty_pts)
+      action: "skip" | "hard" | "soft"
+    """
+    if expiry == "2m":
+        return "skip", "", 0.0
+
+    # Find the NEAREST level in the opposing direction (closest by price, not quality)
+    if direction == "BUY":
+        candidates = [
+            (lvl, (lvl.price - price) / price * 100)
+            for lvl in resistances
+            if lvl.price > price
+        ]
+    else:
+        candidates = [
+            (lvl, (price - lvl.price) / price * 100)
+            for lvl in supports
+            if lvl.price < price
+        ]
+
+    if not candidates:
+        return "skip", "", 0.0
+
+    candidates.sort(key=lambda x: x[1])   # nearest first
+    nearest, room_pct = candidates[0]
+
+    if room_pct >= _NO_ROOM_IP_1M_PCT:
+        return "skip", "", 0.0   # enough room, no issue
+
+    # ── Classify the nearest level ──────────────────────────────────────────
+    # Internal impulse high/low: single touch that appeared from the recent impulse bars
+    is_internal = (
+        nearest.touches == 1
+        and nearest.is_fresh
+        and nearest.last_touch_idx <= _IP_INTERNAL_IDX
+    )
+    if is_internal:
+        return (
+            "skip",
+            f"ip_internal_swing: {nearest.price:.5f} touches=1 "
+            f"last_touch={nearest.last_touch_idx}bars — impulse's own high/low, not a barrier",
+            0.0,
+        )
+
+    # Strong external level — hard reject
+    if nearest.touches >= 2 and not nearest.is_broken:
+        reason = (
+            f"ip_no_room_{direction}: strong external level {nearest.price:.5f} "
+            f"({nearest.touches}x touched, fresh={nearest.is_fresh}, "
+            f"broken={nearest.is_broken}) "
+            f"only {room_pct:.4f}% away (threshold {_NO_ROOM_IP_1M_PCT}%)"
+        )
+        return "hard", reason, 0.0
+
+    # Ambiguous — soft penalty
+    closeness = max(0.0, 1.0 - room_pct / _NO_ROOM_IP_1M_PCT)
+    soft_penalty = round(min(10.0, closeness * 12.0), 1)
+    reason = (
+        f"ip_close_level_{direction}: ambiguous {nearest.price:.5f} "
+        f"({nearest.touches}x, fresh={nearest.is_fresh}, broken={nearest.is_broken}) "
+        f"{room_pct:.4f}% away → soft -{soft_penalty:.0f}pts"
+    )
+    return "soft", reason, soft_penalty
 
 
 def apply_global_filters(
@@ -71,48 +158,55 @@ def apply_global_filters(
 
     # ── 1. Dead market filter ─────────────────────────────────────────────────
     lookback     = min(20, n)
-    avg_body_pct = float(np.mean(np.abs(cl[-lookback:] - op[-lookback:]))) / price * 100 if price > 0 else 0.0
-    dead_market  = avg_body_pct < _DEAD_BODY_PCT
+    avg_body_pct = (
+        float(np.mean(np.abs(cl[-lookback:] - op[-lookback:]))) / price * 100
+        if price > 0 else 0.0
+    )
+    dead_market = avg_body_pct < _DEAD_BODY_PCT
     if dead_market:
         reasons.append(f"dead_market: avg_body={avg_body_pct:.5f}% < {_DEAD_BODY_PCT}%")
         return FilterResult(passed=False, dead_market=True, reasons=reasons)
 
     # ── 2. No room filter ─────────────────────────────────────────────────────
-    # compression_breakout: breaks through range boundary by design — skip
-    # impulse_pullback 2m:  continuation expects to punch through — skip
-    # impulse_pullback 1m:  still applies but softer threshold (0.010%)
-    # all others:           standard threshold (0.015%)
-    if pattern_name in ("compression_breakout", "impulse_pullback"):
-        # impulse_pullback: _compute_levels treats the recent swing HIGH as resistance,
-        # which is the CONTINUATION TARGET for a BUY — not a blocker.
-        # Quality gates (direction_gap >= 13, RANGE penalty, countertrend reject)
-        # handle impulse_pullback signal quality inside the engine.
-        # compression_breakout: breaks through range boundary by design.
+    no_room = False
+
+    if pattern_name == "compression_breakout":
         skip_no_room = True
-        no_room_threshold = _NO_ROOM_PCT
+
+    elif pattern_name == "impulse_pullback":
+        # Smart check: distinguishes internal impulse swings from external levels
+        kind, ip_reason, ip_penalty = _ip_no_room_check(
+            direction, supports, resistances, price, expiry
+        )
+        if kind == "hard":
+            reasons.append(ip_reason)
+            return FilterResult(passed=False, no_room=True, reasons=reasons)
+        elif kind == "soft":
+            reasons.append(ip_reason)
+            penalty += ip_penalty
+        skip_no_room = True   # standard block already handled above
+
     else:
         skip_no_room = False
-        no_room_threshold = _NO_ROOM_PCT
 
-    no_room = False
     if not skip_no_room:
         if direction == "BUY" and resistances:
             opp_price = resistances[0].price
             room_pct  = (opp_price - price) / price * 100
-            if room_pct < no_room_threshold:
+            if 0 < room_pct < _NO_ROOM_PCT:
                 no_room = True
                 reasons.append(
                     f"no_room_BUY: resistance {opp_price:.5f} only {room_pct:.4f}% away "
-                    f"(threshold={no_room_threshold}%)"
+                    f"(threshold={_NO_ROOM_PCT}%)"
                 )
         elif direction == "SELL" and supports:
             opp_price = supports[0].price
             room_pct  = (price - opp_price) / price * 100
-            if room_pct < no_room_threshold:
+            if 0 < room_pct < _NO_ROOM_PCT:
                 no_room = True
                 reasons.append(
                     f"no_room_SELL: support {opp_price:.5f} only {room_pct:.4f}% away "
-                    f"(threshold={no_room_threshold}%)"
+                    f"(threshold={_NO_ROOM_PCT}%)"
                 )
 
     if no_room:
@@ -120,9 +214,7 @@ def apply_global_filters(
 
     # ── 3. Exhaustion filter (consecutive streak check) ───────────────────────
     # Counts CONSECUTIVE same-direction candles from the current bar backwards.
-    # Only a persistent unbroken streak signals exhaustion.
     # compression_breakout naturally has a pre-entry streak — skip.
-    # impulse_pullback has a post-impulse pullback which disrupts the streak — ok to check.
     exhausted    = False
     skip_exhaust = pattern_name in ("compression_breakout",)
 
