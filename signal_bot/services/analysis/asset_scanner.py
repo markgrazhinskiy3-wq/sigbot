@@ -478,12 +478,13 @@ async def scan_pairs_fresh(
         debug: dict = details.get("debug", {})
         direction: str = result.direction  # "BUY" | "SELL" | "NO_SIGNAL"
 
-        is_v2 = debug.get("engine") == "v2_pattern_first"
+        is_v2 = "pattern_first" in debug.get("engine", "")
 
         if is_v2:
             # V2 pattern-first: no "strategies" dict / "conditions_met".
             # Use pattern candidates as the market-health proxy.
-            n_candidates = len(debug.get("candidates_checked", []))
+            # candidates_checked → no_patterns_passed; all_patterns → score_below_threshold
+            n_candidates = len(debug.get("candidates_checked", [])) or len(debug.get("all_patterns", []))
             if direction not in ("BUY", "SELL") and n_candidates == 0:
                 # Truly dead market — no patterns detected at all
                 continue
