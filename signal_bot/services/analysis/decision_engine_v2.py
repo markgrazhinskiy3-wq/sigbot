@@ -256,7 +256,7 @@ def run_decision_engine_v2(
 
     # ── 6b. Noisy market + weak score = reject ────────────────────────────────
     # Data: noisy=1 has 50.7% WR; only strong signals survive noise.
-    _noisy_score_floor = 80.0
+    _noisy_score_floor = 70.0
     post_noise: list[dict] = []
     for cand in expiry_filtered:
         is_noisy = any("noisy" in r for r in (cand.get("filter_reasons") or []))
