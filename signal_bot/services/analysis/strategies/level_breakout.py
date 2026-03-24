@@ -1,7 +1,7 @@
 """
 Strategy 7 — Level Breakout (1m levels + 15s entry)
 
-STEP 1: Find levels on 1m candles (need 3+ touches for breakout validity).
+STEP 1: Find levels on 1m candles (need 2+ touches for breakout validity).
 STEP 2: Detect breakout close on 15s candles + momentum confirmation.
 
 Need 4 of 6 conditions. Base confidence: 40 + (met-4)*10.
@@ -112,14 +112,14 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for res_price, touch_count in res_levels[:5]:
-        if touch_count < 3:
+        if touch_count < 2:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. tested_level: 3+ touches on 1m chart
+        # 1. tested_level: 2+ touches on 1m chart
         c1 = True
         conds["tested_level"] = c1
         met += 1
@@ -183,14 +183,14 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for sup_price, touch_count in sup_levels[:5]:
-        if touch_count < 3:
+        if touch_count < 2:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. tested_level: 3+ touches
+        # 1. tested_level: 2+ touches
         c1 = True
         conds["tested_level"] = c1
         met += 1

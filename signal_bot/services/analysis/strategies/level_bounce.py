@@ -2,7 +2,7 @@
 Strategy 3 — Level Bounce (1m levels + 15s entry)
 
 STEP 1: Find levels on 1m candles (last 50 bars).
-        Prices where candle highs/lows cluster within 0.03% = level.
+        Prices where candle highs/lows cluster within 0.12% = level.
         Touch count = how many pivots landed in the cluster.
 
 STEP 2: Detect reaction on 15s candles.
@@ -32,8 +32,8 @@ class StrategyResult:
 
 _TOTAL        = 6
 _MIN_MET      = 4
-_CLUSTER_PCT  = 0.0003   # 0.03% — cluster radius for grouping nearby pivots
-_APPROACH_PCT = 0.0005   # 0.05% — price is "at level" within this distance
+_CLUSTER_PCT  = 0.0012   # 0.12% — cluster radius for grouping nearby pivots
+_APPROACH_PCT = 0.001    # 0.10% — price is "at level" within this distance
 
 
 # ── 1m level detection ────────────────────────────────────────────────────────
@@ -167,20 +167,20 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for sup_price, touch_count in sup_levels[:5]:
-        if touch_count < 2:
+        if touch_count < 1:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. Strong 1m level: 2+ touches
+        # 1. Valid 1m level (1+ touch)
         c1 = True  # already filtered above
         conds["strong_1m_level"] = c1
         met += 1
         parts.append(f"Уровень 1m {sup_price:.5f} ({touch_count}x)")
 
-        # 2. Price at level: close or low of last 4 15s candles within 0.05%
+        # 2. Price at level: close or low of last 4 15s candles within 0.10%
         c2 = any(
             abs(float(low[-i])   - sup_price) / sup_price < _APPROACH_PCT or
             abs(float(close[-i]) - sup_price) / sup_price < _APPROACH_PCT
@@ -189,7 +189,7 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         conds["price_at_level"] = c2
         if c2:
             met += 1
-            parts.append("Цена у уровня (±0.05%)")
+            parts.append("Цена у уровня (±0.10%)")
 
         # 3. Rejection candle 15s: lower wick > 2x body
         body     = abs(float(close[-1]) - float(open_[-1]))
@@ -201,8 +201,8 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Отскок-свеча (тень {ratio:.1f}x avg)")
 
-        # 4. RSI extreme: RSI < 40
-        c4 = ind.rsi < 40
+        # 4. RSI extreme: RSI < 45
+        c4 = ind.rsi < 45
         conds["rsi_extreme_15s"] = c4
         if c4:
             met += 1
@@ -215,10 +215,10 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Stoch разворот вверх ({ind.stoch_k:.0f})")
 
-        # 6. Room to target: > 0.025% to nearest resistance
+        # 6. Room to target: > 0.015% to nearest resistance
         nearest_res = res_levels[0][0] if res_levels else None
         room = (nearest_res - price) / price * 100 if (nearest_res and nearest_res > price) else 0.0
-        c6 = room > 0.025
+        c6 = room > 0.015
         conds["room_to_target"] = c6
         if c6:
             met += 1
@@ -261,20 +261,20 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for res_price, touch_count in res_levels[:5]:
-        if touch_count < 2:
+        if touch_count < 1:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. Strong 1m level
+        # 1. Valid 1m level (1+ touch)
         c1 = True
         conds["strong_1m_level"] = c1
         met += 1
         parts.append(f"Сопротивление 1m {res_price:.5f} ({touch_count}x)")
 
-        # 2. Price at level: close or high of last 4 15s candles within 0.05%
+        # 2. Price at level: close or high of last 4 15s candles within 0.10%
         c2 = any(
             abs(float(high[-i])  - res_price) / res_price < _APPROACH_PCT or
             abs(float(close[-i]) - res_price) / res_price < _APPROACH_PCT
@@ -283,7 +283,7 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         conds["price_at_level"] = c2
         if c2:
             met += 1
-            parts.append("Цена у уровня (±0.05%)")
+            parts.append("Цена у уровня (±0.10%)")
 
         # 3. Rejection candle 15s: upper wick > 2x body
         body      = abs(float(close[-1]) - float(open_[-1]))
@@ -309,10 +309,10 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             met += 1
             parts.append(f"Stoch разворот вниз ({ind.stoch_k:.0f})")
 
-        # 6. Room to target: > 0.025% to nearest support
+        # 6. Room to target: > 0.015% to nearest support
         nearest_sup = sup_levels[0][0] if sup_levels else None
         room = (price - nearest_sup) / price * 100 if (nearest_sup and nearest_sup < price) else 0.0
-        c6 = room > 0.025
+        c6 = room > 0.015
         conds["room_to_target"] = c6
         if c6:
             met += 1
