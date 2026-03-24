@@ -42,20 +42,28 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
     avg_body = float(np.mean(body_abs[-window:])) or 1e-8
 
     scan_start = max(0, n - 25)   # only last 25 bars
-    best_bull = _find_pattern(body, body_abs, avg_body, "bull", scan_start, n)
-    best_bear = _find_pattern(body, body_abs, avg_body, "bear", scan_start, n)
+    best_bull, bull_detail = _find_pattern(body, body_abs, avg_body, "bull", scan_start, n)
+    best_bear, bear_detail = _find_pattern(body, body_abs, avg_body, "bear", scan_start, n)
 
     # Dominant direction fallback — capped at 24 (below PARTIAL_MATCH_MIN=30)
     # Can boost a real but weak pattern; cannot create a standalone partial match
     if best_bull is None or best_bull < 20:
         dom_bull = _dominant_direction_score(body, body_abs, "bull", scan_start, n)
-        best_bull = max(best_bull or 0, dom_bull)
+        if dom_bull > (best_bull or 0):
+            best_bull = dom_bull
+            bull_detail = {"fallback": "dominant_direction", "dom_score": round(dom_bull, 1)}
+        else:
+            best_bull = best_bull or 0
     if best_bear is None or best_bear < 20:
         dom_bear = _dominant_direction_score(body, body_abs, "bear", scan_start, n)
-        best_bear = max(best_bear or 0, dom_bear)
+        if dom_bear > (best_bear or 0):
+            best_bear = dom_bear
+            bear_detail = {"fallback": "dominant_direction", "dom_score": round(dom_bear, 1)}
+        else:
+            best_bear = best_bear or 0
 
-    buy_score  = best_bull or 0.0
-    sell_score = best_bear or 0.0
+    buy_score  = float(best_bull or 0.0)
+    sell_score = float(best_bear or 0.0)
 
     direction = "none"
     if buy_score >= sell_score and buy_score >= 25:
@@ -69,12 +77,29 @@ def impulse_pullback_strategy(df: pd.DataFrame) -> ImpulsePullbackResult:
     if sell_score >= 25:
         parts.append(f"Медвежий паттерн (score {sell_score:.0f})")
 
-    debug = {
-        "bull_score": round(buy_score, 1),
-        "bear_score": round(sell_score, 1),
-        "avg_body": round(avg_body, 6),
-        "scan_bars": n - scan_start,
+    # Pick the winning side detail for debug
+    winner_detail = (bull_detail if direction == "buy" else bear_detail) or {}
+
+    debug: dict = {
+        "bull_score":     round(buy_score, 1),
+        "bear_score":     round(sell_score, 1),
+        "avg_body":       round(avg_body, 6),
+        "scan_bars":      n - scan_start,
+        # Pattern structure detail (populated when a full impulse+pb+confirm found)
+        "imp_bars":       winner_detail.get("imp_bars"),
+        "pb_bars":        winner_detail.get("pb_bars"),
+        "retracement_pct": winner_detail.get("retracement_pct"),
+        "conf_bar_idx":   winner_detail.get("conf_bar_idx"),
+        "bars_ago":       winner_detail.get("bars_ago"),
+        # Score breakdown
+        "impulse_q":      winner_detail.get("impulse_q"),
+        "pullback_q":     winner_detail.get("pullback_q"),
+        "recency":        winner_detail.get("recency"),
+        "conf_bonus":     winner_detail.get("conf_bonus"),
+        "score_formula":  winner_detail.get("score_formula"),
     }
+    # Remove None entries for cleaner output
+    debug = {k: v for k, v in debug.items() if v is not None}
 
     return ImpulsePullbackResult(
         direction=direction,
@@ -93,14 +118,17 @@ def _find_pattern(
     side: str,
     start: int,
     n: int,
-) -> float | None:
+) -> tuple[float | None, dict | None]:
     """
     Impulse + pullback + confirmation scan over last 25 bars.
     Confirmation bar MUST close in the signal direction.
-    Returns best score (0-100) or None.
+    Returns (best_score, detail_dict) or (None, None).
+    detail_dict contains full breakdown: imp_bars, pb_bars, retracement_pct,
+    conf_bar_idx, bars_ago, impulse_q, pullback_q, recency, conf_bonus, score_formula.
     """
     sign = 1 if side == "bull" else -1
-    best: float | None = None
+    best_score: float | None = None
+    best_detail: dict | None = None
 
     for imp_start in range(start, n - 3):
         # ── Impulse: 2-6 bars in direction ───────────────────────────────
@@ -161,10 +189,27 @@ def _find_pattern(
         raw   = (impulse_q * 0.40 + pullback_q * 0.25 + recency * 0.25 + conf_bonus) * 100
         score = float(min(100.0, max(0.0, raw)))
 
-        if best is None or score > best:
-            best = score
+        if best_score is None or score > best_score:
+            best_score = score
+            retracement_pct = round(pb_avg / imp_avg * 100, 1)
+            bars_ago        = n - conf_idx - 1
+            best_detail = {
+                "imp_bars":        imp_count,
+                "pb_bars":         pb_count,
+                "retracement_pct": retracement_pct,
+                "conf_bar_idx":    int(conf_idx),
+                "bars_ago":        int(bars_ago),
+                "impulse_q":       round(impulse_q,  3),
+                "pullback_q":      round(pullback_q, 3),
+                "recency":         round(recency,    3),
+                "conf_bonus":      round(conf_bonus, 3),
+                "score_formula":   (
+                    f"({impulse_q:.2f}×0.40 + {pullback_q:.2f}×0.25 "
+                    f"+ {recency:.2f}×0.25 + {conf_bonus:.2f})×100 = {score:.1f}"
+                ),
+            }
 
-    return best
+    return best_score, best_detail
 
 
 def _dominant_direction_score(

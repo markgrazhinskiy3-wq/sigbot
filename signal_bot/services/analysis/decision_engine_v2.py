@@ -201,6 +201,8 @@ def run_decision_engine_v2(
                 "levels":         levels_debug,
                 "context":        ctx,
                 "n_15s":          n,
+                "n_1m":           n_bars_1m,
+                "n_5m":           n_bars_5m,
             },
         )
 

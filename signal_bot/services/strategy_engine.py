@@ -109,7 +109,7 @@ async def calculate_signal(
         import pandas as pd
         candles_5m = resample_to_5m(candles_1m)
         logger.info("5-min resample: %d 1m bars → %d 5m bars", len(candles_1m), len(candles_5m))
-        if len(candles_5m) >= 4:
+        if len(candles_5m) >= 3:
             df5m = pd.DataFrame(candles_5m)
             for col in ("open", "high", "low", "close"):
                 df5m[col] = df5m[col].astype(float)

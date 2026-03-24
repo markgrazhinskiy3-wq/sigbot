@@ -488,9 +488,10 @@ async def cmd_debug(message: Message) -> None:
     direction  = details.get("direction", "NO_SIGNAL")
     last_close = debug.get("last_close", "?")
 
-    n15 = debug.get("n_bars_15s") or debug.get("candles_raw", "?")
-    n1m = debug.get("n_bars_1m", 0)
-    n5m = debug.get("n_bars_5m", 0)
+    # v2 stores n_15s/n_1m/n_5m; v1 used n_bars_15s/n_bars_1m/n_bars_5m
+    n15 = debug.get("n_bars_15s") or debug.get("n_15s") or debug.get("candles_raw", "?")
+    n1m = debug.get("n_bars_1m") or debug.get("n_1m", 0)
+    n5m = debug.get("n_bars_5m") or debug.get("n_5m", 0)
     nc  = debug.get("candles_clean", "?")
     abp = debug.get("avg_body_pct", 0)
 
