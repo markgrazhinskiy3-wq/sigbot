@@ -56,7 +56,8 @@ async def get_signal(symbol: str, pair_label: str, expiration_sec: int) -> Signa
     candles = await refresh_pair_now(symbol)
     if not candles:
         candles = await get_candles(symbol, count=80)
-    result: SignalResult = await calculate_signal(candles)
+    expiry_str = "2m" if expiration_sec >= 120 else "1m"
+    result: SignalResult = await calculate_signal(candles, expiry=expiry_str)
     return SignalResponse(
         direction=result.direction,
         confidence=result.confidence,
@@ -198,6 +199,31 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
             items.append("Цена упала ниже, но сила падения ослабла — разворот вверх вероятен.")
         else:
             items.append("Цена выросла выше, но сила роста ослабла — разворот вниз вероятен.")
+
+    # ── V2 pattern-first strategies ──────────────────────────────────────────
+    elif strategy == "level_rejection":
+        if is_buy:
+            items.append("Цена опустилась к уровню поддержки, показала отбой (длинный хвост) и подтвердила разворот вверх.")
+        else:
+            items.append("Цена поднялась к уровню сопротивления, показала отбой (длинный хвост) и подтвердила разворот вниз.")
+
+    elif strategy == "false_breakout":
+        if is_buy:
+            items.append("Цена кратко пробила поддержку, но быстро вернулась выше — ловушка для продавцов, ожидаем рост.")
+        else:
+            items.append("Цена кратко пробила сопротивление, но быстро вернулась ниже — ловушка для покупателей, ожидаем падение.")
+
+    elif strategy == "compression_breakout":
+        if is_buy:
+            items.append("Рынок сжался в узком диапазоне, затем резко вырвался вверх — чистый пробой с momentum.")
+        else:
+            items.append("Рынок сжался в узком диапазоне, затем резко вырвался вниз — чистый пробой с momentum.")
+
+    elif strategy == "impulse_pullback":
+        if is_buy:
+            items.append("Был сильный рост (импульс), затем небольшой откат — продолжаем движение вверх.")
+        else:
+            items.append("Было сильное падение (импульс), затем небольшой откат — продолжаем движение вниз.")
 
     else:
         if is_buy:

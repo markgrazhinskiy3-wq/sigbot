@@ -1,0 +1,316 @@
+We need to refactor the analytics/decision engine of an OTC signal bot for Pocket Option.
+
+MAIN GOAL:
+Increase signal quality and winrate.
+The bot must trade price action patterns and market structure, NOT indicator coincidences.
+Indicators must be used only as filters, not as the main reason for a trade.
+
+Very important:
+Do NOT just tweak thresholds or coefficients.
+This requires restructuring the decision engine logic to a pattern-first architecture.
+
+==================================================
+CONTEXT
+==================================================
+
+- The bot trades OTC instruments on Pocket Option only.
+- Data must come only from Pocket Option.
+- The main timeframe is 15-second candles.
+- 1-minute candles are built by resampling from 15s candles.
+- 5-minute candles may be used only as weak context.
+- Candle history is accumulated via cache merge.
+- The user selects expiry manually: 1 minute or 2 minutes.
+- The engine does NOT choose expiry.
+- The engine must only find setups that fit the selected expiry.
+
+==================================================
+PROBLEM WITH CURRENT ENGINE
+==================================================
+
+Current engine behavior:
+- Market mode determines which strategies run.
+- EMA bounce dominates most signals.
+- Many confidence multipliers and penalties distort signals.
+- Signals are often generated because indicators align, not because a real market pattern exists.
+
+This must change.
+
+New logic must be:
+PATTERN FIRST → FILTERS → SCORE → SIGNAL
+
+NOT:
+INDICATORS → CONFIDENCE → SIGNAL
+
+==================================================
+NEW ENGINE ARCHITECTURE
+==================================================
+
+The new decision flow must be:
+
+1. Prepare data (15s, 1m, optional 5m)
+2. Build fresh levels (support/resistance)
+3. Detect price action patterns
+4. Apply global filters
+5. Filter patterns by user-selected expiry
+6. Score patterns
+7. Choose best pattern
+8. Generate signal only if score above threshold
+
+==================================================
+PRICE ACTION STRATEGIES (REQUIRED)
+==================================================
+
+We need 4 main strategies:
+
+1. Level Rejection
+2. False Breakout Reversal
+3. Compression Breakout
+4. Impulse Pullback Continuation
+
+If old strategies conflict with this logic, remove or disable them.
+EMA bounce must NOT remain the main strategy.
+EMA can only be used as a filter or context indicator.
+
+--------------------------------------------------
+1. LEVEL REJECTION
+--------------------------------------------------
+
+Idea:
+Price reaches a fresh support/resistance level, rejects it, then confirms the move.
+
+BUY conditions:
+- Fresh support level exists
+- Level has at least 2 touches
+- Current price or recent low is close to support
+- Rejection candle exists:
+  - Long lower wick
+  - Close above midpoint of candle
+- Confirmation candle exists:
+  - Bullish candle after rejection
+  - Does not break rejection low
+- Enough room to next resistance
+
+SELL conditions:
+- Mirror logic for resistance
+
+Important:
+Without a rejection candle → NO signal
+Without confirmation candle → NO signal
+
+--------------------------------------------------
+2. FALSE BREAKOUT REVERSAL
+--------------------------------------------------
+
+Idea:
+Price breaks a level but fails and returns back. Enter opposite direction.
+
+BUY conditions:
+- Support level exists
+- One of recent candles breaks below support
+- Candle closes back near or above support
+- Next candle confirms upward move
+- Enough room to resistance
+
+SELL conditions:
+- Mirror for resistance
+
+This is NOT a breakout strategy.
+This is reversal after failed breakout.
+
+Works especially well for 2-minute expiry.
+
+--------------------------------------------------
+3. COMPRESSION BREAKOUT
+--------------------------------------------------
+
+Idea:
+Market compresses into a tight range, then breaks out with momentum.
+
+Conditions:
+- Last 6–10 candles have decreasing range
+- Recent average candle body smaller than longer-term average
+- Clear micro range boundary
+- Breakout candle body larger than average
+- Breakout candle closes outside range
+- Next candle does not fully retrace breakout
+- Market not dead (ATR not too low)
+
+BUY = breakout up
+SELL = breakout down
+
+--------------------------------------------------
+4. IMPULSE PULLBACK CONTINUATION
+--------------------------------------------------
+
+This replaces EMA bounce logic.
+
+Idea:
+Strong impulse → controlled pullback → continuation.
+
+BUY:
+- Strong upward impulse over last few candles
+- Pullback lasts 2–4 candles
+- Pullback does not retrace too much of impulse
+- Structure not broken
+- Continuation candle appears
+- Not directly into resistance
+
+SELL:
+- Mirror logic
+
+Important:
+If there was no impulse before pullback → NO signal.
+
+==================================================
+LEVEL DETECTION V2
+==================================================
+
+Levels must include:
+- price
+- type (support/resistance)
+- touches
+- age
+- last touch index
+- reaction strength
+- is fresh
+- is broken
+
+Good level requirements:
+- At least 2 touches
+- Recent touches
+- Clear reaction after touch
+- Not already broken and retested from other side
+
+Improve existing level detection logic accordingly.
+
+==================================================
+GLOBAL FILTERS
+==================================================
+
+After a pattern is detected, apply filters:
+
+1. Dead market filter
+   - ATR too low
+   - Range too small
+   - Flat movement
+
+2. Opposite level proximity filter
+   - Do not BUY if resistance too close
+   - Do not SELL if support too close
+
+3. Exhaustion filter
+   - Avoid entries after long one-direction candle series
+
+4. Confirmation quality filter
+   - Confirmation candle must be strong enough
+
+5. Noise filter
+   - Avoid very choppy/noisy structure
+
+If any hard filter fails → reject signal.
+
+==================================================
+EXPIRY FILTER
+==================================================
+
+User selects expiry: 1m or 2m.
+Engine must filter patterns by suitability.
+
+Patterns should return:
+fit_for = ["1m"], ["2m"], or ["1m","2m"]
+
+General rules:
+1m:
+- Fast reactions
+- Strong confirmation
+- Short distance moves
+
+2m:
+- False breakouts
+- Slower reversals
+- Deeper pullbacks
+- Structural setups
+
+==================================================
+SCORING MODEL
+==================================================
+
+Remove heavy multiplier logic from old engine.
+
+New scoring should be simple and transparent.
+
+Score components:
+- Pattern quality ~60%
+- Level / structure quality ~25%
+- Filters / context ~15%
+
+Score range: 0–100
+
+Minimum thresholds:
+- 1m expiry: ~68
+- 2m expiry: ~65
+
+No signal below threshold.
+
+==================================================
+DEBUG OUTPUT
+==================================================
+
+Debug output must clearly show:
+- Which patterns were checked
+- Which pattern was found
+- Pattern score
+- Why score was given
+- Why signal was rejected
+- Level quality
+- Distance to opposite level
+- Dead market yes/no
+- Exhaustion yes/no
+- Final decision reason
+
+Debug must make it obvious that the signal came from a pattern, not indicator alignment.
+
+==================================================
+IMPLEMENTATION STRUCTURE
+==================================================
+
+Create new modular functions:
+
+- detect_levels_v2(...)
+- detect_level_rejection(...)
+- detect_false_breakout(...)
+- detect_compression_breakout(...)
+- detect_impulse_pullback(...)
+- apply_global_filters(...)
+- score_pattern(...)
+- run_decision_engine_v2(...)
+
+Old engine can remain as legacy, but new engine must become main engine.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+Task is complete only if:
+
+1. Engine no longer depends on market mode as main router
+2. EMA bounce is no longer the main strategy
+3. Four new pattern detectors exist
+4. Signals are based on price patterns
+5. Indicators act only as filters
+6. Patterns filtered by user expiry
+7. Hard rejection for dead market / no room / weak confirmation
+8. Debug clearly explains decisions
+9. Engine integrates with existing bot pipeline
+
+==================================================
+EXPECTED RESPONSE
+==================================================
+
+In your response provide:
+1. Which files were modified
+2. Which new functions were created
+3. What old logic was removed or disabled
+4. New decision flow description
+5. Example debug output
+6. Any risks or edge cases to test

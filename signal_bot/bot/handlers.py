@@ -148,8 +148,9 @@ async def _monitor_pair(
             return True  # stop streaming
 
         # Run signal engine directly on fresh candles (no extra WS connection)
+        expiry_str = "2m" if expiration_sec >= 120 else "1m"
         try:
-            result: SignalResult = await calculate_signal(candles)
+            result: SignalResult = await calculate_signal(candles, expiry=expiry_str)
         except Exception as exc:
             logger.debug("Monitor signal calc failed (check %d): %s", checks, exc)
             return False
