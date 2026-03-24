@@ -181,7 +181,7 @@ def _log_conditions(eng: "EngineResult") -> None:
     """Log per-pattern condition breakdown. Handles both v1 (strategies) and v2 (patterns) debug."""
 
     # ── V2 debug format (pattern-first) ──────────────────────────────────────
-    if eng.debug.get("engine") == "v2_pattern_first":
+    if eng.debug.get("engine", "").startswith("v") and "pattern_first" in eng.debug.get("engine", ""):
         patterns  = eng.debug.get("all_patterns", [])
         ctx       = eng.debug.get("context", {})
         levels    = eng.debug.get("levels", {})

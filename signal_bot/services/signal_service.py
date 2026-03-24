@@ -97,20 +97,72 @@ def _mode_label(mode: str) -> str:
     }.get(mode, "")
 
 
+def _format_nosignal_debug(d: dict) -> list[str]:
+    """Build human-readable rejection reason lines from engine debug dict."""
+    import html as _html
+    lines: list[str] = []
+    dbg = d.get("debug", {})
+    reject = d.get("reject_reason", "") or dbg.get("reason", "")
+
+    # ── Case 1: score below per-strategy threshold ─────────────────────────
+    if "score_below_threshold" in reject:
+        pat   = dbg.get("best_pattern", "?")
+        score = dbg.get("best_score", "?")
+        thr   = dbg.get("min_score", "?")
+        lines.append(f"• Паттерн: <b>{pat}</b>  score={score}")
+        lines.append(f"• Порог для {pat}: <b>{thr}</b>")
+        lines.append(f"• ❌ ОТКЛОНЁН: score ниже порога")
+        return lines
+
+    # ── Case 2: no patterns passed filters ────────────────────────────────
+    if "no_patterns_passed" in reject:
+        candidates = dbg.get("candidates_checked", [])
+        filter_log = dbg.get("filter_rejections", dbg.get("filter_log", []))
+        if not candidates:
+            lines.append("• Паттернов не обнаружено вообще")
+        else:
+            lines.append(f"• Обнаружено паттернов: {len(candidates)}")
+            for c in candidates[:3]:
+                lines.append(f"  – {c.get('name','?')} {c.get('direction','?')} score={c.get('final_score', c.get('score','?'))}")
+        if filter_log:
+            lines.append("• Причины фильтрации:")
+            for r in filter_log[:5]:
+                short = _html.escape(str(r)[:120])
+                lines.append(f"  – {short}")
+        return lines
+
+    # ── Case 3: validation / not enough candles ───────────────────────────
+    if "too_few_candles" in reject or "validation" in reject:
+        n = dbg.get("n") or d.get("candles_raw") or d.get("candles_clean")
+        lines.append(f"• ❌ Недостаточно свечей: {n}")
+        return lines
+
+    # ── Fallback ──────────────────────────────────────────────────────────
+    lines.append(f"• Причина: {_html.escape(str(reject)[:200])}")
+    filter_log = dbg.get("filter_log", [])
+    for r in filter_log[:3]:
+        lines.append(f"  – {_html.escape(str(r)[:120])}")
+    return lines
+
+
 def format_signal_message(signal: SignalResponse) -> str:
     if signal.direction == "NO_SIGNAL":
-        d      = signal.details if isinstance(signal.details, dict) else {}
-        mode   = d.get("market_mode", "")
+        d        = signal.details if isinstance(signal.details, dict) else {}
+        mode     = d.get("market_mode", "")
         mode_lbl = _mode_label(mode) or d.get("regime_label", "")
+
+        debug_lines = _format_nosignal_debug(d)
 
         lines = [
             f"🔍 <b>{html.escape(signal.pair)}</b>",
             "",
-            f"⏳ <b>Сигнал ещё не сформировался</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
-            "Условия благоприятные, но конкретной точки входа пока нет.",
+            f"⏳ <b>Нет точки входа</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
+            "",
+            "<b>Причина:</b>",
         ]
+        lines.extend(debug_lines)
         lines.append("")
-        lines.append("Нажмите <b>«Включить мониторинг»</b>, чтобы бот сам уведомил вас когда появится сигнал, или <b>«Попробовать снова»</b> для повторной проверки прямо сейчас.")
+        lines.append("Нажмите <b>«Включить мониторинг»</b> или <b>«Попробовать снова»</b>.")
         return "\n".join(lines)
 
     if signal.direction == "BUY":
