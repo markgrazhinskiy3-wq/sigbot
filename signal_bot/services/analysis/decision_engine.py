@@ -451,6 +451,7 @@ def run_decision_engine(
         total_conditions=best.total_conditions,
         expiry_hint=expiry,
         debug={
+            **_bar_debug,
             "mode": mode_obj.mode,
             "mode_strength": round(mode_obj.strength, 1),
             "mode_debug": mode_obj.debug,
