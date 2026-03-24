@@ -126,6 +126,25 @@ class PaperRunner:
 
         await analytics_logger.init_analytics()
 
+        # ── Wait for candle cache to warm up before scanning ──────────────────
+        logger.info("PaperRunner: waiting for candle cache to populate…")
+        for _wait_attempt in range(24):   # max 2 minutes
+            if self._cancelled:
+                return self._results
+            probe = self._from_cache([self.pairs[0]["symbol"]])
+            if probe:
+                logger.info("PaperRunner: cache ready — starting scan")
+                break
+            logger.info(
+                "PaperRunner: cache not ready yet (attempt %d/24), waiting 5s…",
+                _wait_attempt + 1,
+            )
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                self._cancelled = True
+                return self._results
+
         scan_num = 0
         while self.resolved_count < self.target_trades and not self._cancelled:
             scan_num += 1
@@ -167,37 +186,57 @@ class PaperRunner:
     # ── Candle fetch ──────────────────────────────────────────────────────────
 
     async def _fetch_candles(self) -> dict[str, list[dict]]:
-        """Fetch fresh candles for all pairs via WS."""
+        """
+        Get candles for all pairs.
+        Priority: shared in-memory cache (always fresh from live bot's refresher)
+        then WS fetch as supplement for pairs missing from cache.
+        """
         symbols = [p["symbol"] for p in self.pairs]
+
+        # ── Primary: shared candle cache (maintained by live bot's refresher) ─
+        cached = self._from_cache(symbols)
+        if cached:
+            return cached
+
+        # ── Fallback: direct WS fetch (slower, opens new connection) ──────────
+        logger.info("PaperRunner: cache empty — trying WS fetch directly")
         try:
             from services.po_ws_client import fetch_all_pairs, is_available
             if not is_available():
-                logger.warning("PaperRunner: WS not available — trying candle cache")
-                return self._from_cache(symbols)
+                logger.warning("PaperRunner: WS also not available")
+                return {}
 
             async with asyncio.timeout(60):
                 result = await fetch_all_pairs(symbols)
 
-            # Filter out pairs with too few candles
-            return {
+            filtered = {
                 sym: c for sym, c in result.items()
                 if len(c) >= MIN_CANDLES
             }
+            if filtered:
+                logger.info("PaperRunner: WS fetch got %d pairs", len(filtered))
+            return filtered
         except Exception as exc:
-            logger.warning("PaperRunner: fetch_all_pairs failed: %s", exc)
-            return self._from_cache(symbols)
+            logger.warning("PaperRunner: WS fetch also failed: %s", exc)
+            return {}
 
     def _from_cache(self, symbols: list[str]) -> dict[str, list[dict]]:
-        """Fallback: use in-memory candle cache."""
+        """
+        Fallback: read directly from shared in-memory candle cache.
+        Bypasses TTL check — even slightly stale candles are valid for signal generation.
+        """
         try:
-            from services.candle_cache import get_cached
+            from services.candle_cache import _cache as _raw_cache
             result = {}
             for sym in symbols:
-                c = get_cached(sym)
-                if c and len(c) >= MIN_CANDLES:
-                    result[sym] = c
+                entry = _raw_cache.get(sym)
+                if entry and len(entry.candles) >= MIN_CANDLES:
+                    result[sym] = list(entry.candles)
+            if result:
+                logger.debug("PaperRunner: _from_cache: got %d pairs", len(result))
             return result
-        except Exception:
+        except Exception as exc:
+            logger.debug("PaperRunner: _from_cache failed: %s", exc)
             return {}
 
     # ── Signal scanning ───────────────────────────────────────────────────────
