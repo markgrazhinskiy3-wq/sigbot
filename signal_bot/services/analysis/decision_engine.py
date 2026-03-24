@@ -160,12 +160,45 @@ def run_decision_engine(
         }
     }
 
+    # ── DEAD MARKET FILTER 1: avg candle body too small ───────────────────────
+    # If the average candle body over the last 20 15s bars is < 0.003% of price,
+    # the market is pure noise — no strategy can profitably trade it.
+    price_now = float(df1m["close"].iloc[-1])
+    _lookback = min(20, n)
+    avg_body_pct = float(
+        np.mean(np.abs(df1m["close"].values[-_lookback:] - df1m["open"].values[-_lookback:]))
+    ) / price_now * 100 if price_now > 0 else 0.0
+    _DEAD_BODY_THRESHOLD = 0.003   # 0.003% — below this = noise only
+    if avg_body_pct < _DEAD_BODY_THRESHOLD:
+        logger.info("DEAD MARKET: avg_body_pct=%.5f%% < %.3f%% — skipping", avg_body_pct, _DEAD_BODY_THRESHOLD)
+        return _no_signal(f"dead_market (avg_body={avg_body_pct:.5f}% < {_DEAD_BODY_THRESHOLD}%)", {
+            **_bar_debug, **_ind_dbg,
+            "avg_body_pct": round(avg_body_pct, 6),
+            "dead_market": True,
+        })
+
     # ── Layer 2: Market Mode ──────────────────────────────────────────────────
     try:
         mode_obj = detect_market_mode(df1m, df5m)
     except Exception as e:
         logger.exception("Market mode detection failed")
         mode_obj = MarketMode("RANGE", 50.0, False, False, "Ошибка — считаем RANGE", {})
+
+    # ── DEAD MARKET FILTER 2: fake trending — EMA spread too small ───────────
+    # If EMA5 and EMA21 are separated by < 0.002% but mode is TRENDING,
+    # it's a flat line with microscopic slope — override to RANGE.
+    ema_spread_pct = abs(ind.ema5 - ind.ema21) / price_now * 100 if price_now > 0 else 0.0
+    _FAKE_TREND_EMA_THRESHOLD = 0.002   # 0.002% — EMAs effectively flat
+    if ema_spread_pct < _FAKE_TREND_EMA_THRESHOLD and mode_obj.mode.startswith("TRENDING"):
+        logger.info(
+            "FAKE TREND override: ema_spread=%.5f%% < %.3f%% — %s → RANGE(40)",
+            ema_spread_pct, _FAKE_TREND_EMA_THRESHOLD, mode_obj.mode,
+        )
+        mode_obj = MarketMode(
+            "RANGE", 40.0, False, False,
+            f"EMA spread {ema_spread_pct:.5f}% < {_FAKE_TREND_EMA_THRESHOLD}% — fake trend overridden to RANGE",
+            {"original_mode": mode_obj.mode, "ema_spread_pct": round(ema_spread_pct, 6)},
+        )
 
     # ── Support / Resistance levels ───────────────────────────────────────────
     try:
@@ -468,6 +501,8 @@ def run_decision_engine(
             "conf_before_multipliers": round(best.confidence, 1),
             "conf_after_multipliers": round(conf_raw, 1),
             "raised_threshold": raised_threshold,
+            "avg_body_pct": round(avg_body_pct, 6),
+            "ema_spread_pct": round(ema_spread_pct, 6),
             "indicators": {
                 "ema5": round(ind.ema5, 6),
                 "ema13": round(ind.ema13, 6),
