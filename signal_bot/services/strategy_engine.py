@@ -73,15 +73,16 @@ async def calculate_signal(
 
     # ── Resample 15s → 1-min (intermediate context) ───────────────────────────
     df1m_ctx = None
+    candles_1m: list[dict] = []   # kept in scope so 5m block can reuse it
     try:
         import pandas as pd
-        # Diagnostic: check time field in raw candles
-        times_ok = [c.get("time", 0) for c in candles if c.get("time", 0) > 0]
-        if len(times_ok) < len(candles):
-            logger.warning(
-                "1m resample: %d/%d candles have time=0 — resampling will skip them",
-                len(candles) - len(times_ok), len(candles)
-            )
+        times_ok = sum(1 for c in candles if c.get("time", 0) > 0)
+        logger.info(
+            "1m resample input: %d candles, %d with valid time (first=%s last=%s)",
+            len(candles), times_ok,
+            candles[0].get("time") if candles else "N/A",
+            candles[-1].get("time") if candles else "N/A",
+        )
         candles_1m = resample_to_1m(candles)
         logger.info("1-min resample: %d raw 15s → %d 1m bars", len(candles), len(candles_1m))
         if len(candles_1m) >= 5:
@@ -90,21 +91,21 @@ async def calculate_signal(
                 df1m_ctx[col] = df1m_ctx[col].astype(float)
         else:
             logger.warning(
-                "1-min candles too few (%d) — ctx_1m disabled. "
-                "First candle time=%s, last candle time=%s",
+                "1-min candles too few (%d) — ctx_1m disabled",
                 len(candles_1m),
-                candles[0].get("time") if candles else "N/A",
-                candles[-1].get("time") if candles else "N/A",
             )
     except Exception as e:
         logger.warning("1-min resampling failed: %s", e, exc_info=True)
 
-    # ── Resample 15s → 5-min (macro context) ─────────────────────────────────
+    # ── Resample 1m → 5-min (macro context) ───────────────────────────────────
+    # NOTE: resample_to_5m expects 1-min input, NOT raw 15s candles.
+    # Using candles_1m (already resampled, with proper synthetic timestamps if needed)
+    # ensures correct 5m grouping even when original candles have time=0.
     df5m = None
     try:
         import pandas as pd
-        candles_5m = resample_to_5m(candles)
-        logger.info("5-min resample: %d raw 15s → %d 5m bars", len(candles), len(candles_5m))
+        candles_5m = resample_to_5m(candles_1m)
+        logger.info("5-min resample: %d 1m bars → %d 5m bars", len(candles_1m), len(candles_5m))
         if len(candles_5m) >= 4:
             df5m = pd.DataFrame(candles_5m)
             for col in ("open", "high", "low", "close"):

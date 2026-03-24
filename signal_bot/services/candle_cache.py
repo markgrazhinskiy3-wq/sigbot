@@ -356,17 +356,24 @@ def resample_to_1m(candles_15s: list[dict]) -> list[dict]:
 
     # Fallback: timestamps were missing/zero — aggregate sequentially (4×15s = 1m)
     if len(result) < 5 and candles_15s:
+        # Filter candles that have all OHLC fields present and non-zero
+        valid = [
+            c for c in candles_15s
+            if c.get("open") and c.get("high") and c.get("low") and c.get("close")
+        ]
+        if not valid:
+            return result   # nothing usable
         result = []
         i = 0
         bucket_idx = 0
-        while i < len(candles_15s):
-            g = candles_15s[i:i + 4]
+        while i < len(valid):
+            g = valid[i:i + 4]
             result.append({
                 "time":  bucket_idx * 60,          # synthetic monotonic timestamp
-                "open":  g[0]["open"],
-                "high":  max(c["high"] for c in g),
-                "low":   min(c["low"]  for c in g),
-                "close": g[-1]["close"],
+                "open":  float(g[0]["open"]),
+                "high":  float(max(c["high"] for c in g)),
+                "low":   float(min(c["low"]  for c in g)),
+                "close": float(g[-1]["close"]),
             })
             i += 4
             bucket_idx += 1
