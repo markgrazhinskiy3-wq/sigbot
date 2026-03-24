@@ -40,22 +40,18 @@ from .false_breakout               import false_breakout_strategy
 
 logger = logging.getLogger(__name__)
 
-# ── Score thresholds ──────────────────────────────────────────────────────────
-# v4: raised again — paper test confirmed 70-75 zone is losing trades.
-_THRESHOLD_1M   = 75.0    # was 72 (v3), 68 (v2)
-_THRESHOLD_2M   = 72.0    # was 70 (v3), 65 (v2)
-_RAISED_BONUS   = 5.0     # added to threshold after 2 losses
+# ── Per-strategy min score thresholds (v5) ───────────────────────────────────
+# Replaces global threshold + stacked penalties — cleaner, more predictable.
+# IP gets stricter threshold; LR and FB get lower thresholds to increase signal flow.
+_STRATEGY_THRESHOLDS: dict[str, dict[str, float]] = {
+    "impulse_pullback":     {"1m": 76.0, "2m": 73.0},
+    "level_rejection":      {"1m": 68.0, "2m": 65.0},
+    "false_breakout":       {"1m": 68.0, "2m": 65.0},
+    "compression_breakout": {"1m": 68.0, "2m": 65.0},
+}
 
-# ── Pattern class adjustments (applied after wrap, before filters) ────────────
-# v4: IP penalty increased — still dominates ~85% of trades after v3 changes.
-_IP_CLASS_PENALTY   = 8.0   # flat score reduction for impulse_pullback (was 5)
-# v4: FB bonus increased — best paper WR, want it to win more often.
-_FB_CLASS_BONUS     = 8.0   # flat score boost for false_breakout (was 5)
-
-# ── Late trend penalty ────────────────────────────────────────────────────────
-# Very high IP scores (>88) often mean late trend entry, not quality.
-_IP_LATE_TREND_THRESHOLD = 88.0
-_IP_LATE_TREND_PENALTY   = 5.0
+# IP score cap: data shows score>88 has same WR as 85-89 (late trend entries).
+_IP_SCORE_CAP = 88.0
 
 # ── Expiry → fit_for mapping ─────────────────────────────────────────────────
 _EXPIRY_FIT: dict[str, str] = {
@@ -82,10 +78,6 @@ def run_decision_engine_v2(
     n      = len(df)
     price  = float(df["close"].iloc[-1])
     expiry = expiry if expiry in ("1m", "2m") else "1m"
-
-    min_score = (
-        _THRESHOLD_1M if expiry == "1m" else _THRESHOLD_2M
-    ) + (_RAISED_BONUS if raised_threshold else 0.0)
 
     # ── Sanity ────────────────────────────────────────────────────────────────
     if n < 15:
@@ -141,21 +133,6 @@ def run_decision_engine_v2(
         ip.debug.get("direction_gap", 0), ip.debug.get("countertrend", False),
     )
 
-    # ── 3e. Apply class-level score adjustments ───────────────────────────────
-    # These are not hard filters — they shift the competitive balance between
-    # patterns without blocking anything outright.
-    for cand in candidates:
-        if cand["name"] == "impulse_pullback":
-            cand["score"] = max(0.0, cand["score"] - _IP_CLASS_PENALTY)
-            cand.setdefault("filter_reasons", []).append(
-                f"ip_class_penalty: -{_IP_CLASS_PENALTY:.0f}pts (reduce dominance)"
-            )
-        elif cand["name"] == "false_breakout":
-            cand["score"] = min(100.0, cand["score"] + _FB_CLASS_BONUS)
-            cand.setdefault("filter_reasons", []).append(
-                f"fb_class_bonus: +{_FB_CLASS_BONUS:.0f}pts (encourage valid setups)"
-            )
-
     # ── 4. Apply global filters (now with expiry) ─────────────────────────────
     valid: list[dict] = []
     filter_log: list[str] = []
@@ -208,22 +185,17 @@ def run_decision_engine_v2(
             continue
 
         # ── RANGE restriction ───────────────────────────────────────────────
-        # In a ranging market impulse_pullback is a reversal trap.
-        # Apply a heavy score penalty; only keep if score survives threshold.
+        # v5: hard reject — data shows range_penalty=1 has 45.8% WR.
+        # IP in ranging market is a reversal trap; LR/FB are unaffected.
         if _regime_quick == "RANGE":
-            range_penalty = 20.0
-            cand["score"] = max(0.0, cand["score"] - range_penalty)
-            cand["filter_penalty"] = cand.get("filter_penalty", 0.0) + range_penalty
-            if cand.get("filter_reasons") is None:
-                cand["filter_reasons"] = []
-            cand["filter_reasons"].append(
-                f"range_penalty: RANGE regime detected — "
-                f"EMA spread={_ema_spread_q:.4f}% (-{range_penalty:.0f} pts)"
+            reason = (
+                f"impulse_pullback {cand['direction']} REJECTED: "
+                f"RANGE regime — EMA spread={_ema_spread_q:.4f}% "
+                f"(range_penalty hard reject, WR=45.8%)"
             )
-            logger.debug(
-                "impulse_pullback %s: RANGE penalty -%d → new score=%.1f",
-                cand["direction"], range_penalty, cand["score"],
-            )
+            filter_log.append(reason)
+            logger.debug(reason)
+            continue
 
         # ── Borderline 1m confirm quality check ────────────────────────────
         # IP borderline setups (score in 68-78) must have a solid confirmation
@@ -268,6 +240,32 @@ def run_decision_engine_v2(
             1,
         )
         cand["ctx_score"] = ctx_score
+
+    # ── 6a. IP score cap ──────────────────────────────────────────────────────
+    # Data: score>88 has same WR as 85-89 — caps prevent false high-confidence.
+    for cand in expiry_filtered:
+        if cand["name"] == "impulse_pullback" and cand["final_score"] > _IP_SCORE_CAP:
+            cand["final_score"] = _IP_SCORE_CAP
+            cand.setdefault("filter_reasons", []).append(
+                f"ip_score_cap: capped at {_IP_SCORE_CAP:.0f} (score>88 = late trend risk)"
+            )
+
+    # ── 6b. Noisy market + weak score = reject ────────────────────────────────
+    # Data: noisy=1 has 50.7% WR; only strong signals survive noise.
+    _noisy_score_floor = 80.0
+    post_noise: list[dict] = []
+    for cand in expiry_filtered:
+        is_noisy = any("noisy" in r for r in (cand.get("filter_reasons") or []))
+        if is_noisy and cand["final_score"] < _noisy_score_floor:
+            reason = (
+                f"{cand['name']} {cand['direction']} REJECTED: "
+                f"noisy structure + score={cand['final_score']:.1f} < {_noisy_score_floor:.0f}"
+            )
+            filter_log.append(reason)
+            logger.debug(reason)
+            continue
+        post_noise.append(cand)
+    expiry_filtered = post_noise
 
     # ── 7. Pick best pattern ──────────────────────────────────────────────────
     if not expiry_filtered:
@@ -326,25 +324,6 @@ def run_decision_engine_v2(
     best = max(expiry_filtered, key=lambda c: c["final_score"])
     score = best["final_score"]
 
-    # ── Late trend penalty for very high IP scores ─────────────────────────────
-    # IP score > 88 often means price has already moved far — late entry risk.
-    _late_trend_applied = False
-    if (
-        best["name"] == "impulse_pullback"
-        and score > _IP_LATE_TREND_THRESHOLD
-    ):
-        score = round(score - _IP_LATE_TREND_PENALTY, 1)
-        best["final_score"] = score
-        best.setdefault("filter_reasons", []).append(
-            f"late_trend_penalty: -{_IP_LATE_TREND_PENALTY:.0f}pts "
-            f"(IP score>{_IP_LATE_TREND_THRESHOLD:.0f} → likely late trend entry)"
-        )
-        _late_trend_applied = True
-        logger.debug(
-            "IP late_trend_penalty applied: score %.1f → %.1f",
-            score + _IP_LATE_TREND_PENALTY, score,
-        )
-
     # Score gap: winner vs second-best (shows how dominant the winner is)
     others = sorted(
         [c["final_score"] for c in expiry_filtered if c is not best],
@@ -352,10 +331,16 @@ def run_decision_engine_v2(
     )
     score_gap = round(score - others[0], 1) if others else None
 
-    # ── 8. Threshold check ────────────────────────────────────────────────────
+    # ── 8. Per-strategy threshold check ──────────────────────────────────────
+    _thresholds = _STRATEGY_THRESHOLDS.get(
+        best["name"], {"1m": 68.0, "2m": 65.0}
+    )
+    min_score = _thresholds.get(expiry, 68.0)
+
     if score < min_score:
         return _no_signal(
-            f"score_below_threshold: {score:.1f} < {min_score:.1f} (best={best['name']})",
+            f"score_below_threshold: {score:.1f} < {min_score:.1f} "
+            f"(pattern={best['name']}, expiry={expiry})",
             price,
             debug={
                 "expiry":         expiry,
@@ -390,7 +375,7 @@ def run_decision_engine_v2(
     _pat_dbg = _extract_pattern_debug(best)
 
     debug_out = {
-        "engine":        "v4_pattern_first",
+        "engine":        "v5_pattern_first",
         "expiry":        expiry,
         "direction":     direction,
         "best_pattern":  best["name"],
@@ -398,14 +383,11 @@ def run_decision_engine_v2(
         "raw_score":     best["score"],
         "ctx_score":     best.get("ctx_score", 0.0),
         "min_score":     min_score,
-        "min_score_threshold_used": f"1m={_THRESHOLD_1M} 2m={_THRESHOLD_2M} raised={raised_threshold}",
-        "pattern_class_adjustment": (
-            f"ip_penalty=-{_IP_CLASS_PENALTY}" if best["name"] == "impulse_pullback"
-            else f"fb_bonus=+{_FB_CLASS_BONUS}" if best["name"] == "false_breakout"
-            else "none"
+        "min_score_threshold_used": (
+            f"{best['name']} {expiry}={min_score} "
+            f"(thresholds: IP 1m={_STRATEGY_THRESHOLDS['impulse_pullback']['1m']} "
+            f"LR/FB 1m={_STRATEGY_THRESHOLDS['level_rejection']['1m']})"
         ),
-        "late_trend_penalty_applied": _late_trend_applied,
-        "raised":        raised_threshold,
         "pattern_q":     best.get("pattern_quality", 0.0),
         "level_q":       best.get("level_quality", 0.0),
         "filter_penalty": best.get("filter_penalty", 0.0),

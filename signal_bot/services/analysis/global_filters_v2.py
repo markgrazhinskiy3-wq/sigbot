@@ -160,14 +160,22 @@ def apply_global_filters(
     penalty = 0.0
 
     # ── 1. Dead market filter ─────────────────────────────────────────────────
-    lookback     = min(20, n)
-    avg_body_pct = (
-        float(np.mean(np.abs(cl[-lookback:] - op[-lookback:]))) / price * 100
-        if price > 0 else 0.0
-    )
-    dead_market = avg_body_pct < _DEAD_BODY_PCT
+    # v5 fix: use range (high-low)/close for last 10 candles instead of avg body.
+    # Avg body can be non-zero even when price is frozen (wicks without body move).
+    # Range check catches cases where 8+ trades close at pnl=0.0 (price didn't move).
+    hi = df["high"].values
+    lo = df["low"].values
+    dead_lookback = min(10, n)
+    _DEAD_RANGE_PCT = 0.015   # (high-low)/close < 0.015% for ALL last 10 candles = dead
+    dead_market = all(
+        (float(hi[-i]) - float(lo[-i])) / price * 100 < _DEAD_RANGE_PCT
+        for i in range(1, dead_lookback + 1)
+    ) if price > 0 else False
     if dead_market:
-        reasons.append(f"dead_market: avg_body={avg_body_pct:.5f}% < {_DEAD_BODY_PCT}%")
+        reasons.append(
+            f"dead_market: all last {dead_lookback} candles have "
+            f"range < {_DEAD_RANGE_PCT}% (price frozen)"
+        )
         return FilterResult(passed=False, dead_market=True, reasons=reasons)
 
     # ── 2. No room filter ─────────────────────────────────────────────────────

@@ -47,7 +47,7 @@ _DEFAULT_PAIRS: list[dict] = config.OTC_PAIRS
 
 # Signal cooldown per pair (seconds) — don't fire a new signal on the same pair
 # within this window (prevents signal clustering on one pair).
-COOLDOWN_PER_PAIR: float = 120.0
+COOLDOWN_PER_PAIR: float = 180.0   # v5: raised from 120s — prevents duplicate entries
 
 # Minimum candles required before running the engine
 MIN_CANDLES: int = 60
@@ -345,13 +345,19 @@ class PaperRunner:
             close_price = float(candles[-1]["close"])
 
             if trade.direction == "BUY":
-                outcome  = "win" if close_price > trade.entry_price else "loss"
-                pnl_pct  = (close_price - trade.entry_price) / trade.entry_price * 100
+                pnl_pct = (close_price - trade.entry_price) / trade.entry_price * 100
+                if close_price == trade.entry_price:
+                    outcome = "draw"
+                else:
+                    outcome = "win" if close_price > trade.entry_price else "loss"
             else:
-                outcome  = "win" if close_price < trade.entry_price else "loss"
-                pnl_pct  = (trade.entry_price - close_price) / trade.entry_price * 100
+                pnl_pct = (trade.entry_price - close_price) / trade.entry_price * 100
+                if close_price == trade.entry_price:
+                    outcome = "draw"
+                else:
+                    outcome = "win" if close_price < trade.entry_price else "loss"
 
-            pnl_signed = pnl_pct if outcome == "win" else -abs(pnl_pct)
+            pnl_signed = 0.0 if outcome == "draw" else (pnl_pct if outcome == "win" else -abs(pnl_pct))
 
             res = TradeResult(
                 trade       = trade,
@@ -391,8 +397,11 @@ class PaperRunner:
 
     def _progress_text(self, n: int) -> str:
         wins   = sum(1 for r in self._results if r.result == "WIN")
-        wr     = round(wins / n * 100, 1) if n else 0
-        return f"📊 Paper test progress: {n}/{self.target_trades} trades | WR {wr}%"
+        draws  = sum(1 for r in self._results if r.result == "DRAW")
+        decisive = n - draws
+        wr = round(wins / decisive * 100, 1) if decisive else 0
+        draw_note = f" | DRAW {draws}" if draws else ""
+        return f"📊 Paper test progress: {n}/{self.target_trades} trades | WR {wr}%{draw_note}"
 
     def build_summary(self) -> str:
         """Build full summary report string."""
@@ -402,8 +411,10 @@ class PaperRunner:
 
         n      = len(results)
         wins   = sum(1 for r in results if r.result == "WIN")
-        losses = n - wins
-        wr     = round(wins / n * 100, 1)
+        draws  = sum(1 for r in results if r.result == "DRAW")
+        losses = n - wins - draws
+        decisive = n - draws
+        wr     = round(wins / decisive * 100, 1) if decisive else 0.0
         avg_pnl = round(sum(r.pnl_pct for r in results) / n, 4)
 
         lines = [
@@ -412,8 +423,8 @@ class PaperRunner:
             "=" * 50,
             "",
             f"Total trades:    {n}",
-            f"WIN / LOSS:      {wins} / {losses}",
-            f"Overall winrate: {wr}%",
+            f"WIN / LOSS / DRAW: {wins} / {losses} / {draws}",
+            f"Overall winrate: {wr}%  (excl. draws)",
             f"Avg pnl/trade:   {avg_pnl:+.4f}%",
             "",
         ]

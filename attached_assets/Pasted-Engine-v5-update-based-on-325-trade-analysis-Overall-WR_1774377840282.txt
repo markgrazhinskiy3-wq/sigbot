@@ -1,0 +1,157 @@
+Engine v5 update based on 325 trade analysis.
+Overall WR dropped to 52.3%. Several fixes needed.
+
+Current problem: IP_CLASS_PENALTY = -8 combined with 
+MIN_SCORE_1M = 75 blocks almost all signals for 
+manual single-pair requests. A signal with raw 
+score 80 becomes 72 after penalty → rejected.
+
+This update replaces scattered penalties with 
+cleaner per-strategy thresholds and targeted filters.
+
+====================================================
+1. REMOVE IP_CLASS_PENALTY
+====================================================
+
+Remove IP_CLASS_PENALTY = -8 completely.
+Remove FB_CLASS_BONUS = +8 completely.
+Remove late_trend_penalty = -5 completely.
+
+These stacked penalties create unpredictable scoring.
+Replace with per-strategy min thresholds below.
+
+====================================================
+2. PER-STRATEGY MIN SCORE THRESHOLDS
+====================================================
+
+Instead of one global threshold + penalties,
+use separate thresholds per strategy:
+
+impulse_pullback:
+  1m: MIN_SCORE = 76
+  2m: MIN_SCORE = 73
+
+level_rejection:
+  1m: MIN_SCORE = 68
+  2m: MIN_SCORE = 65
+
+false_breakout:
+  1m: MIN_SCORE = 68
+  2m: MIN_SCORE = 65
+
+This gives more signals from LR and FB (71% and 68% WR)
+and slightly filters weak IP signals.
+
+Remove the old global MIN_SCORE_1M and MIN_SCORE_2M.
+
+====================================================
+3. IP SCORE CAP AT 88
+====================================================
+
+Data shows score 90+ has 50% WR (coin flip).
+Score 85-89 has 57.9% WR.
+
+After calculating impulse_pullback score:
+  if final_score > 88: final_score = 88
+
+This prevents false high-confidence on late entries.
+
+====================================================
+4. COOLDOWN PER PAIR
+====================================================
+
+After sending any signal for a pair, block that 
+pair for 180 seconds (3 minutes).
+
+No new signal for same pair within cooldown window.
+This prevents duplicate entries on same setup.
+
+Store cooldown as dict: {pair: last_signal_timestamp}
+
+====================================================
+5. DRAW RESULT FOR pnl=0
+====================================================
+
+If close_price == entry_price (pnl = 0.0):
+  Mark result as DRAW instead of LOSS.
+  DRAW = neutral, does not count as WIN or LOSS.
+
+====================================================
+6. DEAD MARKET FILTER FIX
+====================================================
+
+Current dead_market filter shows 0 for all trades
+but 8+ trades closed at pnl=0.0 (price didn't move).
+
+Fix the dead market detection:
+  Calculate range of last 10 candles (15s timeframe).
+  If (high - low) / close < 0.015% for all 10 candles:
+    reject signal, mark dead_market = 1
+
+====================================================
+7. RANGE_PENALTY + IP = HARD REJECT
+====================================================
+
+Data: range_penalty=1 has 45.8% WR.
+
+If range_penalty = 1 AND pattern = impulse_pullback:
+  Hard reject. No signal.
+
+Allow level_rejection and false_breakout to pass
+even with range_penalty = 1.
+
+====================================================
+8. NOISY FILTER TIGHTENING
+====================================================
+
+Data: noisy=1 has 50.7% WR vs noisy=0 at 53.4%.
+
+If noisy = 1 AND final_score < 80:
+  Reject signal.
+
+Only strong signals survive noisy conditions.
+
+====================================================
+9. REMOVE _RAISED_BONUS
+====================================================
+
+_RAISED_BONUS = +5 after 2 losses raises threshold
+to 80/77. This makes bot go silent after losses
+exactly when user is watching.
+
+Remove this mechanic completely.
+Thresholds should be constant, not reactive.
+
+====================================================
+SUMMARY OF CHANGES
+====================================================
+
+REMOVE:
+  - IP_CLASS_PENALTY (-8)
+  - FB_CLASS_BONUS (+8)
+  - late_trend_penalty (-5)
+  - _RAISED_BONUS (+5)
+  - Global MIN_SCORE_1M / MIN_SCORE_2M
+
+ADD:
+  - Per-strategy min thresholds
+  - IP score cap at 88
+  - Cooldown per pair (180 seconds)
+  - DRAW result for pnl=0
+  - Fixed dead market filter
+  - range_penalty + IP = reject
+  - noisy + score<80 = reject
+
+EXPECTED RESULT:
+  - Manual single-pair requests will get signals
+  - Weak IP signals filtered by threshold 76
+  - More LR and FB signals (threshold 68)
+  - No duplicate signals
+  - No dead market entries
+  - Cleaner scoring without stacked penalties
+  - Target WR: 56-60%
+
+====================================================
+After implementing, run /paper_test 100 to verify
+signals are generated and thresholds work correctly.
+====================================================
