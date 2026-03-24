@@ -1,0 +1,128 @@
+We are tuning the trading decision engine based on paper_test statistics.
+This is Engine v4 balancing update.
+
+Paper test showed:
+- Best trades: score 75–85
+- Worst trades: score 70–75
+- impulse_pullback dominates too much (~85% of trades)
+- false_breakout has highest winrate
+- level_rejection decent
+- very high score (85+) sometimes late trend entries
+Goal: rebalance patterns and remove weak 70–75 trades.
+
+Apply the following changes:
+
+====================================================
+1. GLOBAL MIN SCORE
+====================================================
+
+decision_engine_v2.py
+
+Change thresholds:
+
+1m expiry:
+MIN_SCORE_1M = 75
+
+2m expiry:
+MIN_SCORE_2M = 72
+
+====================================================
+2. IMPULSE_PULLBACK REBALANCE
+====================================================
+
+Impulse pullback still dominates too much.
+Reduce its priority slightly.
+
+pattern_impulse_pullback.py
+Add class penalty:
+
+IP_CLASS_PENALTY = -8
+
+Apply after score calculation.
+
+====================================================
+3. STRICTER ROOM FOR IP ON 1M
+====================================================
+
+global_filters_v2.py
+
+For impulse_pullback on 1m expiry:
+
+Old:
+ip_room_threshold_1m = 0.025%
+
+New:
+ip_room_threshold_1m = 0.030%
+
+Continuation trades need more space.
+
+====================================================
+4. LEVEL REJECTION PRIORITY BOOST
+====================================================
+
+decision_engine_v2.py
+
+Tie-break window:
+
+Old:
+LR tie-break window = 8 points
+
+New:
+LR tie-break window = 10 points
+
+Tie-break bonus:
+
+Old:
++5
+
+New:
++7
+
+If level_rejection score is within 10 points of impulse_pullback,
+and level is fresh OR touches >= 2,
+then LR gets +7 bonus and can win.
+
+====================================================
+5. FALSE BREAKOUT BOOST
+====================================================
+
+pattern_false_breakout.py
+
+Add class bonus:
+
+FB_CLASS_BONUS = +8
+
+False breakout performed best in paper test.
+Allow it to win more often.
+
+====================================================
+6. VERY HIGH SCORE LATE TREND PENALTY
+====================================================
+
+decision_engine_v2.py
+
+Add after final score calculation:
+
+if pattern == "impulse_pullback" and score > 88:
+    score -= 5
+    debug_log("late_trend_penalty_applied")
+
+Very strong continuation often means late entry.
+
+====================================================
+7. DEBUG ADDITIONS
+====================================================
+
+Add to debug log:
+
+pattern_class_adjustment
+late_trend_penalty_applied
+min_score_threshold_used
+
+====================================================
+END OF ENGINE V4 UPDATE
+====================================================
+
+After implementing:
+Run /paper_test 200
+Export results again.

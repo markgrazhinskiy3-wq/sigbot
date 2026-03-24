@@ -41,16 +41,21 @@ from .false_breakout               import false_breakout_strategy
 logger = logging.getLogger(__name__)
 
 # ── Score thresholds ──────────────────────────────────────────────────────────
-# Raised from 68/65 after paper test showed 70-75 range performs ~40% WR.
-_THRESHOLD_1M   = 72.0
-_THRESHOLD_2M   = 70.0
+# v4: raised again — paper test confirmed 70-75 zone is losing trades.
+_THRESHOLD_1M   = 75.0    # was 72 (v3), 68 (v2)
+_THRESHOLD_2M   = 72.0    # was 70 (v3), 65 (v2)
 _RAISED_BONUS   = 5.0     # added to threshold after 2 losses
 
 # ── Pattern class adjustments (applied after wrap, before filters) ────────────
-# IP dominates ~86% of trades with weakest WR. Small penalty reduces frequency.
-_IP_CLASS_PENALTY   = 5.0   # flat score reduction for impulse_pullback
-# FB had 75% WR but only 4% of trades. Small bonus encourages valid setups.
-_FB_CLASS_BONUS     = 5.0   # flat score boost for false_breakout
+# v4: IP penalty increased — still dominates ~85% of trades after v3 changes.
+_IP_CLASS_PENALTY   = 8.0   # flat score reduction for impulse_pullback (was 5)
+# v4: FB bonus increased — best paper WR, want it to win more often.
+_FB_CLASS_BONUS     = 8.0   # flat score boost for false_breakout (was 5)
+
+# ── Late trend penalty ────────────────────────────────────────────────────────
+# Very high IP scores (>88) often mean late trend entry, not quality.
+_IP_LATE_TREND_THRESHOLD = 88.0
+_IP_LATE_TREND_PENALTY   = 5.0
 
 # ── Expiry → fit_for mapping ─────────────────────────────────────────────────
 _EXPIRY_FIT: dict[str, str] = {
@@ -286,9 +291,9 @@ def run_decision_engine_v2(
     # tie-break bonus when its level is fresh or well-tested.
     # Rationale: LR has explicit level validation (approach + wick + confirm);
     #            IP can win on pattern alone — LR wins ties when both are valid.
-    # Widened: LR had better WR (60%) vs IP (50%); give LR more room to win ties.
-    _LR_TIE_WINDOW  = 8.0   # pts: LR must be within this of best IP to get bonus (was 5)
-    _LR_TIE_BONUS   = 5.0   # pts added to LR final_score when conditions met (was 3)
+    # v4: further widened — LR still underrepresented vs IP despite v3 changes.
+    _LR_TIE_WINDOW  = 10.0  # pts: LR must be within this of best IP to get bonus (was 8)
+    _LR_TIE_BONUS   = 7.0   # pts added to LR final_score when conditions met (was 5)
 
     lr_cands = [c for c in expiry_filtered if c["name"] == "level_rejection"]
     ip_cands = [c for c in expiry_filtered if c["name"] == "impulse_pullback"]
@@ -320,6 +325,25 @@ def run_decision_engine_v2(
 
     best = max(expiry_filtered, key=lambda c: c["final_score"])
     score = best["final_score"]
+
+    # ── Late trend penalty for very high IP scores ─────────────────────────────
+    # IP score > 88 often means price has already moved far — late entry risk.
+    _late_trend_applied = False
+    if (
+        best["name"] == "impulse_pullback"
+        and score > _IP_LATE_TREND_THRESHOLD
+    ):
+        score = round(score - _IP_LATE_TREND_PENALTY, 1)
+        best["final_score"] = score
+        best.setdefault("filter_reasons", []).append(
+            f"late_trend_penalty: -{_IP_LATE_TREND_PENALTY:.0f}pts "
+            f"(IP score>{_IP_LATE_TREND_THRESHOLD:.0f} → likely late trend entry)"
+        )
+        _late_trend_applied = True
+        logger.debug(
+            "IP late_trend_penalty applied: score %.1f → %.1f",
+            score + _IP_LATE_TREND_PENALTY, score,
+        )
 
     # Score gap: winner vs second-best (shows how dominant the winner is)
     others = sorted(
@@ -366,7 +390,7 @@ def run_decision_engine_v2(
     _pat_dbg = _extract_pattern_debug(best)
 
     debug_out = {
-        "engine":        "v2_pattern_first",
+        "engine":        "v4_pattern_first",
         "expiry":        expiry,
         "direction":     direction,
         "best_pattern":  best["name"],
@@ -374,6 +398,13 @@ def run_decision_engine_v2(
         "raw_score":     best["score"],
         "ctx_score":     best.get("ctx_score", 0.0),
         "min_score":     min_score,
+        "min_score_threshold_used": f"1m={_THRESHOLD_1M} 2m={_THRESHOLD_2M} raised={raised_threshold}",
+        "pattern_class_adjustment": (
+            f"ip_penalty=-{_IP_CLASS_PENALTY}" if best["name"] == "impulse_pullback"
+            else f"fb_bonus=+{_FB_CLASS_BONUS}" if best["name"] == "false_breakout"
+            else "none"
+        ),
+        "late_trend_penalty_applied": _late_trend_applied,
         "raised":        raised_threshold,
         "pattern_q":     best.get("pattern_quality", 0.0),
         "level_q":       best.get("level_quality", 0.0),
