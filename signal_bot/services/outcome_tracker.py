@@ -16,6 +16,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from db.database import resolve_outcome
 from bot.keyboards import after_result_keyboard
+from services import analytics_logger
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,18 @@ async def track_outcome(
         await resolve_outcome(outcome_id, result_price, outcome)
 
         pct = abs((result_price - signal_price) / signal_price * 100)
+
+        # signed pnl: positive = direction correct
+        _signed_pnl = (
+            (result_price - signal_price) / signal_price * 100 if direction == "BUY"
+            else (signal_price - result_price) / signal_price * 100
+        )
+        asyncio.create_task(analytics_logger.update_result(
+            outcome_id=outcome_id,
+            close_price=result_price,
+            result=outcome,
+            pnl_pct=round(_signed_pnl, 5),
+        ))
 
         if outcome == "win":
             icon   = "✅"
@@ -201,6 +214,16 @@ async def _recover_one(
         await resolve_outcome(outcome_id, result_price, outcome)
 
         pct = abs((result_price - signal_price) / signal_price * 100)
+        _signed_pnl = (
+            (result_price - signal_price) / signal_price * 100 if direction == "BUY"
+            else (signal_price - result_price) / signal_price * 100
+        )
+        asyncio.create_task(analytics_logger.update_result(
+            outcome_id=outcome_id,
+            close_price=result_price,
+            result=outcome,
+            pnl_pct=round(_signed_pnl, 5),
+        ))
         icon   = "✅" if outcome == "win" else "❌"
         header = "Сделка закрылась в плюс!" if outcome == "win" else "Сделка закрылась в минус."
         if outcome == "win":

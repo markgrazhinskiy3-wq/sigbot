@@ -24,6 +24,7 @@ from services.access_service import notify_admin_new_user, check_access
 from services.signal_service import get_signal, format_signal_message
 from services.candle_cache import is_warm_up_done, is_data_ready, data_ready_in_seconds
 from services.outcome_tracker import track_outcome
+from services import analytics_logger
 from services.analysis.asset_scanner import (
     scan_all_pairs, scan_pairs_fresh, format_scan_output, get_scan_cache, TradabilityResult,
 )
@@ -198,6 +199,12 @@ async def _monitor_pair(
                 symbol=symbol, pair_label=pair_label,
                 direction=signal.direction, strategy=strategy,
                 expiration_sec=exp, signal_price=signal_price,
+            ))
+            expiry_str = "2m" if exp >= 120 else "1m"
+            asyncio.create_task(analytics_logger.log_signal(
+                outcome_id=outcome_id_snap, pair=pair_label, symbol=symbol,
+                direction=signal.direction, expiry=expiry_str,
+                entry_price=signal_price, details=d,
             ))
 
         # Store for /debug (allows reviewing this signal after market moves on)
@@ -1131,6 +1138,12 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
                     expiration_sec = expiration_sec,
                     signal_price   = signal_price,
                 ))
+                _expiry_str = "2m" if expiration_sec >= 120 else "1m"
+                asyncio.create_task(analytics_logger.log_signal(
+                    outcome_id=outcome_id_snap, pair=pair_label, symbol=symbol,
+                    direction=signal.direction, expiry=_expiry_str,
+                    entry_price=signal_price, details=d,
+                ))
 
             _last_fired_signal[callback.from_user.id] = {
                 "symbol":     symbol,
@@ -1613,6 +1626,107 @@ def _mini_bar(rate: int) -> str:
     """Tiny ASCII progress bar out of 5 blocks."""
     filled = round(rate / 20)   # 0-5
     return "█" * filled + "░" * (5 - filled)
+
+
+# ─── Analytics (/analytics, /export_csv) ──────────────────────────────────────
+
+@router.message(Command("analytics"))
+async def cmd_analytics(message: Message) -> None:
+    """Admin-only: show winrate summary from signals_log."""
+    if not _is_admin(message.from_user.id):
+        return
+
+    summary = await analytics_logger.get_summary()
+    if not summary or summary.get("total", 0) == 0:
+        await message.answer(
+            "📊 <b>Analytics</b>\n\nПока нет залогированных сигналов.\n"
+            "Сигналы логируются автоматически при каждом BUY/SELL.",
+            parse_mode="HTML",
+        )
+        return
+
+    total    = summary["total"]
+    resolved = summary["resolved"]
+    wins     = summary["wins"]
+    losses   = summary["losses"]
+    wr       = summary["winrate"]
+    pending  = total - resolved
+
+    wr_str = f"{wr}%" if wr is not None else "—"
+
+    lines = [
+        "📊 <b>Analytics — signals_log</b>\n",
+        f"Всего сигналов:  <b>{total}</b>",
+        f"Разрешено:       <b>{resolved}</b>  (pending: {pending})",
+        f"WIN / LOSS:      <b>{wins} / {losses}</b>",
+        f"Общий winrate:   <b>{wr_str}</b>",
+    ]
+
+    by_pattern = summary.get("by_pattern", [])
+    if by_pattern:
+        lines.append("\n<b>По паттерну:</b>")
+        for row in by_pattern:
+            n = row["n"]
+            w = row["w"]
+            pat_wr = round(w / n * 100, 1) if n else 0
+            bar = _mini_bar(pat_wr)
+            lines.append(
+                f"  {row['pattern_winner'] or '—': <22} {w}/{n}  ({pat_wr}%)  {bar}"
+            )
+
+    by_expiry = summary.get("by_expiry", [])
+    if by_expiry:
+        lines.append("\n<b>По экспирации:</b>")
+        for row in by_expiry:
+            n = row["n"]
+            w = row["w"]
+            exp_wr = round(w / n * 100, 1) if n else 0
+            bar = _mini_bar(exp_wr)
+            lines.append(f"  {row['expiry']}: {w}/{n} ({exp_wr}%) {bar}")
+
+    lines.append("\n<i>Экспорт в CSV: /export_csv</i>")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("export_csv"))
+async def cmd_export_csv(message: Message) -> None:
+    """Admin-only: export signals_log to CSV and send as file."""
+    if not _is_admin(message.from_user.id):
+        return
+
+    import tempfile
+    from aiogram.types import FSInputFile
+
+    await message.answer("⏳ Генерирую CSV экспорт...", parse_mode="HTML")
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".csv", prefix="signals_export_", delete=False, mode="w"
+    ) as tmp:
+        filepath = tmp.name
+
+    n_rows = await analytics_logger.export_csv(filepath)
+
+    if n_rows == 0:
+        await message.answer("📊 <b>Нет данных для экспорта</b>\n\nЗапусти несколько сигналов сначала.", parse_mode="HTML")
+        return
+
+    try:
+        doc = FSInputFile(filepath, filename="signals_log.csv")
+        await message.answer_document(
+            doc,
+            caption=(
+                f"📊 <b>signals_log.csv</b>\n"
+                f"Строк: <b>{n_rows}</b>\n"
+                f"<i>Используй в Excel / Python pandas для анализа winrate.</i>"
+            ),
+            parse_mode="HTML",
+        )
+    finally:
+        try:
+            os.unlink(filepath)
+        except Exception:
+            pass
 
 
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────

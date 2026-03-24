@@ -93,6 +93,13 @@ async def init_db() -> None:
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 
+    # Analytics tables (separate module — init after core tables)
+    try:
+        from services.analytics_logger import init_analytics
+        await init_analytics()
+    except Exception as _ae:
+        logger.warning("Analytics init failed (non-critical): %s", _ae)
+
 
 async def add_or_get_user(user_id: int, username: str | None) -> tuple[dict, bool]:
     """
