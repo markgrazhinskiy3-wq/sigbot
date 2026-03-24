@@ -17,6 +17,7 @@ import time
 from typing import NamedTuple
 
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
 
@@ -42,7 +43,7 @@ DATA_READY_MINUTES: int = 2
 
 class _CacheEntry(NamedTuple):
     candles: list[dict]
-    fetched_at: float   # unix timestamp
+    fetched_at: float  # unix timestamp
 
 
 _cache: dict[str, _CacheEntry] = {}
@@ -85,8 +86,10 @@ def get_cached(symbol: str) -> list[dict] | None:
     entry = _cache.get(symbol)
     if entry and (time.time() - entry.fetched_at) < CACHE_TTL:
         age = round(time.time() - entry.fetched_at, 1)
-        logger.debug("Cache hit: %s (age=%.1fs, %d candles)", symbol, age, len(entry.candles))
-        return list(entry.candles)   # return a copy so callers can't mutate cache
+        logger.debug(
+            "Cache hit: %s (age=%.1fs, %d candles)", symbol, age, len(entry.candles)
+        )
+        return list(entry.candles)  # return a copy so callers can't mutate cache
     return None
 
 
@@ -109,7 +112,7 @@ def store_merge(symbol: str, new_candles: list[dict]) -> bool:
         return False
 
     # Filter out candles with zero/missing timestamps before merge
-    new_with_time  = [c for c in new_candles  if c.get("time", 0) > 0]
+    new_with_time = [c for c in new_candles if c.get("time", 0) > 0]
     if not new_with_time:
         store(symbol, new_candles)
         return True
@@ -128,14 +131,17 @@ def store_merge(symbol: str, new_candles: list[dict]) -> bool:
     # Merge by time: existing + new, deduplicated, newest wins for overlap
     by_time: dict[int, dict] = {c["time"]: c for c in old_with_time}
     for c in new_with_time:
-        by_time[c["time"]] = c   # new data takes precedence
+        by_time[c["time"]] = c  # new data takes precedence
 
     merged = sorted(by_time.values(), key=lambda c: c["time"])
     trimmed = merged[-CANDLE_COUNT:] if len(merged) > CANDLE_COUNT else merged
     _cache[symbol] = _CacheEntry(candles=trimmed, fetched_at=time.time())
     logger.debug(
         "Cache merged: %s (%d existing + %d new = %d total)",
-        symbol, len(existing.candles), len(new_candles), len(trimmed),
+        symbol,
+        len(existing.candles),
+        len(new_candles),
+        len(trimmed),
     )
     return True
 
@@ -148,6 +154,7 @@ async def _refresh_all_via_ws(symbols: list[str]) -> tuple[int, list[str]]:
     that got NO candles from WS (need browser fallback).
     """
     from services.po_ws_client import fetch_all_pairs, is_available
+
     if not is_available():
         return 0, list(symbols)
 
@@ -178,6 +185,7 @@ async def _refresh_all_via_ws(symbols: list[str]) -> tuple[int, list[str]]:
 async def _refresh_one_browser(symbol: str) -> bool:
     """Fallback: fetch candles via browser (used until WS auth is captured)."""
     from services.pocket_browser import _get_candles_impl, _get_lock
+
     try:
         async with asyncio.timeout(90):
             async with _get_lock():
@@ -205,7 +213,9 @@ async def _refresher_loop(pairs: list[str]) -> None:
 
     logger.info(
         "Candle cache refresher started — %d pairs, TTL=%ds, interval=%ds",
-        len(pairs), CACHE_TTL, REFRESH_INTERVAL,
+        len(pairs),
+        CACHE_TTL,
+        REFRESH_INTERVAL,
     )
 
     # Initial warm-up:
@@ -223,7 +233,11 @@ async def _refresher_loop(pairs: list[str]) -> None:
             logger.warning("WS warm-up failed: %s", e)
             loaded = 0
     else:
-        logger.info("Initial cache warm-up (browser, %d pairs, ready after %d)...", len(pairs), MIN_READY_PAIRS)
+        logger.info(
+            "Initial cache warm-up (browser, %d pairs, ready after %d)...",
+            len(pairs),
+            MIN_READY_PAIRS,
+        )
         loaded = 0
         for symbol in pairs:
             ok = await _refresh_one_browser(symbol)
@@ -238,15 +252,24 @@ async def _refresher_loop(pairs: list[str]) -> None:
                     "Warm-up: %s cached (%d candles) [%d/%d]",
                     symbol,
                     len(entry.candles) if entry else 0,
-                    loaded, len(pairs),
+                    loaded,
+                    len(pairs),
                 )
                 if not _warm_up_done and loaded >= MIN_READY_PAIRS:
                     _warm_up_done = True
-                    logger.info("Cache warm-up threshold reached (%d pairs). Bot is now ready.", loaded)
+                    logger.info(
+                        "Cache warm-up threshold reached (%d pairs). Bot is now ready.",
+                        loaded,
+                    )
 
     if not _warm_up_done:
         _warm_up_done = True
-    logger.info("Cache warm-up complete (%d/%d pairs). WS auth available: %s", loaded, len(pairs), ws_available())
+    logger.info(
+        "Cache warm-up complete (%d/%d pairs). WS auth available: %s",
+        loaded,
+        len(pairs),
+        ws_available(),
+    )
 
     while True:
         await asyncio.sleep(REFRESH_INTERVAL)
@@ -261,7 +284,9 @@ async def _refresher_loop(pairs: list[str]) -> None:
             elapsed = round(time.time() - cycle_start, 1)
             logger.info(
                 "Cache refresh: %d/%d pairs (WS+fallback) in %.1fs",
-                ok, len(pairs), elapsed,
+                ok,
+                len(pairs),
+                elapsed,
             )
         else:
             ok = 0
@@ -299,6 +324,7 @@ async def refresh_pair_now(symbol: str) -> list[dict]:
     Does NOT compete with the browser — uses WS only.
     """
     from services.po_ws_client import fetch_all_pairs, is_available
+
     if is_available():
         try:
             async with asyncio.timeout(20):
@@ -309,11 +335,15 @@ async def refresh_pair_now(symbol: str) -> list[dict]:
                 entry = _cache.get(symbol)
                 if entry:
                     logger.info(
-                        "Signal refresh via WS: %s (%d candles)", symbol, len(entry.candles)
+                        "Signal refresh via WS: %s (%d candles)",
+                        symbol,
+                        len(entry.candles),
                     )
                     return list(entry.candles)
         except Exception as e:
-            logger.warning("WS signal-refresh failed for %s: %s — using cache", symbol, e)
+            logger.warning(
+                "WS signal-refresh failed for %s: %s — using cache", symbol, e
+            )
 
     # Fallback: use whatever is in the cache
     cached = get_cached(symbol)
@@ -346,35 +376,40 @@ def resample_to_1m(candles_15s: list[dict]) -> list[dict]:
     result = []
     for bucket in sorted(groups.keys()):
         g = groups[bucket]
-        result.append({
-            "time":  bucket,
-            "open":  g[0]["open"],
-            "high":  max(c["high"] for c in g),
-            "low":   min(c["low"]  for c in g),
-            "close": g[-1]["close"],
-        })
+        result.append(
+            {
+                "time": bucket,
+                "open": g[0]["open"],
+                "high": max(c["high"] for c in g),
+                "low": min(c["low"] for c in g),
+                "close": g[-1]["close"],
+            }
+        )
 
     # Fallback: timestamps were missing/zero — aggregate sequentially (4×15s = 1m)
     if len(result) < 5 and candles_15s:
         # Filter candles that have all OHLC fields present and non-zero
         valid = [
-            c for c in candles_15s
+            c
+            for c in candles_15s
             if c.get("open") and c.get("high") and c.get("low") and c.get("close")
         ]
         if not valid:
-            return result   # nothing usable
+            return result  # nothing usable
         result = []
         i = 0
         bucket_idx = 0
         while i < len(valid):
-            g = valid[i:i + 4]
-            result.append({
-                "time":  bucket_idx * 60,          # synthetic monotonic timestamp
-                "open":  float(g[0]["open"]),
-                "high":  float(max(c["high"] for c in g)),
-                "low":   float(min(c["low"]  for c in g)),
-                "close": float(g[-1]["close"]),
-            })
+            g = valid[i : i + 4]
+            result.append(
+                {
+                    "time": bucket_idx * 60,  # synthetic monotonic timestamp
+                    "open": float(g[0]["open"]),
+                    "high": float(max(c["high"] for c in g)),
+                    "low": float(min(c["low"] for c in g)),
+                    "close": float(g[-1]["close"]),
+                }
+            )
             i += 4
             bucket_idx += 1
 
@@ -389,6 +424,7 @@ def resample_to_5m(candles_1m: list[dict]) -> list[dict]:
     Returns list sorted oldest → newest.
     """
     from collections import defaultdict
+
     groups: dict[int, list[dict]] = defaultdict(list)
     for c in candles_1m:
         t = c.get("time", 0)
@@ -400,13 +436,15 @@ def resample_to_5m(candles_1m: list[dict]) -> list[dict]:
     result = []
     for bucket in sorted(groups.keys()):
         g = groups[bucket]
-        result.append({
-            "time":  bucket,
-            "open":  g[0]["open"],
-            "high":  max(c["high"] for c in g),
-            "low":   min(c["low"]  for c in g),
-            "close": g[-1]["close"],
-        })
+        result.append(
+            {
+                "time": bucket,
+                "open": g[0]["open"],
+                "high": max(c["high"] for c in g),
+                "low": min(c["low"] for c in g),
+                "close": g[-1]["close"],
+            }
+        )
     return result
 
 
@@ -426,6 +464,7 @@ async def get_candles_cached(symbol: str, count: int = 80) -> list[dict]:
     # 2. Cache miss — live fetch (also populates cache for next time)
     logger.info("Cache miss for %s — falling back to live fetch", symbol)
     from services.pocket_browser import _get_candles_impl, _get_lock
+
     try:
         async with asyncio.timeout(90):
             async with _get_lock():
@@ -439,18 +478,21 @@ async def get_candles_cached(symbol: str, count: int = 80) -> list[dict]:
     except Exception as e:
         logger.error("Live fetch failed for %s: %s", symbol, e)
         return []
+
+
 """
 Strategy Engine — entry point for signal calculation.
 Validates candles, resamples to 1-min and 5-min, then runs the full decision engine.
 """
 import logging
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.analysis.candle_validator import validate_and_fix
-from services.analysis.decision_engine  import run_decision_engine, EngineResult
-from services.candle_cache              import resample_to_1m, resample_to_5m
-from services.strategy_adaptation      import update_strategy_statuses
+from services.analysis.decision_engine import run_decision_engine, EngineResult
+from services.candle_cache import resample_to_1m, resample_to_5m
+from services.strategy_adaptation import update_strategy_statuses
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -458,9 +500,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SignalResult:
-    direction:  str   # "BUY" | "SELL" | "NO_SIGNAL"
-    confidence: int   # 0-5 stars for UI display
-    details:    dict  # full analysis breakdown
+    direction: str  # "BUY" | "SELL" | "NO_SIGNAL"
+    confidence: int  # 0-5 stars for UI display
+    details: dict  # full analysis breakdown
 
 
 async def calculate_signal(
@@ -490,42 +532,56 @@ async def calculate_signal(
     if not val.ok or df is None or len(df) < 15:
         logger.warning(
             "Not enough usable candles: raw=%d, clean=%d, issues=%s",
-            n_raw, val.candles_after_clean, val.issues
+            n_raw,
+            val.candles_after_clean,
+            val.issues,
         )
-        return SignalResult("NO_SIGNAL", 0, {
-            "direction":      "NO_SIGNAL",
-            "error":          "not_enough_candles",
-            "candles_raw":    n_raw,
-            "candles_clean":  val.candles_after_clean,
-            "reject_reason":  "validation_failed",
-            "debug": {
-                "candles_count":      n_raw,
-                "candles_after_clean": val.candles_after_clean,
-                "order":              val.order,
-                "issues":             val.issues,
-                "reject_reason":      "validation_failed",
-            }
-        })
+        return SignalResult(
+            "NO_SIGNAL",
+            0,
+            {
+                "direction": "NO_SIGNAL",
+                "error": "not_enough_candles",
+                "candles_raw": n_raw,
+                "candles_clean": val.candles_after_clean,
+                "reject_reason": "validation_failed",
+                "debug": {
+                    "candles_count": n_raw,
+                    "candles_after_clean": val.candles_after_clean,
+                    "order": val.order,
+                    "issues": val.issues,
+                    "reject_reason": "validation_failed",
+                },
+            },
+        )
 
     logger.info(
         "Candles OK: %d raw → %d clean | order=%s | last=%.6f | avg_body=%.4f%%",
-        n_raw, len(df), val.order, val.last_close, val.avg_body_pct
+        n_raw,
+        len(df),
+        val.order,
+        val.last_close,
+        val.avg_body_pct,
     )
 
     # ── Resample 15s → 1-min (intermediate context) ───────────────────────────
     df1m_ctx = None
-    candles_1m: list[dict] = []   # kept in scope so 5m block can reuse it
+    candles_1m: list[dict] = []  # kept in scope so 5m block can reuse it
     try:
         import pandas as pd
+
         times_ok = sum(1 for c in candles if c.get("time", 0) > 0)
         logger.info(
             "1m resample input: %d candles, %d with valid time (first=%s last=%s)",
-            len(candles), times_ok,
+            len(candles),
+            times_ok,
             candles[0].get("time") if candles else "N/A",
             candles[-1].get("time") if candles else "N/A",
         )
         candles_1m = resample_to_1m(candles)
-        logger.info("1-min resample: %d raw 15s → %d 1m bars", len(candles), len(candles_1m))
+        logger.info(
+            "1-min resample: %d raw 15s → %d 1m bars", len(candles), len(candles_1m)
+        )
         if len(candles_1m) >= 5:
             df1m_ctx = pd.DataFrame(candles_1m)
             for col in ("open", "high", "low", "close"):
@@ -545,14 +601,19 @@ async def calculate_signal(
     df5m = None
     try:
         import pandas as pd
+
         candles_5m = resample_to_5m(candles_1m)
-        logger.info("5-min resample: %d 1m bars → %d 5m bars", len(candles_1m), len(candles_5m))
+        logger.info(
+            "5-min resample: %d 1m bars → %d 5m bars", len(candles_1m), len(candles_5m)
+        )
         if len(candles_5m) >= 4:
             df5m = pd.DataFrame(candles_5m)
             for col in ("open", "high", "low", "close"):
                 df5m[col] = df5m[col].astype(float)
         else:
-            logger.warning("5-min candles too few (%d) — df5m disabled", len(candles_5m))
+            logger.warning(
+                "5-min candles too few (%d) — df5m disabled", len(candles_5m)
+            )
     except Exception as e:
         logger.warning("5-min resampling failed: %s", e, exc_info=True)
 
@@ -564,7 +625,7 @@ async def calculate_signal(
         raised_threshold=raised_threshold,
         n_bars_15s=len(df),
         n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,
-        n_bars_5m=len(df5m)     if df5m     is not None else 0,
+        n_bars_5m=len(df5m) if df5m is not None else 0,
     )
 
     logger.info(
@@ -581,36 +642,36 @@ async def calculate_signal(
 
     # ── Build details dict for signal_service ─────────────────────────────────
     details = {
-        "direction":          eng.direction,
-        "confidence_raw":     eng.confidence_raw,
-        "confidence_5":       eng.stars,
-        "signal_quality":     eng.quality,
-        "primary_strategy":   eng.strategy_name,
-        "market_mode":        eng.market_mode,
+        "direction": eng.direction,
+        "confidence_raw": eng.confidence_raw,
+        "confidence_5": eng.stars,
+        "signal_quality": eng.quality,
+        "primary_strategy": eng.strategy_name,
+        "market_mode": eng.market_mode,
         "market_mode_strength": eng.market_mode_strength,
-        "expiry_hint":        eng.expiry_hint,
-        "reasoning":          eng.reasoning,
-        "conditions_met":     eng.conditions_met,
-        "total_conditions":   eng.total_conditions,
+        "expiry_hint": eng.expiry_hint,
+        "reasoning": eng.reasoning,
+        "conditions_met": eng.conditions_met,
+        "total_conditions": eng.total_conditions,
         # Legacy field aliases (for signal_service / format_signal_message compat)
-        "regime":             _mode_to_regime(eng.market_mode),
-        "reject_reason":      "" if eng.direction != "NO_SIGNAL" else eng.reasoning,
-        "hard_conflicts":     [] if eng.direction != "NO_SIGNAL" else [eng.reasoning],
+        "regime": _mode_to_regime(eng.market_mode),
+        "reject_reason": "" if eng.direction != "NO_SIGNAL" else eng.reasoning,
+        "hard_conflicts": [] if eng.direction != "NO_SIGNAL" else [eng.reasoning],
         "debug": {
             **eng.debug,
-            "candles_raw":   n_raw,
+            "candles_raw": n_raw,
             "candles_clean": len(df),
-            "order":         val.order,
-            "avg_body_pct":  round(val.avg_body_pct, 5),
+            "order": val.order,
+            "avg_body_pct": round(val.avg_body_pct, 5),
             # last_close is used by outcome_tracker to determine WIN/LOSS
-            "last_close":    val.last_close,
-        }
+            "last_close": val.last_close,
+        },
     }
 
     return SignalResult(
-        direction  = eng.direction,
-        confidence = eng.stars,
-        details    = details,
+        direction=eng.direction,
+        confidence=eng.stars,
+        details=details,
     )
 
 
@@ -621,51 +682,58 @@ def _log_conditions(eng: "EngineResult") -> None:
         return
 
     ctx_note = eng.debug.get("ctx_macro_note", "")
-    ctx_up_1m   = eng.debug.get("ctx_up_1m", False)
-    ctx_dn_1m   = eng.debug.get("ctx_dn_1m", False)
+    ctx_up_1m = eng.debug.get("ctx_up_1m", False)
+    ctx_dn_1m = eng.debug.get("ctx_dn_1m", False)
     ctx_macro_up = eng.debug.get("ctx_macro_up", False)
     ctx_macro_dn = eng.debug.get("ctx_macro_dn", False)
-    conf_before  = eng.debug.get("conf_before_multipliers", 0)
-    conf_after   = eng.debug.get("conf_after_multipliers", eng.confidence_raw)
-    threshold    = eng.debug.get("min_threshold", 46)
-    used_tier    = eng.debug.get("used_tier", "?")
-    ind          = eng.debug.get("indicators", {})
-    lvl          = eng.debug.get("levels", {})
+    conf_before = eng.debug.get("conf_before_multipliers", 0)
+    conf_after = eng.debug.get("conf_after_multipliers", eng.confidence_raw)
+    threshold = eng.debug.get("min_threshold", 46)
+    used_tier = eng.debug.get("used_tier", "?")
+    ind = eng.debug.get("indicators", {})
+    lvl = eng.debug.get("levels", {})
 
     logger.info(
         "  ┌─ MODE=%s(%s%%) tier=%s | ctx_1m=%s%s macro=%s%s [%s]",
         eng.market_mode,
         round(eng.market_mode_strength),
         used_tier,
-        "↑" if ctx_up_1m  else "·",
-        "↓" if ctx_dn_1m  else "·",
+        "↑" if ctx_up_1m else "·",
+        "↓" if ctx_dn_1m else "·",
         "↑" if ctx_macro_up else "·",
         "↓" if ctx_macro_dn else "·",
         ctx_note,
     )
     logger.info(
         "  │  IND: EMA5=%.6f EMA13=%.6f RSI=%.1f Stoch=%.0f/%.0f ATR_ratio=%.3f BB_bw=%.5f",
-        ind.get("ema5", 0), ind.get("ema13", 0), ind.get("rsi", 0),
-        ind.get("stoch_k", 0), ind.get("stoch_d", 0),
-        ind.get("atr_ratio", 0), ind.get("bb_bw", 0),
+        ind.get("ema5", 0),
+        ind.get("ema13", 0),
+        ind.get("rsi", 0),
+        ind.get("stoch_k", 0),
+        ind.get("stoch_d", 0),
+        ind.get("atr_ratio", 0),
+        ind.get("bb_bw", 0),
     )
     logger.info(
         "  │  LVL: sup=%.6f(%.3f%%) res=%.6f(%.3f%%) n_sup=%d n_res=%d",
-        lvl.get("nearest_sup", 0), lvl.get("dist_sup_pct", 0),
-        lvl.get("nearest_res", 0), lvl.get("dist_res_pct", 0),
-        lvl.get("n_supports", 0),  lvl.get("n_resistances", 0),
+        lvl.get("nearest_sup", 0),
+        lvl.get("dist_sup_pct", 0),
+        lvl.get("nearest_res", 0),
+        lvl.get("dist_res_pct", 0),
+        lvl.get("n_supports", 0),
+        lvl.get("n_resistances", 0),
     )
 
     for sname, sd in strategies.items():
         if sd.get("skipped"):
             continue
-        direction  = sd.get("direction", "NONE")
-        conf       = sd.get("confidence", 0)
-        met        = sd.get("conditions_met", 0)
-        total      = sd.get("total", 0)
-        pct        = sd.get("pct", 0)
-        tier       = sd.get("tier", "?")
-        early_rej  = sd.get("early_reject")
+        direction = sd.get("direction", "NONE")
+        conf = sd.get("confidence", 0)
+        met = sd.get("conditions_met", 0)
+        total = sd.get("total", 0)
+        pct = sd.get("pct", 0)
+        tier = sd.get("tier", "?")
+        early_rej = sd.get("early_reject")
         conds: dict = sd.get("conditions", {})
 
         if early_rej:
@@ -682,14 +750,25 @@ def _log_conditions(eng: "EngineResult") -> None:
         marker = "►" if sname == eng.strategy_name else "│"
         logger.info(
             "  %s [%s/%s] %s conf=%.0f met=%d/%d(%d%%) | %s",
-            marker, sname, tier, direction, conf, met, total, pct,
+            marker,
+            sname,
+            tier,
+            direction,
+            conf,
+            met,
+            total,
+            pct,
             "  ".join(cond_parts) or "—",
         )
 
     if eng.direction != "NO_SIGNAL":
         logger.info(
             "  └─ RESULT %s conf %.0f→%.0f (thr=%d) expiry=%s",
-            eng.direction, conf_before, conf_after, threshold, eng.expiry_hint,
+            eng.direction,
+            conf_before,
+            conf_after,
+            threshold,
+            eng.expiry_hint,
         )
     else:
         logger.info("  └─ NO_SIGNAL: %s", eng.reasoning)
@@ -698,12 +777,14 @@ def _log_conditions(eng: "EngineResult") -> None:
 def _mode_to_regime(mode: str) -> str:
     """Map new market mode names to old regime strings used by signal formatter."""
     return {
-        "TRENDING_UP":   "uptrend",
+        "TRENDING_UP": "uptrend",
         "TRENDING_DOWN": "downtrend",
-        "RANGE":         "range",
-        "VOLATILE":      "chaotic_noise",
-        "SQUEEZE":       "range",
+        "RANGE": "range",
+        "VOLATILE": "chaotic_noise",
+        "SQUEEZE": "range",
     }.get(mode, "range")
+
+
 """
 Indicator Calculator — fast periods tuned for 1-minute binary options.
 
@@ -724,89 +805,100 @@ from dataclasses import dataclass
 @dataclass
 class Indicators:
     # EMAs
-    ema5:  float
+    ema5: float
     ema13: float
     ema21: float
-    ema5_series:  pd.Series
+    ema5_series: pd.Series
     ema13_series: pd.Series
     ema21_series: pd.Series
 
     # RSI(7)
-    rsi: float          # current RSI (last candle)
-    rsi_prev: float     # RSI of second-to-last candle (real, not stub)
+    rsi: float  # current RSI (last candle)
+    rsi_prev: float  # RSI of second-to-last candle (real, not stub)
 
     # Stochastic(5,3,3)
-    stoch_k: float      # smoothed %K
-    stoch_d: float      # %D
+    stoch_k: float  # smoothed %K
+    stoch_d: float  # %D
     stoch_k_prev: float
 
     # Momentum(5)
-    momentum: float     # price[now] - price[now-5]
+    momentum: float  # price[now] - price[now-5]
     momentum_prev: float
 
     # ATR(10)
     atr: float
-    atr_avg30: float    # average ATR over last 30 bars (historical baseline)
-    atr_ratio: float    # atr / atr_avg30
+    atr_avg30: float  # average ATR over last 30 bars (historical baseline)
+    atr_ratio: float  # atr / atr_avg30
 
     # Bollinger Bands(15, 2.0)
     bb_upper: float
     bb_lower: float
-    bb_mid:   float
-    bb_bw:    float     # bandwidth = (upper - lower) / mid
-    bb_bw_prev: float   # bandwidth 5 bars ago (for squeeze detection)
+    bb_mid: float
+    bb_bw: float  # bandwidth = (upper - lower) / mid
+    bb_bw_prev: float  # bandwidth 5 bars ago (for squeeze detection)
 
 
 def calculate_indicators(df: pd.DataFrame) -> Indicators:
     """Calculate all indicators from a 1-min OHLC DataFrame."""
     n = len(df)
     close = df["close"]
-    high  = df["high"]
-    low   = df["low"]
+    high = df["high"]
+    low = df["low"]
 
     # ── EMAs ─────────────────────────────────────────────────────────────────
-    ema5_s  = close.ewm(span=5,  adjust=False).mean()
+    ema5_s = close.ewm(span=5, adjust=False).mean()
     ema13_s = close.ewm(span=13, adjust=False).mean()
     ema21_s = close.ewm(span=21, adjust=False).mean()
 
     # ── RSI(7) ────────────────────────────────────────────────────────────────
-    rsi_val      = _rsi(close, 7)
+    rsi_val = _rsi(close, 7)
     rsi_prev_val = _rsi(close.iloc[:-1], 7) if n >= 9 else rsi_val
 
     # ── Stochastic(5, 3, 3) ───────────────────────────────────────────────────
-    stoch_k_val, stoch_d_val, stoch_k_prev_val = _stochastic(high, low, close, k=5, smooth_k=3, d=3)
+    stoch_k_val, stoch_d_val, stoch_k_prev_val = _stochastic(
+        high, low, close, k=5, smooth_k=3, d=3
+    )
 
     # ── Momentum(5) ───────────────────────────────────────────────────────────
     if n > 5:
-        mom_now  = float(close.iloc[-1]) - float(close.iloc[-6])
+        mom_now = float(close.iloc[-1]) - float(close.iloc[-6])
         mom_prev = float(close.iloc[-2]) - float(close.iloc[-7]) if n > 6 else 0.0
     else:
         mom_now = mom_prev = 0.0
 
     # ── ATR(10) ───────────────────────────────────────────────────────────────
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low  - close.shift()).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
 
-    atr_val   = float(tr.rolling(10).mean().iloc[-1]) if n >= 10 else float(tr.mean())
-    hist_n    = min(30, n)
-    atr_avg   = float(tr.rolling(10).mean().iloc[-hist_n:].mean()) if n >= 10 else atr_val
-    atr_r     = atr_val / atr_avg if atr_avg > 0 else 1.0
+    atr_val = float(tr.rolling(10).mean().iloc[-1]) if n >= 10 else float(tr.mean())
+    hist_n = min(30, n)
+    atr_avg = float(tr.rolling(10).mean().iloc[-hist_n:].mean()) if n >= 10 else atr_val
+    atr_r = atr_val / atr_avg if atr_avg > 0 else 1.0
 
     # ── Bollinger Bands(15, 2.0) ──────────────────────────────────────────────
-    bb_p      = min(15, n)
-    bb_mid_s  = close.rolling(bb_p).mean()
-    bb_std_s  = close.rolling(bb_p).std()
-    bb_u      = float((bb_mid_s + 2.0 * bb_std_s).iloc[-1])
-    bb_l      = float((bb_mid_s - 2.0 * bb_std_s).iloc[-1])
-    bb_m      = float(bb_mid_s.iloc[-1])
+    bb_p = min(15, n)
+    bb_mid_s = close.rolling(bb_p).mean()
+    bb_std_s = close.rolling(bb_p).std()
+    bb_u = float((bb_mid_s + 2.0 * bb_std_s).iloc[-1])
+    bb_l = float((bb_mid_s - 2.0 * bb_std_s).iloc[-1])
+    bb_m = float(bb_mid_s.iloc[-1])
     bb_bw_now = (bb_u - bb_l) / bb_m if bb_m else 0.0
 
     if n >= bb_p + 5:
-        bb_bw_p = float((bb_mid_s + 2.0 * bb_std_s).iloc[-6] - (bb_mid_s - 2.0 * bb_std_s).iloc[-6])
-        bb_bw_p = bb_bw_p / float(bb_mid_s.iloc[-6]) if float(bb_mid_s.iloc[-6]) else bb_bw_now
+        bb_bw_p = float(
+            (bb_mid_s + 2.0 * bb_std_s).iloc[-6] - (bb_mid_s - 2.0 * bb_std_s).iloc[-6]
+        )
+        bb_bw_p = (
+            bb_bw_p / float(bb_mid_s.iloc[-6])
+            if float(bb_mid_s.iloc[-6])
+            else bb_bw_now
+        )
     else:
         bb_bw_p = bb_bw_now
 
@@ -837,31 +929,38 @@ def calculate_indicators(df: pd.DataFrame) -> Indicators:
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+
 def _rsi(close: pd.Series, period: int = 7) -> float:
     try:
         import pandas_ta as ta
+
         s = ta.rsi(close, length=period)
         v = float(s.iloc[-1]) if s is not None else 50.0
         return v if not np.isnan(v) else 50.0
     except Exception:
         delta = close.diff()
-        gain  = delta.clip(lower=0)
-        loss  = (-delta).clip(lower=0)
-        ag    = gain.ewm(com=period - 1, min_periods=period).mean()
-        al    = loss.ewm(com=period - 1, min_periods=period).mean()
-        rs    = ag / al.replace(0, np.nan)
-        r     = 100 - (100 / (1 + rs))
-        v     = float(r.iloc[-1])
+        gain = delta.clip(lower=0)
+        loss = (-delta).clip(lower=0)
+        ag = gain.ewm(com=period - 1, min_periods=period).mean()
+        al = loss.ewm(com=period - 1, min_periods=period).mean()
+        rs = ag / al.replace(0, np.nan)
+        r = 100 - (100 / (1 + rs))
+        v = float(r.iloc[-1])
         return v if not np.isnan(v) else 50.0
 
 
 def _stochastic(
-    high: pd.Series, low: pd.Series, close: pd.Series,
-    k: int = 5, smooth_k: int = 3, d: int = 3,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    k: int = 5,
+    smooth_k: int = 3,
+    d: int = 3,
 ) -> tuple[float, float, float]:
     """Returns (smooth_k_now, d_now, smooth_k_prev)."""
     try:
         import pandas_ta as ta
+
         s = ta.stoch(high, low, close, k=k, d=d, smooth_k=smooth_k)
         col_k = f"STOCHk_{k}_{d}_{smooth_k}"
         col_d = f"STOCHd_{k}_{d}_{smooth_k}"
@@ -877,16 +976,18 @@ def _stochastic(
     except Exception:
         pass
     # Manual fallback
-    ll   = low.rolling(k).min()
-    hh   = high.rolling(k).max()
+    ll = low.rolling(k).min()
+    hh = high.rolling(k).max()
     denom = (hh - ll).replace(0, np.nan)
     raw_k = 100 * (close - ll) / denom
-    sk    = raw_k.rolling(smooth_k).mean()
-    sd    = sk.rolling(d).mean()
-    kv    = float(sk.iloc[-1]) if not np.isnan(float(sk.iloc[-1])) else 50.0
-    dv    = float(sd.iloc[-1]) if not np.isnan(float(sd.iloc[-1])) else kv
-    kp    = float(sk.iloc[-2]) if len(sk) >= 2 else kv
+    sk = raw_k.rolling(smooth_k).mean()
+    sd = sk.rolling(d).mean()
+    kv = float(sk.iloc[-1]) if not np.isnan(float(sk.iloc[-1])) else 50.0
+    dv = float(sd.iloc[-1]) if not np.isnan(float(sd.iloc[-1])) else kv
+    kp = float(sk.iloc[-2]) if len(sk) >= 2 else kv
     return kv, dv, kp
+
+
 """
 Market Mode Detection — Layer 2
 Classifies current market into one of 5 modes that determine which strategies to run.
@@ -906,68 +1007,85 @@ from dataclasses import dataclass
 
 @dataclass
 class MarketMode:
-    mode: str           # TRENDING_UP | TRENDING_DOWN | RANGE | VOLATILE | SQUEEZE
-    strength: float     # 0-100 — how clearly the mode is established
-    trend_up: bool      # True if any upward bias (used for 5-min context)
+    mode: str  # TRENDING_UP | TRENDING_DOWN | RANGE | VOLATILE | SQUEEZE
+    strength: float  # 0-100 — how clearly the mode is established
+    trend_up: bool  # True if any upward bias (used for 5-min context)
     trend_down: bool
     explanation: str
     debug: dict
 
 
-def detect_market_mode(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> MarketMode:
+def detect_market_mode(
+    df1m: pd.DataFrame, df5m: pd.DataFrame | None = None
+) -> MarketMode:
     """
     Determine market mode from 1-min candles (primary) and 5-min candles (context).
     Requires at least 25 1-min candles.
     """
     n = len(df1m)
     if n < 15:
-        return MarketMode("RANGE", 40.0, False, False,
-                          "Мало данных — считаем боковым рынком", {"n": n})
+        return MarketMode(
+            "RANGE",
+            40.0,
+            False,
+            False,
+            "Мало данных — считаем боковым рынком",
+            {"n": n},
+        )
 
     close = df1m["close"]
-    high  = df1m["high"]
-    low   = df1m["low"]
+    high = df1m["high"]
+    low = df1m["low"]
     open_ = df1m["open"]
 
     # ── EMAs (1-min) ─────────────────────────────────────────────────────────
-    ema5  = close.ewm(span=5,  adjust=False).mean()
+    ema5 = close.ewm(span=5, adjust=False).mean()
     ema13 = close.ewm(span=13, adjust=False).mean()
     ema21 = close.ewm(span=21, adjust=False).mean()
 
-    ema5_now  = float(ema5.iloc[-1])
+    ema5_now = float(ema5.iloc[-1])
     ema13_now = float(ema13.iloc[-1])
     ema21_now = float(ema21.iloc[-1])
 
     # EMA alignment check over last 5 candles
     lookback = min(5, n)
-    ema5_arr  = ema5.iloc[-lookback:].values
+    ema5_arr = ema5.iloc[-lookback:].values
     ema13_arr = ema13.iloc[-lookback:].values
     ema21_arr = ema21.iloc[-lookback:].values
 
     ema_bull_bars = int(np.sum((ema5_arr > ema13_arr) & (ema13_arr > ema21_arr)))
     ema_bear_bars = int(np.sum((ema5_arr < ema13_arr) & (ema13_arr < ema21_arr)))
 
-    ema5_vs_21_spread = abs(ema5_now - ema21_now) / float(close.iloc[-1]) * 100 if float(close.iloc[-1]) else 0.0
-    ema_aligned_up   = ema_bull_bars >= 4
+    ema5_vs_21_spread = (
+        abs(ema5_now - ema21_now) / float(close.iloc[-1]) * 100
+        if float(close.iloc[-1])
+        else 0.0
+    )
+    ema_aligned_up = ema_bull_bars >= 4
     ema_aligned_down = ema_bear_bars >= 4
-    ema_flat         = ema5_vs_21_spread < 0.03
+    ema_flat = ema5_vs_21_spread < 0.03
 
     # ── ATR ───────────────────────────────────────────────────────────────────
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low  - close.shift()).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
 
-    atr10     = float(tr.rolling(10).mean().iloc[-1]) if n >= 10 else float(tr.mean())
+    atr10 = float(tr.rolling(10).mean().iloc[-1]) if n >= 10 else float(tr.mean())
     hist_bars = min(30, n)
-    atr_hist  = float(tr.rolling(10).mean().iloc[-hist_bars:].mean()) if n >= 10 else atr10
+    atr_hist = (
+        float(tr.rolling(10).mean().iloc[-hist_bars:].mean()) if n >= 10 else atr10
+    )
     atr_ratio = atr10 / atr_hist if atr_hist > 0 else 1.0
 
     # ── Bollinger Bands (15, 2.0) ─────────────────────────────────────────────
     bb_period = min(15, n)
-    bb_mid    = close.rolling(bb_period).mean()
-    bb_std    = close.rolling(bb_period).std()
+    bb_mid = close.rolling(bb_period).mean()
+    bb_std = close.rolling(bb_period).std()
     bb_bw_now = float((bb_std * 4 / bb_mid).iloc[-1]) if float(bb_mid.iloc[-1]) else 0.0
 
     # Bandwidth trend: is it narrowing?
@@ -978,33 +1096,37 @@ def detect_market_mode(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> 
         bb_narrowing = False
 
     # ── Candle direction stats ────────────────────────────────────────────────
-    recent_n   = min(7, n)
-    bull_pct   = float((close.iloc[-recent_n:] > open_.iloc[-recent_n:]).mean() * 100)
-    body_abs   = (close - open_).abs()
-    avg_body   = float(body_abs.rolling(min(10, n)).mean().iloc[-1])
-    last5_body = float(body_abs.iloc[-min(5, n):].mean())
+    recent_n = min(7, n)
+    bull_pct = float((close.iloc[-recent_n:] > open_.iloc[-recent_n:]).mean() * 100)
+    body_abs = (close - open_).abs()
+    avg_body = float(body_abs.rolling(min(10, n)).mean().iloc[-1])
+    last5_body = float(body_abs.iloc[-min(5, n) :].mean())
     body_ratio = last5_body / avg_body if avg_body > 0 else 1.0
 
     # ── Swing structure (last 20 bars) ────────────────────────────────────────
-    lb   = min(20, n)
-    seg  = max(3, lb // 3)
-    h    = high.iloc[-lb:]
-    l    = low.iloc[-lb:]
-    h1   = float(h.iloc[:seg].max()); h2 = float(h.iloc[seg:2*seg].max()); h3 = float(h.iloc[2*seg:].max())
-    l1   = float(l.iloc[:seg].min()); l2 = float(l.iloc[seg:2*seg].min()); l3 = float(l.iloc[2*seg:].min())
-    hh   = h3 > h2 > h1
-    hl   = l3 > l2 > l1
-    lh   = h3 < h2 < h1
-    ll   = l3 < l2 < l1
+    lb = min(20, n)
+    seg = max(3, lb // 3)
+    h = high.iloc[-lb:]
+    l = low.iloc[-lb:]
+    h1 = float(h.iloc[:seg].max())
+    h2 = float(h.iloc[seg : 2 * seg].max())
+    h3 = float(h.iloc[2 * seg :].max())
+    l1 = float(l.iloc[:seg].min())
+    l2 = float(l.iloc[seg : 2 * seg].min())
+    l3 = float(l.iloc[2 * seg :].min())
+    hh = h3 > h2 > h1
+    hl = l3 > l2 > l1
+    lh = h3 < h2 < h1
+    ll = l3 < l2 < l1
 
     # ── 5-min context ─────────────────────────────────────────────────────────
-    ctx_up   = False
+    ctx_up = False
     ctx_down = False
     if df5m is not None and len(df5m) >= 5:
-        c5   = df5m["close"]
-        e21  = float(c5.ewm(span=min(21, len(df5m)), adjust=False).mean().iloc[-1])
-        e50  = float(c5.ewm(span=min(50, len(df5m)), adjust=False).mean().iloc[-1])
-        ctx_up   = e21 > e50
+        c5 = df5m["close"]
+        e21 = float(c5.ewm(span=min(21, len(df5m)), adjust=False).mean().iloc[-1])
+        e50 = float(c5.ewm(span=min(50, len(df5m)), adjust=False).mean().iloc[-1])
+        ctx_up = e21 > e50
         ctx_down = e21 < e50
 
     # ── VOLATILE: ATR spike + large candles + no clear direction ──────────────
@@ -1016,24 +1138,24 @@ def detect_market_mode(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> 
     )
     if is_volatile:
         return MarketMode(
-            "VOLATILE", min(100, atr_ratio * 40),
-            ctx_up, ctx_down,
+            "VOLATILE",
+            min(100, atr_ratio * 40),
+            ctx_up,
+            ctx_down,
             f"Высокая волатильность: ATR×{atr_ratio:.2f}, тела ×{body_ratio:.2f}",
-            {"atr_ratio": round(atr_ratio, 2), "body_ratio": round(body_ratio, 2)}
+            {"atr_ratio": round(atr_ratio, 2), "body_ratio": round(body_ratio, 2)},
         )
 
     # ── SQUEEZE: compressed ATR + narrowing BB + small bodies ─────────────────
-    is_squeeze = (
-        atr_ratio < 0.6
-        and bb_narrowing
-        and body_ratio < 0.5
-    )
+    is_squeeze = atr_ratio < 0.6 and bb_narrowing and body_ratio < 0.5
     if is_squeeze:
         return MarketMode(
-            "SQUEEZE", min(100, (1 - atr_ratio) * 80),
-            ctx_up, ctx_down,
+            "SQUEEZE",
+            min(100, (1 - atr_ratio) * 80),
+            ctx_up,
+            ctx_down,
             f"Сжатие: ATR×{atr_ratio:.2f}, BB сужаются, тела ×{body_ratio:.2f}",
-            {"atr_ratio": round(atr_ratio, 2), "bb_narrowing": bb_narrowing}
+            {"atr_ratio": round(atr_ratio, 2), "bb_narrowing": bb_narrowing},
         )
 
     # ── TRENDING_UP ───────────────────────────────────────────────────────────
@@ -1052,28 +1174,44 @@ def detect_market_mode(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> 
 
     if up_pts >= 55 and up_pts > dn_pts + 15:
         return MarketMode(
-            "TRENDING_UP", min(100.0, float(up_pts)),
-            True, False,
+            "TRENDING_UP",
+            min(100.0, float(up_pts)),
+            True,
+            False,
             f"Восходящий тренд: EMA выровнены={ema_aligned_up}, свинги HH={hh}/HL={hl}, бычьих {bull_pct:.0f}%",
-            {"up_pts": up_pts, "ema_aligned": ema_aligned_up, "bull_pct": round(bull_pct)}
+            {
+                "up_pts": up_pts,
+                "ema_aligned": ema_aligned_up,
+                "bull_pct": round(bull_pct),
+            },
         )
 
     if dn_pts >= 55 and dn_pts > up_pts + 15:
         return MarketMode(
-            "TRENDING_DOWN", min(100.0, float(dn_pts)),
-            False, True,
-            f"Нисходящий тренд: EMA выровнены={ema_aligned_down}, свинги LH={lh}/LL={ll}, медвежьих {100-bull_pct:.0f}%",
-            {"dn_pts": dn_pts, "ema_aligned": ema_aligned_down, "bear_pct": round(100 - bull_pct)}
+            "TRENDING_DOWN",
+            min(100.0, float(dn_pts)),
+            False,
+            True,
+            f"Нисходящий тренд: EMA выровнены={ema_aligned_down}, свинги LH={lh}/LL={ll}, медвежьих {100 - bull_pct:.0f}%",
+            {
+                "dn_pts": dn_pts,
+                "ema_aligned": ema_aligned_down,
+                "bear_pct": round(100 - bull_pct),
+            },
         )
 
     # ── RANGE ─────────────────────────────────────────────────────────────────
     range_strength = max(0, 80 - abs(up_pts - dn_pts) * 2) if ema_flat else 60
     return MarketMode(
-        "RANGE", float(range_strength),
-        ctx_up, ctx_down,
+        "RANGE",
+        float(range_strength),
+        ctx_up,
+        ctx_down,
         f"Боковой рынок: EMA flat={ema_flat}, ATR×{atr_ratio:.2f}",
-        {"up_pts": up_pts, "dn_pts": dn_pts, "ema_flat": ema_flat}
+        {"up_pts": up_pts, "dn_pts": dn_pts, "ema_flat": ema_flat},
     )
+
+
 """
 Support / Resistance Level Detection
 - Detects swing highs/lows with window of 3 bars
@@ -1089,14 +1227,14 @@ from dataclasses import dataclass, field
 
 @dataclass
 class LevelSet:
-    supports:     list[float]
-    resistances:  list[float]
-    strong_sup:   list[float]   # 3+ touches (high-confidence)
-    strong_res:   list[float]
-    nearest_sup:  float
-    nearest_res:  float
-    dist_to_sup_pct:  float
-    dist_to_res_pct:  float
+    supports: list[float]
+    resistances: list[float]
+    strong_sup: list[float]  # 3+ touches (high-confidence)
+    strong_res: list[float]
+    nearest_sup: float
+    nearest_res: float
+    dist_to_sup_pct: float
+    dist_to_res_pct: float
 
 
 def detect_levels(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> LevelSet:
@@ -1106,14 +1244,14 @@ def detect_levels(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> Level
 
     # 1-min swing levels
     raw_res_1m = _swing_highs(df1m["high"], window=3)
-    raw_sup_1m = _swing_lows(df1m["low"],  window=3)
+    raw_sup_1m = _swing_lows(df1m["low"], window=3)
 
     # 5-min swing levels (weighted more — but kept separate so we can merge)
     raw_res_5m: list[float] = []
     raw_sup_5m: list[float] = []
     if df5m is not None and len(df5m) >= 7:
         raw_res_5m = _swing_highs(df5m["high"], window=2)
-        raw_sup_5m = _swing_lows(df5m["low"],  window=2)
+        raw_sup_5m = _swing_lows(df5m["low"], window=2)
 
     # Merge and cluster
     all_res = raw_res_1m + raw_res_5m
@@ -1124,23 +1262,21 @@ def detect_levels(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> Level
 
     # Filter relevant levels
     resistances = sorted(
-        [l for l, t in res_clusters if l > price * 0.9998],
-        key=lambda x: x
+        [l for l, t in res_clusters if l > price * 0.9998], key=lambda x: x
     )
     supports = sorted(
         [l for l, t in sup_clusters if l < price * 1.0002],
         key=lambda x: x,
-        reverse=True
+        reverse=True,
     )
 
     strong_res = sorted(
-        [l for l, t in res_clusters if l > price * 0.9998 and t >= 2],
-        key=lambda x: x
+        [l for l, t in res_clusters if l > price * 0.9998 and t >= 2], key=lambda x: x
     )
     strong_sup = sorted(
         [l for l, t in sup_clusters if l < price * 1.0002 and t >= 2],
         key=lambda x: x,
-        reverse=True
+        reverse=True,
     )
 
     # Fallback if nothing found
@@ -1150,7 +1286,7 @@ def detect_levels(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> Level
         supports = [float(df1m["low"].iloc[-20:].min())]
 
     nearest_res = resistances[0] if resistances else price * 1.005
-    nearest_sup = supports[0]    if supports    else price * 0.995
+    nearest_sup = supports[0] if supports else price * 0.995
 
     dist_res = max(0.0, (nearest_res - price) / price * 100)
     dist_sup = max(0.0, (price - nearest_sup) / price * 100)
@@ -1169,11 +1305,12 @@ def detect_levels(df1m: pd.DataFrame, df5m: pd.DataFrame | None = None) -> Level
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _swing_highs(series: pd.Series, window: int = 3) -> list[float]:
     result = []
     arr = series.values
     for i in range(window, len(arr) - window):
-        if arr[i] == arr[max(0, i - window): i + window + 1].max():
+        if arr[i] == arr[max(0, i - window) : i + window + 1].max():
             result.append(float(arr[i]))
     return result
 
@@ -1182,12 +1319,14 @@ def _swing_lows(series: pd.Series, window: int = 3) -> list[float]:
     result = []
     arr = series.values
     for i in range(window, len(arr) - window):
-        if arr[i] == arr[max(0, i - window): i + window + 1].min():
+        if arr[i] == arr[max(0, i - window) : i + window + 1].min():
             result.append(float(arr[i]))
     return result
 
 
-def _cluster_with_touches(levels: list[float], tol_pct: float = 0.0015) -> list[tuple[float, int]]:
+def _cluster_with_touches(
+    levels: list[float], tol_pct: float = 0.0015
+) -> list[tuple[float, int]]:
     """
     Cluster nearby levels and count touches (occurrences in same cluster).
     Returns list of (level_price, touch_count).
@@ -1206,6 +1345,8 @@ def _cluster_with_touches(levels: list[float], tol_pct: float = 0.0015) -> list[
             group = [v]
     clusters.append((float(np.mean(group)), len(group)))
     return clusters
+
+
 """
 Decision Engine — Layer 4
 Selects strategies based on market mode, picks the best signal,
@@ -1233,10 +1374,10 @@ from dataclasses import dataclass
 
 import asyncio
 
-from .market_mode  import MarketMode, detect_market_mode
-from .indicators   import Indicators, calculate_indicators
-from .levels       import LevelSet, detect_levels
-from .strategies   import (
+from .market_mode import MarketMode, detect_market_mode
+from .indicators import Indicators, calculate_indicators
+from .levels import LevelSet, detect_levels
+from .strategies import (
     ema_bounce_strategy,
     squeeze_breakout_strategy,
     level_bounce_strategy,
@@ -1250,7 +1391,10 @@ from .strategies   import (
 try:
     from services.strategy_adaptation import is_strategy_enabled
 except ImportError:
-    def is_strategy_enabled(name: str) -> bool: return True       # type: ignore[misc]
+
+    def is_strategy_enabled(name: str) -> bool:
+        return True  # type: ignore[misc]
+
 
 logger = logging.getLogger(__name__)
 
@@ -1265,67 +1409,79 @@ _MODE_STRATEGIES: dict[str, dict] = {
     # in a confirmed trend direction have poor reliability at 1-2 min expiry.
     # level_breakout added: breakouts above/below 1m levels work well in trending markets.
     "TRENDING_UP": {
-        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "primary": ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
         "secondary": ["divergence"],
     },
     "TRENDING_DOWN": {
-        "primary":   ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "primary": ["ema_bounce", "squeeze_breakout", "level_breakout", "level_bounce"],
         "secondary": ["divergence"],
     },
     "RANGE": {
         # Level Bounce + EMA Bounce are the main 1-2 min strategies in ranging markets
         # RSI Reversal allowed here only — range is its natural habitat
         # level_breakout in secondary — can fire on range breakouts
-        "primary":   ["level_bounce", "ema_bounce"],
-        "secondary": ["level_breakout", "divergence", "rsi_reversal", "squeeze_breakout", "micro_breakout"],
+        "primary": ["level_bounce", "ema_bounce"],
+        "secondary": [
+            "level_breakout",
+            "divergence",
+            "rsi_reversal",
+            "squeeze_breakout",
+            "micro_breakout",
+        ],
     },
     "VOLATILE": {
         # Micro Breakout only allowed here where ATR is high enough
         # level_breakout primary here — volatile markets have real breakouts
-        "primary":   ["micro_breakout", "squeeze_breakout", "level_breakout", "level_bounce"],
+        "primary": [
+            "micro_breakout",
+            "squeeze_breakout",
+            "level_breakout",
+            "level_bounce",
+        ],
         "secondary": ["divergence"],
     },
     "SQUEEZE": {
-        "primary":   ["squeeze_breakout", "ema_bounce", "level_bounce"],
+        "primary": ["squeeze_breakout", "ema_bounce", "level_bounce"],
         "secondary": ["level_breakout", "divergence", "rsi_reversal"],
     },
 }
 
 _STRATEGY_FNS = {
-    "ema_bounce":       ema_bounce_strategy,
+    "ema_bounce": ema_bounce_strategy,
     "squeeze_breakout": squeeze_breakout_strategy,
-    "level_bounce":     level_bounce_strategy,
-    "level_breakout":   level_breakout_strategy,
-    "rsi_reversal":     rsi_reversal_strategy,
-    "micro_breakout":   micro_breakout_strategy,
-    "divergence":       divergence_strategy,
+    "level_bounce": level_bounce_strategy,
+    "level_breakout": level_breakout_strategy,
+    "rsi_reversal": rsi_reversal_strategy,
+    "micro_breakout": micro_breakout_strategy,
+    "divergence": divergence_strategy,
 }
 
 
 @dataclass
 class EngineResult:
-    direction: str          # "BUY" | "SELL" | "NO_SIGNAL"
-    confidence_raw: float   # 0-100 before star mapping
-    stars: int              # 1-5
-    quality: str            # "strong" | "moderate" | "weak" | "none"
+    direction: str  # "BUY" | "SELL" | "NO_SIGNAL"
+    confidence_raw: float  # 0-100 before star mapping
+    stars: int  # 1-5
+    quality: str  # "strong" | "moderate" | "weak" | "none"
     strategy_name: str
     market_mode: str
     market_mode_strength: float
     reasoning: str
     conditions_met: int
     total_conditions: int
-    expiry_hint: str        # "1m" | "2m" (suggested trade expiry)
+    expiry_hint: str  # "1m" | "2m" (suggested trade expiry)
     debug: dict
 
 
 def run_decision_engine(
     df1m: pd.DataFrame,
     df5m: pd.DataFrame | None = None,
-    df1m_ctx: pd.DataFrame | None = None,   # 1-min resampled from 15s — middle-tier context
-    raised_threshold: bool = False,          # True = after 2 losses, min conf=70
+    df1m_ctx: pd.DataFrame
+    | None = None,  # 1-min resampled from 15s — middle-tier context
+    raised_threshold: bool = False,  # True = after 2 losses, min conf=70
     n_bars_15s: int = 0,
-    n_bars_1m:  int = 0,
-    n_bars_5m:  int = 0,
+    n_bars_1m: int = 0,
+    n_bars_5m: int = 0,
 ) -> EngineResult:
     """
     Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
@@ -1340,7 +1496,11 @@ def run_decision_engine(
         n_bars_5m:   number of 5-min bars after resampling
     """
     n = len(df1m)
-    _bar_debug = {"n_bars_15s": n_bars_15s or n, "n_bars_1m": n_bars_1m, "n_bars_5m": n_bars_5m}
+    _bar_debug = {
+        "n_bars_15s": n_bars_15s or n,
+        "n_bars_1m": n_bars_1m,
+        "n_bars_5m": n_bars_5m,
+    }
 
     if n < 15:
         return _no_signal("Недостаточно данных (нужно ≥15 свечей)", {**_bar_debug})
@@ -1355,16 +1515,16 @@ def run_decision_engine(
     # snapshot of indicator values for NO_SIGNAL debug (computed once, reused)
     _ind_dbg: dict = {
         "indicators": {
-            "atr":       round(ind.atr, 6),
+            "atr": round(ind.atr, 6),
             "atr_ratio": round(ind.atr_ratio, 3),
-            "rsi":       round(ind.rsi, 1),
-            "stoch_k":   round(ind.stoch_k, 1),
-            "stoch_d":   round(ind.stoch_d, 1),
-            "ema5":      round(ind.ema5, 6),
-            "ema13":     round(ind.ema13, 6),
-            "ema21":     round(ind.ema21, 6),
-            "bb_bw":     round(ind.bb_bw, 5),
-            "momentum":  round(ind.momentum, 6),
+            "rsi": round(ind.rsi, 1),
+            "stoch_k": round(ind.stoch_k, 1),
+            "stoch_d": round(ind.stoch_d, 1),
+            "ema5": round(ind.ema5, 6),
+            "ema13": round(ind.ema13, 6),
+            "ema21": round(ind.ema21, 6),
+            "bb_bw": round(ind.bb_bw, 5),
+            "momentum": round(ind.momentum, 6),
         }
     }
 
@@ -1384,11 +1544,11 @@ def run_decision_engine(
 
     _lvl_dbg: dict = {
         "levels": {
-            "nearest_sup":   round(levels.nearest_sup, 6),
-            "nearest_res":   round(levels.nearest_res, 6),
-            "dist_sup_pct":  levels.dist_to_sup_pct,
-            "dist_res_pct":  levels.dist_to_res_pct,
-            "n_supports":    len(levels.supports),
+            "nearest_sup": round(levels.nearest_sup, 6),
+            "nearest_res": round(levels.nearest_res, 6),
+            "dist_sup_pct": levels.dist_to_sup_pct,
+            "dist_res_pct": levels.dist_to_res_pct,
+            "n_supports": len(levels.supports),
             "n_resistances": len(levels.resistances),
         }
     }
@@ -1421,23 +1581,23 @@ def run_decision_engine(
     ctx_macro_note = "slope_na"
     if df1m_ctx is not None and len(df1m_ctx) >= 6:
         closes = df1m_ctx["close"].values.astype(float)
-        x      = np.arange(len(closes))
-        slope  = float(np.polyfit(x, closes, 1)[0])
-        norm_slope = slope / float(closes.mean())          # fraction per 1-min bar
-        ctx_macro_up = norm_slope >  5e-5                  # +0.005%/bar → upward
-        ctx_macro_dn = norm_slope < -5e-5                  # -0.005%/bar → downward
+        x = np.arange(len(closes))
+        slope = float(np.polyfit(x, closes, 1)[0])
+        norm_slope = slope / float(closes.mean())  # fraction per 1-min bar
+        ctx_macro_up = norm_slope > 5e-5  # +0.005%/bar → upward
+        ctx_macro_dn = norm_slope < -5e-5  # -0.005%/bar → downward
         ctx_macro_note = f"1m_slope={norm_slope * 1e4:.1f}bp/bar"
     elif df5m is not None and len(df5m) >= 8:
         # Fallback: 5m EMA only when we have enough bars to be meaningful
-        e5  = float(df5m["close"].ewm(span=5,  adjust=False).mean().iloc[-1])
+        e5 = float(df5m["close"].ewm(span=5, adjust=False).mean().iloc[-1])
         e21 = float(df5m["close"].ewm(span=21, adjust=False).mean().iloc[-1])
         ctx_macro_up = e5 > e21
         ctx_macro_dn = e5 < e21
         ctx_macro_note = f"5m_ema5vs21 (n={len(df5m)})"
 
     # ctx_up/ctx_down — weak context flag passed to strategies (informational)
-    ctx_up   = ctx_up_1m  or ctx_macro_up  or mode_obj.trend_up
-    ctx_down = ctx_dn_1m  or ctx_macro_dn  or mode_obj.trend_down
+    ctx_up = ctx_up_1m or ctx_macro_up or mode_obj.trend_up
+    ctx_down = ctx_dn_1m or ctx_macro_dn or mode_obj.trend_down
 
     debug_strategies: dict = {}
 
@@ -1452,9 +1612,19 @@ def run_decision_engine(
                 debug_strategies[name] = {"status": "DISABLED", "skipped": True}
                 continue
             try:
-                kwargs = dict(df=df1m, ind=ind, levels=levels,
-                              ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
-                if name in ("level_bounce", "level_breakout", "divergence", "ema_bounce"):
+                kwargs = dict(
+                    df=df1m,
+                    ind=ind,
+                    levels=levels,
+                    ctx_trend_up=ctx_up,
+                    ctx_trend_down=ctx_down,
+                )
+                if name in (
+                    "level_bounce",
+                    "level_breakout",
+                    "divergence",
+                    "ema_bounce",
+                ):
                     kwargs["mode"] = mode_obj.mode
                 if name in ("level_bounce", "level_breakout"):
                     kwargs["df1m_ctx"] = df1m_ctx
@@ -1463,7 +1633,11 @@ def run_decision_engine(
                 logger.warning("Strategy %s failed: %s", name, e)
                 continue
 
-            pct = res.conditions_met / res.total_conditions if res.total_conditions > 0 else 0
+            pct = (
+                res.conditions_met / res.total_conditions
+                if res.total_conditions > 0
+                else 0
+            )
             # Pull per-condition breakdown from strategy debug
             # Direction that fired determines which side's conditions to show
             if res.direction == "BUY":
@@ -1472,11 +1646,11 @@ def run_decision_engine(
                 conds = res.debug.get("sell_conditions", {})
             else:
                 # NO_SIGNAL: show whichever side had more conditions met
-                buy_c  = res.debug.get("buy_conditions", {})
+                buy_c = res.debug.get("buy_conditions", {})
                 sell_c = res.debug.get("sell_conditions", {})
-                buy_n  = res.debug.get("buy_met", 0)
+                buy_n = res.debug.get("buy_met", 0)
                 sell_n = res.debug.get("sell_met", 0)
-                conds  = buy_c if buy_n >= sell_n else sell_c
+                conds = buy_c if buy_n >= sell_n else sell_c
             debug_strategies[name] = {
                 "direction": res.direction,
                 "confidence": round(res.confidence, 1),
@@ -1501,8 +1675,16 @@ def run_decision_engine(
     # ── Record condition frequencies (fire-and-forget, never blocks signal) ──
     try:
         from db.database import record_condition_evals as _rec_cond
+
         _evals = [
-            (sname, {k: v for k, v in sd.get("conditions", {}).items() if isinstance(v, bool)})
+            (
+                sname,
+                {
+                    k: v
+                    for k, v in sd.get("conditions", {}).items()
+                    if isinstance(v, bool)
+                },
+            )
             for sname, sd in debug_strategies.items()
             if not sd.get("skipped")
         ]
@@ -1515,15 +1697,21 @@ def run_decision_engine(
         return _no_signal(
             f"Ни одна стратегия не выполнила условия (режим={mode_obj.mode})",
             {
-                "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
-                "mode_debug": mode_obj.debug, "mode_explanation": mode_obj.explanation,
+                "mode": mode_obj.mode,
+                "mode_strength": round(mode_obj.strength, 1),
+                "mode_debug": mode_obj.debug,
+                "mode_explanation": mode_obj.explanation,
                 "strategies": debug_strategies,
                 "used_tier": used_tier,
-                "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
-                "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
+                "ctx_up_1m": ctx_up_1m,
+                "ctx_dn_1m": ctx_dn_1m,
+                "ctx_macro_up": ctx_macro_up,
+                "ctx_macro_dn": ctx_macro_dn,
                 "ctx_macro_note": ctx_macro_note,
-                **_bar_debug, **_ind_dbg, **_lvl_dbg,
-            }
+                **_bar_debug,
+                **_ind_dbg,
+                **_lvl_dbg,
+            },
         )
 
     # ── Pick best candidate ────────────────────────────────────────────────────
@@ -1531,33 +1719,36 @@ def run_decision_engine(
 
     # If two strategies disagree on direction → pick by confidence, then by priority
     _STRATEGY_PRIORITY = {
-        "level_bounce":    1,
-        "level_breakout":  2,
-        "ema_bounce":      3,
+        "level_bounce": 1,
+        "level_breakout": 2,
+        "ema_bounce": 3,
         "squeeze_breakout": 4,
     }
 
-    buy_cands  = [r for r in candidates if r.direction == "BUY"]
+    buy_cands = [r for r in candidates if r.direction == "BUY"]
     sell_cands = [r for r in candidates if r.direction == "SELL"]
     if buy_cands and sell_cands:
-        best_buy  = max(buy_cands,  key=lambda r: r.confidence)
+        best_buy = max(buy_cands, key=lambda r: r.confidence)
         best_sell = max(sell_cands, key=lambda r: r.confidence)
         if abs(best_buy.confidence - best_sell.confidence) < 6:
             # Confidence too close — break tie by strategy priority
-            pri_buy  = _STRATEGY_PRIORITY.get(best_buy.strategy_name,  99)
+            pri_buy = _STRATEGY_PRIORITY.get(best_buy.strategy_name, 99)
             pri_sell = _STRATEGY_PRIORITY.get(best_sell.strategy_name, 99)
             if pri_buy == pri_sell:
                 # Same strategy on both sides (shouldn't happen) — skip
                 return _no_signal(
                     f"Противоречие стратегий — равный conf и приоритет ({best_buy.strategy_name})",
                     {
-                        "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                        "mode": mode_obj.mode,
+                        "mode_strength": round(mode_obj.strength, 1),
                         "mode_debug": mode_obj.debug,
                         "strategies": debug_strategies,
                         "buy_conf": round(best_buy.confidence, 1),
                         "sell_conf": round(best_sell.confidence, 1),
-                        **_bar_debug, **_ind_dbg, **_lvl_dbg,
-                    }
+                        **_bar_debug,
+                        **_ind_dbg,
+                        **_lvl_dbg,
+                    },
                 )
             # Lower priority number = higher priority strategy wins
             best = best_buy if pri_buy < pri_sell else best_sell
@@ -1565,7 +1756,7 @@ def run_decision_engine(
             best = best_buy if best_buy.confidence > best_sell.confidence else best_sell
 
     direction = best.direction
-    conf_raw  = best.confidence
+    conf_raw = best.confidence
 
     # ── Layer 4: Multipliers ───────────────────────────────────────────────────
 
@@ -1577,9 +1768,9 @@ def run_decision_engine(
 
     if direction == "BUY":
         if ctx_up_strong and best.conditions_met >= 5:
-            conf_raw += 3        # 1m EMA + slope confirm upward (only solid signals)
+            conf_raw += 3  # 1m EMA + slope confirm upward (only solid signals)
         elif ctx_dn_strong:
-            conf_raw *= 0.82     # both layers oppose → counter-trend penalty
+            conf_raw *= 0.82  # both layers oppose → counter-trend penalty
     else:  # SELL
         if ctx_dn_strong and best.conditions_met >= 5:
             conf_raw += 3
@@ -1587,7 +1778,7 @@ def run_decision_engine(
             conf_raw *= 0.82
 
     # 4b. Market mode strength multiplier
-    mode_str_m = mode_obj.strength / 100.0   # 0-1
+    mode_str_m = mode_obj.strength / 100.0  # 0-1
     # Only apply if confidence is moderate (don't destroy already-great signals)
     if conf_raw < 75:
         conf_raw = conf_raw * (0.88 + 0.12 * mode_str_m)
@@ -1601,13 +1792,13 @@ def run_decision_engine(
 
     # 4d. Trend guard: penalise signals strongly against confirmed trend
     # Strong trend = market mode is TRENDING + EMA stack is fully aligned
-    strong_down = (mode_obj.mode == "TRENDING_DOWN" and ind.ema5 < ind.ema13 < ind.ema21)
-    strong_up   = (mode_obj.mode == "TRENDING_UP"   and ind.ema5 > ind.ema13 > ind.ema21)
+    strong_down = mode_obj.mode == "TRENDING_DOWN" and ind.ema5 < ind.ema13 < ind.ema21
+    strong_up = mode_obj.mode == "TRENDING_UP" and ind.ema5 > ind.ema13 > ind.ema21
 
     if direction == "BUY" and strong_down:
-        conf_raw *= 0.50   # BUY against downtrend: conf halved → likely below threshold
+        conf_raw *= 0.50  # BUY against downtrend: conf halved → likely below threshold
     if direction == "SELL" and strong_up:
-        conf_raw *= 0.50   # SELL against uptrend: conf halved → likely below threshold
+        conf_raw *= 0.50  # SELL against uptrend: conf halved → likely below threshold
 
     # ── Threshold check ────────────────────────────────────────────────────────
     # Hard floor: 55 for all tiers — no signal below 55 ever becomes a trade.
@@ -1615,33 +1806,43 @@ def run_decision_engine(
     if raised_threshold:
         min_threshold = 70
     else:
-        min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
+        min_threshold = 55  # hard floor: no signal below 55 ever becomes a trade
 
     if conf_raw < min_threshold:
         return _no_signal(
             f"Уверенность {conf_raw:.0f} < порог {min_threshold} (tier={used_tier})",
             {
-                "mode": mode_obj.mode, "mode_strength": round(mode_obj.strength, 1),
+                "mode": mode_obj.mode,
+                "mode_strength": round(mode_obj.strength, 1),
                 "mode_debug": mode_obj.debug,
                 "conf_raw": round(conf_raw, 1),
                 "strategy": best.strategy_name,
                 "strategies": debug_strategies,
                 "used_tier": used_tier,
                 "min_threshold": min_threshold,
-                "ctx_up_1m": ctx_up_1m, "ctx_dn_1m": ctx_dn_1m,
+                "ctx_up_1m": ctx_up_1m,
+                "ctx_dn_1m": ctx_dn_1m,
                 "ctx_macro_note": ctx_macro_note,
-                **_bar_debug, **_ind_dbg, **_lvl_dbg,
-            }
+                **_bar_debug,
+                **_ind_dbg,
+                **_lvl_dbg,
+            },
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────
-    if   conf_raw >= 75: stars = 5
-    elif conf_raw >= 65: stars = 4
-    else:                stars = 3
+    if conf_raw >= 75:
+        stars = 5
+    elif conf_raw >= 65:
+        stars = 4
+    else:
+        stars = 3
 
-    if   conf_raw >= 75: quality = "strong"
-    elif conf_raw >= 65: quality = "good"
-    else:                quality = "moderate"
+    if conf_raw >= 75:
+        quality = "strong"
+    elif conf_raw >= 65:
+        quality = "good"
+    else:
+        quality = "moderate"
 
     # ── Expiry hint ────────────────────────────────────────────────────────────
     expiry = _pick_expiry(best.strategy_name, quality)
@@ -1665,10 +1866,13 @@ def run_decision_engine(
             "mode_debug": mode_obj.debug,
             "ctx_up": ctx_up,
             "ctx_down": ctx_down,
-            "ctx_up_1m": ctx_up_1m,   "ctx_dn_1m": ctx_dn_1m,
-            "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
+            "ctx_up_1m": ctx_up_1m,
+            "ctx_dn_1m": ctx_dn_1m,
+            "ctx_macro_up": ctx_macro_up,
+            "ctx_macro_dn": ctx_macro_dn,
             "ctx_macro_note": ctx_macro_note,
-            "ctx_up_strong": ctx_up_strong, "ctx_dn_strong": ctx_dn_strong,
+            "ctx_up_strong": ctx_up_strong,
+            "ctx_dn_strong": ctx_dn_strong,
             "used_tier": used_tier,
             "min_threshold": min_threshold,
             "strategies": debug_strategies,
@@ -1697,15 +1901,22 @@ def run_decision_engine(
                 "n_strong_sup": len(levels.strong_sup),
                 "n_strong_res": len(levels.strong_res),
             },
-        }
+        },
     )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _pick_expiry(strategy: str, quality: str) -> str:
     """Bounce/breakout → 1m, trend-follow → 2m."""
-    if strategy in ("level_bounce", "level_breakout", "rsi_reversal", "divergence", "ema_bounce"):
+    if strategy in (
+        "level_bounce",
+        "level_breakout",
+        "rsi_reversal",
+        "divergence",
+        "ema_bounce",
+    ):
         return "1m"
     if strategy in ("squeeze_breakout", "micro_breakout"):
         return "1m"
@@ -1727,6 +1938,8 @@ def _no_signal(reason: str, debug: dict) -> EngineResult:
         expiry_hint="",
         debug=debug,
     )
+
+
 """
 Strategy 1 — EMA Bounce in Micro-Trend
 Scenario: Price in a trend, pulls back to EMA(13), bounces continuing the trend.
@@ -1747,8 +1960,8 @@ from ..levels import LevelSet
 
 @dataclass
 class StrategyResult:
-    direction: str          # "BUY" | "SELL" | "NONE"
-    confidence: float       # 0-100
+    direction: str  # "BUY" | "SELL" | "NONE"
+    confidence: float  # 0-100
     conditions_met: int
     total_conditions: int
     strategy_name: str
@@ -1756,7 +1969,7 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 8
+_TOTAL = 8
 _MIN_MET = 4
 
 
@@ -1779,59 +1992,79 @@ def ema_bounce_strategy(
     """
     close = df["close"].values
     open_ = df["open"].values
-    high  = df["high"].values
-    low   = df["low"].values
-    n     = len(df)
+    high = df["high"].values
+    low = df["low"].values
+    n = len(df)
 
     if n < 8:
         return _none("Мало данных", {"early_reject": "n<8"})
 
     # Hard reject: dead market (EMA bounces work in mild volatility, so lower bar than breakouts)
     if ind.atr_ratio < 0.35:
-        return _none("ATR мёртвый — рынок стоит",
-                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.35",
-                      "atr_ratio": round(ind.atr_ratio, 3)})
+        return _none(
+            "ATR мёртвый — рынок стоит",
+            {
+                "early_reject": f"atr_ratio={round(ind.atr_ratio, 3)}<0.35",
+                "atr_ratio": round(ind.atr_ratio, 3),
+            },
+        )
 
-    price    = close[-1]
-    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    price = close[-1]
+    avg_body = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
 
-    buy_score, buy_met, buy_parts, buy_conds   = _check_buy(close, open_, high, low, n, price, avg_body, ind)
-    sell_score, sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, price, avg_body, ind)
+    buy_score, buy_met, buy_parts, buy_conds = _check_buy(
+        close, open_, high, low, n, price, avg_body, ind
+    )
+    sell_score, sell_met, sell_parts, sell_conds = _check_sell(
+        close, open_, high, low, n, price, avg_body, ind
+    )
 
-    direction      = "NONE"
+    direction = "NONE"
     conditions_met = 0
-    base_conf      = 0.0
-    reason         = "Условия не выполнены"
+    base_conf = 0.0
+    reason = "Условия не выполнены"
 
     # Tiebreaker: if scores are equal, context trend breaks the tie
-    buy_wins  = (buy_met > sell_met) or (buy_met == sell_met and ctx_trend_up  and not ctx_trend_down)
-    sell_wins = (sell_met > buy_met) or (sell_met == buy_met and ctx_trend_down and not ctx_trend_up)
+    buy_wins = (buy_met > sell_met) or (
+        buy_met == sell_met and ctx_trend_up and not ctx_trend_down
+    )
+    sell_wins = (sell_met > buy_met) or (
+        sell_met == buy_met and ctx_trend_down and not ctx_trend_up
+    )
 
     if buy_wins and buy_met >= _MIN_MET:
-        direction      = "BUY"
+        direction = "BUY"
         conditions_met = buy_met
         # Anchored curve: 4→40, 5→50, 6→60, 7→70, 8→80
-        base_conf      = 40 + max(0, buy_met - 4) * 10
-        reason         = " | ".join(buy_parts)
+        base_conf = 40 + max(0, buy_met - 4) * 10
+        reason = " | ".join(buy_parts)
         # Precision touch bonus (very close to EMA13 — within 0.01%)
         if abs(low[-1] - ind.ema13) / price < 0.0001:
             base_conf += 5
         # Small candle shadow (conviction in direction)
-        if abs(close[-1] - open_[-1]) > 0 and (high[-1] - close[-1]) < abs(close[-1] - open_[-1]) * 0.2:
+        if (
+            abs(close[-1] - open_[-1]) > 0
+            and (high[-1] - close[-1]) < abs(close[-1] - open_[-1]) * 0.2
+        ):
             base_conf += 3
         # RSI in comfortable buy zone
         if 45 <= ind.rsi <= 60:
             base_conf += 3
 
     elif sell_wins and sell_met >= _MIN_MET:
-        direction      = "SELL"
+        direction = "SELL"
         conditions_met = sell_met
         # Same anchored curve as buy side: 4→40, 5→50, 6→60, 7→70, 8→80
-        base_conf      = 40 + max(0, sell_met - 4) * 10
-        reason         = " | ".join(sell_parts)
+        base_conf = 40 + max(0, sell_met - 4) * 10
+        reason = " | ".join(sell_parts)
         if abs(high[-1] - ind.ema13) / price < 0.0001:
             base_conf += 5
-        if abs(close[-1] - open_[-1]) > 0 and (close[-1] - low[-1]) < abs(close[-1] - open_[-1]) * 0.2:
+        if (
+            abs(close[-1] - open_[-1]) > 0
+            and (close[-1] - low[-1]) < abs(close[-1] - open_[-1]) * 0.2
+        ):
             base_conf += 3
         if 40 <= ind.rsi <= 55:
             base_conf += 3
@@ -1840,13 +2073,13 @@ def ema_bounce_strategy(
     # A weak bull/bear ratio contradicts the trend classification.
     # If fewer than half the recent candles are in trend direction → -15.
     if direction != "NONE":
-        recent_n   = min(20, n)
-        bull_pct   = float(np.sum(close[-recent_n:] > open_[-recent_n:])) / recent_n * 100
-        bear_pct   = 100.0 - bull_pct
-        if direction == "BUY"  and mode == "TRENDING_UP"   and bull_pct < 50:
+        recent_n = min(20, n)
+        bull_pct = float(np.sum(close[-recent_n:] > open_[-recent_n:])) / recent_n * 100
+        bear_pct = 100.0 - bull_pct
+        if direction == "BUY" and mode == "TRENDING_UP" and bull_pct < 50:
             base_conf -= 15
             reason += f" | ⚠ Слабый тренд (бычьих {bull_pct:.0f}%) -15"
-        if direction == "SELL" and mode == "TRENDING_DOWN"  and bear_pct < 50:
+        if direction == "SELL" and mode == "TRENDING_DOWN" and bear_pct < 50:
             base_conf -= 15
             reason += f" | ⚠ Слабый тренд (медвежьих {bear_pct:.0f}%) -15"
 
@@ -1860,7 +2093,7 @@ def ema_bounce_strategy(
             dist_pct = (nearest_res - price) / price
             if dist_pct < 0.0002:  # within 0.02%
                 base_conf -= 15
-                reason += f" | ⚠ BUY близко к сопротивлению ({dist_pct*100:.3f}%) -15"
+                reason += f" | ⚠ BUY близко к сопротивлению ({dist_pct * 100:.3f}%) -15"
     if direction == "SELL" and levels.supports:
         below_sup = [s for s in levels.supports if s < price]
         if below_sup:
@@ -1868,7 +2101,7 @@ def ema_bounce_strategy(
             dist_pct = (price - nearest_sup) / price
             if dist_pct < 0.0002:  # within 0.02%
                 base_conf -= 15
-                reason += f" | ⚠ SELL близко к поддержке ({dist_pct*100:.3f}%) -15"
+                reason += f" | ⚠ SELL близко к поддержке ({dist_pct * 100:.3f}%) -15"
 
     # ── Exhaustion hard gate ──────────────────────────────────────────────────
     # If RSI/Stoch shows extreme exhaustion in the direction of the signal,
@@ -1878,14 +2111,20 @@ def ema_bounce_strategy(
     if direction == "SELL" and (ind.rsi < 25 or ind.stoch_k < 10):
         return _none(
             f"SELL заблокирован: перепроданность (RSI={ind.rsi:.1f}, Stoch K={ind.stoch_k:.1f})",
-            {"exhaustion_block": "sell_oversold",
-             "rsi": round(ind.rsi, 1), "stoch_k": round(ind.stoch_k, 1)}
+            {
+                "exhaustion_block": "sell_oversold",
+                "rsi": round(ind.rsi, 1),
+                "stoch_k": round(ind.stoch_k, 1),
+            },
         )
     if direction == "BUY" and (ind.rsi > 75 or ind.stoch_k > 90):
         return _none(
             f"BUY заблокирован: перекупленность (RSI={ind.rsi:.1f}, Stoch K={ind.stoch_k:.1f})",
-            {"exhaustion_block": "buy_overbought",
-             "rsi": round(ind.rsi, 1), "stoch_k": round(ind.stoch_k, 1)}
+            {
+                "exhaustion_block": "buy_overbought",
+                "rsi": round(ind.rsi, 1),
+                "stoch_k": round(ind.stoch_k, 1),
+            },
         )
 
     # ── Regime direction filter ───────────────────────────────────────────────
@@ -1895,16 +2134,24 @@ def ema_bounce_strategy(
     if direction == "SELL" and mode == "TRENDING_UP":
         return _none(
             f"SELL заблокирован: режим TRENDING_UP (откат = BUY возможность)",
-            {"regime_block": "sell_in_uptrend",
-             "sell_met": sell_met, "buy_met": buy_met,
-             "sell_conditions": sell_conds, "buy_conditions": buy_conds}
+            {
+                "regime_block": "sell_in_uptrend",
+                "sell_met": sell_met,
+                "buy_met": buy_met,
+                "sell_conditions": sell_conds,
+                "buy_conditions": buy_conds,
+            },
         )
     if direction == "BUY" and mode == "TRENDING_DOWN":
         return _none(
             f"BUY заблокирован: режим TRENDING_DOWN (откат = SELL возможность)",
-            {"regime_block": "buy_in_downtrend",
-             "sell_met": sell_met, "buy_met": buy_met,
-             "sell_conditions": sell_conds, "buy_conditions": buy_conds}
+            {
+                "regime_block": "buy_in_downtrend",
+                "sell_met": sell_met,
+                "buy_met": buy_met,
+                "sell_conditions": sell_conds,
+                "buy_conditions": buy_conds,
+            },
         )
 
     return StrategyResult(
@@ -1915,168 +2162,200 @@ def ema_bounce_strategy(
         strategy_name="ema_bounce",
         reasoning=reason,
         debug={
-            "buy_met": buy_met, "sell_met": sell_met,
+            "buy_met": buy_met,
+            "sell_met": sell_met,
             "buy_conditions": buy_conds,
             "sell_conditions": sell_conds,
-        }
+        },
     )
 
 
 def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
-    met   = 0
+    met = 0
     parts = []
     conds: dict[str, bool] = {}
     check = min(5, n)
 
     # 1. EMA aligned up — relaxed: EMA5 > EMA13 in 3+ of 5 bars, OR EMA5 trending up + 2+ bars
     #    Also requires minimum EMA5-EMA21 spread ≥ 0.005% — flat EMAs don't count as aligned
-    ema5_arr  = ind.ema5_series.iloc[-check:].values
+    ema5_arr = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
     ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
-    ema_spread_pct = abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
-    ema_has_spread = ema_spread_pct >= 0.00005   # 0.005% minimum spread
+    ema_spread_pct = (
+        abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
+    )
+    ema_has_spread = ema_spread_pct >= 0.00005  # 0.005% minimum spread
     c1 = ema_has_spread and (
-        (int(np.sum(ema5_arr > ema13_arr)) >= 3) or
-        (ema5_slope > 0 and int(np.sum(ema5_arr > ema13_arr)) >= 2)
+        (int(np.sum(ema5_arr > ema13_arr)) >= 3)
+        or (ema5_slope > 0 and int(np.sum(ema5_arr > ema13_arr)) >= 2)
     )
     conds["ema_aligned_up"] = c1
     if c1:
-        met += 1; parts.append("EMA выровнены вверх")
+        met += 1
+        parts.append("EMA выровнены вверх")
 
     # 2. Price low touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
     ema13_zone = ind.ema13 * 1.0007
     c2 = any(float(low[-i]) <= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 (±0.07%)")
+        met += 1
+        parts.append("Коснулась EMA13 (±0.07%)")
 
     # 3. Candle closed ABOVE EMA(13)
     c3 = close[-1] > ind.ema13
     conds["close_above_ema13"] = c3
     if c3:
-        met += 1; parts.append("Закрылась выше EMA13")
+        met += 1
+        parts.append("Закрылась выше EMA13")
 
     # 4. Bounce candle is bullish with body > 50% avg_body
     c4 = close[-1] > open_[-1] and abs(close[-1] - open_[-1]) > avg_body * 0.5
     conds["bounce_candle_bullish"] = c4
     if c4:
-        met += 1; parts.append("Бычья свеча отскока")
+        met += 1
+        parts.append("Бычья свеча отскока")
 
     # 5. Real pullback: 3 of 4 previous candles bearish AND at least one closed below EMA13
     c5 = False
     if n >= 5:
         pb_window = range(2, min(6, n))
-        pb_bearish = [close[-i] < open_[-i] or abs(close[-i] - open_[-i]) < avg_body * 0.5
-                      for i in pb_window]
+        pb_bearish = [
+            close[-i] < open_[-i] or abs(close[-i] - open_[-i]) < avg_body * 0.5
+            for i in pb_window
+        ]
         pb_below_ema = any(float(close[-i]) < ind.ema13 for i in pb_window)
         c5 = sum(pb_bearish) >= 3 and pb_below_ema
     conds["real_pullback"] = c5
     if c5:
-        met += 1; parts.append("Откат к EMA13 (3/4 свечи медвежьи, одна под EMA)")
+        met += 1
+        parts.append("Откат к EMA13 (3/4 свечи медвежьи, одна под EMA)")
 
     # 6. RSI(7) between 40 and 70 (not overheated, not oversold)
     c6 = 40 <= ind.rsi <= 70
     conds["rsi_ok"] = c6
     if c6:
-        met += 1; parts.append(f"RSI {ind.rsi:.0f} в норме")
+        met += 1
+        parts.append(f"RSI {ind.rsi:.0f} в норме")
 
     # 7. Stochastic %K > %D (relaxed: no strict cross required)
     c7 = ind.stoch_k > ind.stoch_d
     conds["stoch_turning_up"] = c7
     if c7:
-        met += 1; parts.append(f"Stoch K>D ({ind.stoch_k:.0f}>{ind.stoch_d:.0f})")
+        met += 1
+        parts.append(f"Stoch K>D ({ind.stoch_k:.0f}>{ind.stoch_d:.0f})")
 
     # 8. Bounce candle shows conviction: body > 0.5× avg AND closes in upper 50% of range
     total_range = high[-1] - low[-1]
-    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.5 and
-          total_range > 0 and (close[-1] - low[-1]) / total_range > 0.5)
+    c8 = (
+        abs(close[-1] - open_[-1]) > avg_body * 0.5
+        and total_range > 0
+        and (close[-1] - low[-1]) / total_range > 0.5
+    )
     conds["candle_conviction"] = c8
     if c8:
-        met += 1; parts.append("Свеча закрылась в верхней зоне диапазона")
+        met += 1
+        parts.append("Свеча закрылась в верхней зоне диапазона")
 
     return met, met, parts, conds
 
 
 def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
-    met   = 0
+    met = 0
     parts = []
     conds: dict[str, bool] = {}
     check = min(5, n)
 
     # 1. EMA aligned down — relaxed: EMA5 < EMA13 in 3+ of 5 bars, OR EMA5 trending down + 2+ bars
     #    Also requires minimum EMA5-EMA21 spread ≥ 0.005% — flat EMAs don't count as aligned
-    ema5_arr  = ind.ema5_series.iloc[-check:].values
+    ema5_arr = ind.ema5_series.iloc[-check:].values
     ema13_arr = ind.ema13_series.iloc[-check:].values
     ema21_arr = ind.ema21_series.iloc[-check:].values
     ema5_slope = float(ema5_arr[-1]) - float(ema5_arr[0])
-    ema_spread_pct = abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
-    ema_has_spread = ema_spread_pct >= 0.00005   # 0.005% minimum spread
+    ema_spread_pct = (
+        abs(float(ema5_arr[-1]) - float(ema21_arr[-1])) / price if price else 0
+    )
+    ema_has_spread = ema_spread_pct >= 0.00005  # 0.005% minimum spread
     c1 = ema_has_spread and (
-        (int(np.sum(ema5_arr < ema13_arr)) >= 3) or
-        (ema5_slope < 0 and int(np.sum(ema5_arr < ema13_arr)) >= 2)
+        (int(np.sum(ema5_arr < ema13_arr)) >= 3)
+        or (ema5_slope < 0 and int(np.sum(ema5_arr < ema13_arr)) >= 2)
     )
     conds["ema_aligned_down"] = c1
     if c1:
-        met += 1; parts.append("EMA выровнены вниз")
+        met += 1
+        parts.append("EMA выровнены вниз")
 
     # 2. Price high touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
     ema13_zone = ind.ema13 * 0.9993
     c2 = any(float(high[-i]) >= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 сверху (±0.07%)")
+        met += 1
+        parts.append("Коснулась EMA13 сверху (±0.07%)")
 
     # 3. Candle closed BELOW EMA(13)
     c3 = close[-1] < ind.ema13
     conds["close_below_ema13"] = c3
     if c3:
-        met += 1; parts.append("Закрылась ниже EMA13")
+        met += 1
+        parts.append("Закрылась ниже EMA13")
 
     # 4. Bounce candle is bearish with body > 50% avg_body
     c4 = close[-1] < open_[-1] and abs(close[-1] - open_[-1]) > avg_body * 0.5
     conds["bounce_candle_bearish"] = c4
     if c4:
-        met += 1; parts.append("Медвежья свеча отскока")
+        met += 1
+        parts.append("Медвежья свеча отскока")
 
     # 5. Real pullback: 3 of 4 previous candles bullish AND at least one closed above EMA13
     c5 = False
     if n >= 5:
         pb_window = range(2, min(6, n))
-        pb_bullish = [close[-i] > open_[-i] or abs(close[-i] - open_[-i]) < avg_body * 0.5
-                      for i in pb_window]
+        pb_bullish = [
+            close[-i] > open_[-i] or abs(close[-i] - open_[-i]) < avg_body * 0.5
+            for i in pb_window
+        ]
         pb_above_ema = any(float(close[-i]) > ind.ema13 for i in pb_window)
         c5 = sum(pb_bullish) >= 3 and pb_above_ema
     conds["real_pullback"] = c5
     if c5:
-        met += 1; parts.append("Откат к EMA13 (3/4 свечи бычьи, одна над EMA)")
+        met += 1
+        parts.append("Откат к EMA13 (3/4 свечи бычьи, одна над EMA)")
 
     # 6. RSI(7) between 30 and 60
     c6 = 30 <= ind.rsi <= 60
     conds["rsi_ok"] = c6
     if c6:
-        met += 1; parts.append(f"RSI {ind.rsi:.0f} в норме")
+        met += 1
+        parts.append(f"RSI {ind.rsi:.0f} в норме")
 
     # 7. Stochastic %K < %D (relaxed: no strict cross required)
     c7 = ind.stoch_k < ind.stoch_d
     conds["stoch_turning_down"] = c7
     if c7:
-        met += 1; parts.append(f"Stoch K<D ({ind.stoch_k:.0f}<{ind.stoch_d:.0f})")
+        met += 1
+        parts.append(f"Stoch K<D ({ind.stoch_k:.0f}<{ind.stoch_d:.0f})")
 
     # 8. Bounce candle shows conviction: body > 0.5× avg AND closes in lower 50% of range
     total_range = high[-1] - low[-1]
-    c8 = (abs(close[-1] - open_[-1]) > avg_body * 0.5 and
-          total_range > 0 and (high[-1] - close[-1]) / total_range > 0.5)
+    c8 = (
+        abs(close[-1] - open_[-1]) > avg_body * 0.5
+        and total_range > 0
+        and (high[-1] - close[-1]) / total_range > 0.5
+    )
     conds["candle_conviction"] = c8
     if c8:
-        met += 1; parts.append("Свеча закрылась в нижней зоне диапазона")
+        met += 1
+        parts.append("Свеча закрылась в нижней зоне диапазона")
 
     return met, met, parts, conds
 
 
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "ema_bounce", reason,
-                          extra or {})
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "ema_bounce", reason, extra or {})
+
+
 """
 Strategy 3 — Level Bounce (1m levels + 15s entry)
 
@@ -2109,15 +2388,18 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL        = 6
-_MIN_MET      = 4
-_CLUSTER_PCT  = 0.0003   # 0.03% — cluster radius for grouping nearby pivots
-_APPROACH_PCT = 0.0005   # 0.05% — price is "at level" within this distance
+_TOTAL = 6
+_MIN_MET = 4
+_CLUSTER_PCT = 0.0003  # 0.03% — cluster radius for grouping nearby pivots
+_APPROACH_PCT = 0.0005  # 0.05% — price is "at level" within this distance
 
 
 # ── 1m level detection ────────────────────────────────────────────────────────
 
-def find_1m_levels(df1m: pd.DataFrame) -> tuple[list[tuple[float, int]], list[tuple[float, int]]]:
+
+def find_1m_levels(
+    df1m: pd.DataFrame,
+) -> tuple[list[tuple[float, int]], list[tuple[float, int]]]:
     """
     Scan last 50 1m candles for S/R levels.
     Returns (supports, resistances) as list of (price, touch_count) tuples,
@@ -2125,7 +2407,7 @@ def find_1m_levels(df1m: pd.DataFrame) -> tuple[list[tuple[float, int]], list[tu
     """
     n = min(50, len(df1m))
     highs = df1m["high"].values[-n:].astype(float)
-    lows  = df1m["low"].values[-n:].astype(float)
+    lows = df1m["low"].values[-n:].astype(float)
 
     res_prices: list[float] = []
     for i in range(1, n - 1):
@@ -2161,11 +2443,12 @@ def find_1m_levels(df1m: pd.DataFrame) -> tuple[list[tuple[float, int]], list[tu
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+
 def level_bounce_strategy(
-    df: pd.DataFrame,                       # 15s candles (entry timing)
+    df: pd.DataFrame,  # 15s candles (entry timing)
     ind: Indicators,
-    levels: LevelSet,                       # kept for API compatibility
-    df1m_ctx: pd.DataFrame | None = None,   # 1m candles (level detection)
+    levels: LevelSet,  # kept for API compatibility
+    df1m_ctx: pd.DataFrame | None = None,  # 1m candles (level detection)
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
@@ -2178,40 +2461,67 @@ def level_bounce_strategy(
         return _none("Мало 15s данных", {"early_reject": "n<6"})
 
     if ind.atr_ratio < 0.30:
-        return _none("ATR мёртвый",
-                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.30"})
+        return _none(
+            "ATR мёртвый", {"early_reject": f"atr_ratio={round(ind.atr_ratio, 3)}<0.30"}
+        )
 
-    close    = df["close"].values
-    open_    = df["open"].values
-    high     = df["high"].values
-    low      = df["low"].values
-    price    = float(close[-1])
-    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    close = df["close"].values
+    open_ = df["open"].values
+    high = df["high"].values
+    low = df["low"].values
+    price = float(close[-1])
+    avg_body = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
 
     # STEP 1 — find 1m levels
     sup_levels, res_levels = find_1m_levels(df1m_ctx)
 
     # STEP 2 — evaluate each direction (always returns full condition set for debug)
-    best_buy  = _eval_buy(close, open_, high, low, n, price, avg_body, ind,
-                          sup_levels, res_levels, mode, ctx_trend_up)
-    best_sell = _eval_sell(close, open_, high, low, n, price, avg_body, ind,
-                           res_levels, sup_levels, mode, ctx_trend_down)
+    best_buy = _eval_buy(
+        close,
+        open_,
+        high,
+        low,
+        n,
+        price,
+        avg_body,
+        ind,
+        sup_levels,
+        res_levels,
+        mode,
+        ctx_trend_up,
+    )
+    best_sell = _eval_sell(
+        close,
+        open_,
+        high,
+        low,
+        n,
+        price,
+        avg_body,
+        ind,
+        res_levels,
+        sup_levels,
+        mode,
+        ctx_trend_down,
+    )
 
-    direction      = "NONE"
+    direction = "NONE"
     conditions_met = 0
-    base_conf      = 0.0
-    reason         = "Уровень не найден или нет паттерна"
+    base_conf = 0.0
+    reason = "Уровень не найден или нет паттерна"
 
     if best_buy["met"] >= _MIN_MET and best_buy["conf"] > best_sell["conf"]:
-        direction      = "BUY"
+        direction = "BUY"
         conditions_met = best_buy["met"]
-        base_conf      = best_buy["conf"]
-        reason         = best_buy["reason"]
+        base_conf = best_buy["conf"]
+        reason = best_buy["reason"]
     elif best_sell["met"] >= _MIN_MET and best_sell["conf"] > best_buy["conf"]:
-        direction      = "SELL"
+        direction = "SELL"
         conditions_met = best_sell["met"]
-        base_conf      = best_sell["conf"]
-        reason         = best_sell["reason"]
+        base_conf = best_sell["conf"]
+        reason = best_sell["reason"]
 
     return StrategyResult(
         direction=direction,
@@ -2221,22 +2531,35 @@ def level_bounce_strategy(
         strategy_name="level_bounce",
         reasoning=reason,
         debug={
-            "buy_score":       best_buy["conf"],
-            "sell_score":      best_sell["conf"],
-            "buy_conditions":  best_buy["conds"],
+            "buy_score": best_buy["conf"],
+            "sell_score": best_sell["conf"],
+            "buy_conditions": best_buy["conds"],
             "sell_conditions": best_sell["conds"],
-            "buy_met":         best_buy["met"],
-            "sell_met":        best_sell["met"],
-            "sup_levels_1m":   [(round(p, 5), t) for p, t in sup_levels[:5]],
-            "res_levels_1m":   [(round(p, 5), t) for p, t in res_levels[:5]],
-        }
+            "buy_met": best_buy["met"],
+            "sell_met": best_sell["met"],
+            "sup_levels_1m": [(round(p, 5), t) for p, t in sup_levels[:5]],
+            "res_levels_1m": [(round(p, 5), t) for p, t in res_levels[:5]],
+        },
     )
 
 
 # ── BUY: bounce from 1m support ───────────────────────────────────────────────
 
-def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
-              sup_levels, res_levels, mode, ctx_confirms: bool = False) -> dict:
+
+def _eval_buy(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    price,
+    avg_body,
+    ind,
+    sup_levels,
+    res_levels,
+    mode,
+    ctx_confirms: bool = False,
+) -> dict:
     """
     Evaluate all 6 conditions for every candidate support level.
     Always returns the best partial result (most conditions met),
@@ -2250,7 +2573,7 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             continue
 
         conds: dict[str, bool] = {}
-        met   = 0
+        met = 0
         parts: list[str] = []
 
         # 1. Strong 1m level: 2+ touches
@@ -2261,8 +2584,8 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
 
         # 2. Price at level: close or low of last 4 15s candles within 0.05%
         c2 = any(
-            abs(float(low[-i])   - sup_price) / sup_price < _APPROACH_PCT or
-            abs(float(close[-i]) - sup_price) / sup_price < _APPROACH_PCT
+            abs(float(low[-i]) - sup_price) / sup_price < _APPROACH_PCT
+            or abs(float(close[-i]) - sup_price) / sup_price < _APPROACH_PCT
             for i in range(1, min(5, n))
         )
         conds["price_at_level"] = c2
@@ -2271,7 +2594,7 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
             parts.append("Цена у уровня (±0.05%)")
 
         # 3. Rejection candle 15s: lower wick > 2x body
-        body     = abs(float(close[-1]) - float(open_[-1]))
+        body = abs(float(close[-1]) - float(open_[-1]))
         wick_low = min(float(close[-1]), float(open_[-1])) - float(low[-1])
         c3 = (wick_low > 2.0 * body) if body > 1e-10 else (wick_low > avg_body * 0.5)
         conds["rejection_candle_15s"] = c3
@@ -2296,7 +2619,11 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
 
         # 6. Room to target: > 0.025% to nearest resistance
         nearest_res = res_levels[0][0] if res_levels else None
-        room = (nearest_res - price) / price * 100 if (nearest_res and nearest_res > price) else 0.0
+        room = (
+            (nearest_res - price) / price * 100
+            if (nearest_res and nearest_res > price)
+            else 0.0
+        )
         c6 = room > 0.025
         conds["room_to_target"] = c6
         if c6:
@@ -2307,14 +2634,17 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         conf = 0.0
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
-            if touch_count >= 3: conf += 5
-            if mode == "RANGE":  conf += 5   # range bonus
-            if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
+            if touch_count >= 3:
+                conf += 5
+            if mode == "RANGE":
+                conf += 5  # range bonus
+            if ctx_confirms:
+                conf += 5  # 1m MTF trend confirms direction
             # Precision level touch bonus: price within 0.01% of support → +10
             # Boosts level_bounce over conflicting ema_bounce when price is exactly at level
             dist_pct = min(
                 abs(float(close[-1]) - sup_price) / sup_price,
-                abs(float(low[-1])   - sup_price) / sup_price,
+                abs(float(low[-1]) - sup_price) / sup_price,
             )
             if dist_pct < 0.0001:  # < 0.01%
                 conf += 10
@@ -2323,15 +2653,33 @@ def _eval_buy(close, open_, high, low, n, price, avg_body, ind,
         # Always update best if this level has more conditions met
         # (so debug always shows full condition set, even below threshold)
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
-            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+            best = {
+                "met": met,
+                "conf": conf,
+                "reason": " | ".join(parts),
+                "conds": conds,
+            }
 
     return best
 
 
 # ── SELL: bounce from 1m resistance ──────────────────────────────────────────
 
-def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
-               res_levels, sup_levels, mode, ctx_confirms: bool = False) -> dict:
+
+def _eval_sell(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    price,
+    avg_body,
+    ind,
+    res_levels,
+    sup_levels,
+    mode,
+    ctx_confirms: bool = False,
+) -> dict:
     """
     Evaluate all 6 conditions for every candidate resistance level.
     Always returns the best partial result for debug visibility.
@@ -2344,7 +2692,7 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             continue
 
         conds: dict[str, bool] = {}
-        met   = 0
+        met = 0
         parts: list[str] = []
 
         # 1. Strong 1m level
@@ -2355,8 +2703,8 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
 
         # 2. Price at level: close or high of last 4 15s candles within 0.05%
         c2 = any(
-            abs(float(high[-i])  - res_price) / res_price < _APPROACH_PCT or
-            abs(float(close[-i]) - res_price) / res_price < _APPROACH_PCT
+            abs(float(high[-i]) - res_price) / res_price < _APPROACH_PCT
+            or abs(float(close[-i]) - res_price) / res_price < _APPROACH_PCT
             for i in range(1, min(5, n))
         )
         conds["price_at_level"] = c2
@@ -2365,7 +2713,7 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
             parts.append("Цена у уровня (±0.05%)")
 
         # 3. Rejection candle 15s: upper wick > 2x body
-        body      = abs(float(close[-1]) - float(open_[-1]))
+        body = abs(float(close[-1]) - float(open_[-1]))
         wick_high = float(high[-1]) - max(float(close[-1]), float(open_[-1]))
         c3 = (wick_high > 2.0 * body) if body > 1e-10 else (wick_high > avg_body * 0.5)
         conds["rejection_candle_15s"] = c3
@@ -2390,7 +2738,11 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
 
         # 6. Room to target: > 0.025% to nearest support
         nearest_sup = sup_levels[0][0] if sup_levels else None
-        room = (price - nearest_sup) / price * 100 if (nearest_sup and nearest_sup < price) else 0.0
+        room = (
+            (price - nearest_sup) / price * 100
+            if (nearest_sup and nearest_sup < price)
+            else 0.0
+        )
         c6 = room > 0.025
         conds["room_to_target"] = c6
         if c6:
@@ -2400,28 +2752,39 @@ def _eval_sell(close, open_, high, low, n, price, avg_body, ind,
         conf = 0.0
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
-            if touch_count >= 3: conf += 5
-            if mode == "RANGE":  conf += 5   # range bonus
-            if ctx_confirms:     conf += 5   # 1m MTF trend confirms direction
+            if touch_count >= 3:
+                conf += 5
+            if mode == "RANGE":
+                conf += 5  # range bonus
+            if ctx_confirms:
+                conf += 5  # 1m MTF trend confirms direction
             # Precision level touch bonus: price within 0.01% of resistance → +10
             dist_pct = min(
                 abs(float(close[-1]) - res_price) / res_price,
-                abs(float(high[-1])  - res_price) / res_price,
+                abs(float(high[-1]) - res_price) / res_price,
             )
             if dist_pct < 0.0001:  # < 0.01%
                 conf += 10
                 parts.append("Точное касание уровня (<0.01%) +10")
 
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
-            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+            best = {
+                "met": met,
+                "conf": conf,
+                "reason": " | ".join(parts),
+                "conds": conds,
+            }
 
     return best
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:
     return StrategyResult("NONE", 0.0, 0, _TOTAL, "level_bounce", reason, extra or {})
+
+
 """
 Strategy 7 — Level Breakout (1m levels + 15s entry)
 
@@ -2451,15 +2814,15 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 6
+_TOTAL = 6
 _MIN_MET = 4
 
 
 def level_breakout_strategy(
-    df: pd.DataFrame,                       # 15s candles (entry timing)
+    df: pd.DataFrame,  # 15s candles (entry timing)
     ind: Indicators,
-    levels: LevelSet,                       # kept for API compatibility
-    df1m_ctx: pd.DataFrame | None = None,   # 1m candles (level detection)
+    levels: LevelSet,  # kept for API compatibility
+    df1m_ctx: pd.DataFrame | None = None,  # 1m candles (level detection)
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
@@ -2472,38 +2835,44 @@ def level_breakout_strategy(
         return _none("Мало 15s данных", {"early_reject": "n<6"})
 
     if ind.atr_ratio < 0.40:
-        return _none("ATR слишком мал для пробоя",
-                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.40"})
+        return _none(
+            "ATR слишком мал для пробоя",
+            {"early_reject": f"atr_ratio={round(ind.atr_ratio, 3)}<0.40"},
+        )
 
-    close    = df["close"].values
-    open_    = df["open"].values
-    high     = df["high"].values
-    low      = df["low"].values
-    price    = float(close[-1])
-    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    close = df["close"].values
+    open_ = df["open"].values
+    high = df["high"].values
+    low = df["low"].values
+    price = float(close[-1])
+    avg_body = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
 
     sup_levels, res_levels = find_1m_levels(df1m_ctx)
 
-    best_buy  = _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
-                                   ind, res_levels, mode)
-    best_sell = _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
-                                    ind, sup_levels, mode)
+    best_buy = _eval_breakout_buy(
+        close, open_, high, low, n, price, avg_body, ind, res_levels, mode
+    )
+    best_sell = _eval_breakout_sell(
+        close, open_, high, low, n, price, avg_body, ind, sup_levels, mode
+    )
 
-    direction      = "NONE"
+    direction = "NONE"
     conditions_met = 0
-    base_conf      = 0.0
-    reason         = "Нет пробоя уровня"
+    base_conf = 0.0
+    reason = "Нет пробоя уровня"
 
     if best_buy["met"] >= _MIN_MET and best_buy["conf"] > best_sell["conf"]:
-        direction      = "BUY"
+        direction = "BUY"
         conditions_met = best_buy["met"]
-        base_conf      = best_buy["conf"]
-        reason         = best_buy["reason"]
+        base_conf = best_buy["conf"]
+        reason = best_buy["reason"]
     elif best_sell["met"] >= _MIN_MET and best_sell["conf"] > best_buy["conf"]:
-        direction      = "SELL"
+        direction = "SELL"
         conditions_met = best_sell["met"]
-        base_conf      = best_sell["conf"]
-        reason         = best_sell["reason"]
+        base_conf = best_sell["conf"]
+        reason = best_sell["reason"]
 
     return StrategyResult(
         direction=direction,
@@ -2513,22 +2882,24 @@ def level_breakout_strategy(
         strategy_name="level_breakout",
         reasoning=reason,
         debug={
-            "buy_score":       best_buy["conf"],
-            "sell_score":      best_sell["conf"],
-            "buy_conditions":  best_buy["conds"],
+            "buy_score": best_buy["conf"],
+            "sell_score": best_sell["conf"],
+            "buy_conditions": best_buy["conds"],
             "sell_conditions": best_sell["conds"],
-            "buy_met":         best_buy["met"],
-            "sell_met":        best_sell["met"],
-            "sup_levels_1m":   [(round(p, 5), t) for p, t in sup_levels[:5]],
-            "res_levels_1m":   [(round(p, 5), t) for p, t in res_levels[:5]],
-        }
+            "buy_met": best_buy["met"],
+            "sell_met": best_sell["met"],
+            "sup_levels_1m": [(round(p, 5), t) for p, t in sup_levels[:5]],
+            "res_levels_1m": [(round(p, 5), t) for p, t in res_levels[:5]],
+        },
     )
 
 
 # ── BUY: breakout above 1m resistance ────────────────────────────────────────
 
-def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
-                       ind, res_levels, mode) -> dict:
+
+def _eval_breakout_buy(
+    close, open_, high, low, n, price, avg_body, ind, res_levels, mode
+) -> dict:
     """
     Evaluate all 6 conditions for every resistance level with 3+ touches.
     Always returns best partial result for debug visibility.
@@ -2540,7 +2911,7 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
             continue
 
         conds: dict[str, bool] = {}
-        met   = 0
+        met = 0
         parts: list[str] = []
 
         # 1. tested_level: 3+ touches on 1m chart
@@ -2562,7 +2933,7 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
         conds["momentum_candle"] = c3
         if c3:
             met += 1
-            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            parts.append(f"Импульс (тело {body / avg_body:.1f}x avg)")
 
         # 4. follow_through: previous 15s candle also bullish
         c4 = n >= 2 and float(close[-2]) > float(open_[-2])
@@ -2588,18 +2959,26 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
         conf = 0.0
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
-            if touch_count >= 4: conf += 5
+            if touch_count >= 4:
+                conf += 5
 
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
-            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+            best = {
+                "met": met,
+                "conf": conf,
+                "reason": " | ".join(parts),
+                "conds": conds,
+            }
 
     return best
 
 
 # ── SELL: breakout below 1m support ──────────────────────────────────────────
 
-def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
-                        ind, sup_levels, mode) -> dict:
+
+def _eval_breakout_sell(
+    close, open_, high, low, n, price, avg_body, ind, sup_levels, mode
+) -> dict:
     """
     Evaluate all 6 conditions for every support level with 3+ touches.
     Always returns best partial result for debug visibility.
@@ -2611,7 +2990,7 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
             continue
 
         conds: dict[str, bool] = {}
-        met   = 0
+        met = 0
         parts: list[str] = []
 
         # 1. tested_level: 3+ touches
@@ -2633,7 +3012,7 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
         conds["momentum_candle"] = c3
         if c3:
             met += 1
-            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            parts.append(f"Импульс (тело {body / avg_body:.1f}x avg)")
 
         # 4. follow_through: previous 15s candle also bearish
         c4 = n >= 2 and float(close[-2]) < float(open_[-2])
@@ -2659,18 +3038,27 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
         conf = 0.0
         if met >= _MIN_MET:
             conf = 40 + max(0, met - 4) * 10
-            if touch_count >= 4: conf += 5
+            if touch_count >= 4:
+                conf += 5
 
         if met > best["met"] or (met >= _MIN_MET and conf > best["conf"]):
-            best = {"met": met, "conf": conf, "reason": " | ".join(parts), "conds": conds}
+            best = {
+                "met": met,
+                "conf": conf,
+                "reason": " | ".join(parts),
+                "conds": conds,
+            }
 
     return best
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:
     return StrategyResult("NONE", 0.0, 0, _TOTAL, "level_breakout", reason, extra or {})
+
+
 """
 Strategy 2 — Squeeze Breakout
 Scenario: Market compressed (small candles, low ATR, narrow BB).
@@ -2708,27 +3096,39 @@ def squeeze_breakout_strategy(
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
-    high  = df["high"].values
-    low   = df["low"].values
-    n     = len(df)
+    high = df["high"].values
+    low = df["low"].values
+    n = len(df)
 
     if n < 15:
         return _none("Мало данных", {"early_reject": "n<15"})
 
     # Squeeze breakouts need real energy to follow through
     if ind.atr_ratio < 0.50:
-        return _none("ATR слишком мал для пробоя",
-                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.50",
-                      "atr_ratio": round(ind.atr_ratio, 3)})
+        return _none(
+            "ATR слишком мал для пробоя",
+            {
+                "early_reject": f"atr_ratio={round(ind.atr_ratio, 3)}<0.50",
+                "atr_ratio": round(ind.atr_ratio, 3),
+            },
+        )
 
-    price    = close[-1]
-    avg_body_30 = float(np.mean(np.abs(close[-min(30, n):] - open_[-min(30, n):]))) or 1e-8
-    avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
-    curr_body   = abs(close[-1] - open_[-1])
+    price = close[-1]
+    avg_body_30 = (
+        float(np.mean(np.abs(close[-min(30, n) :] - open_[-min(30, n) :]))) or 1e-8
+    )
+    avg_body_10 = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
+    curr_body = abs(close[-1] - open_[-1])
 
     # ── BUY / SELL check ───────────────────────────────────────────────────────
-    buy_met, buy_parts, buy_conds   = _check_buy(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
-    sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels)
+    buy_met, buy_parts, buy_conds = _check_buy(
+        close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels
+    )
+    sell_met, sell_parts, sell_conds = _check_sell(
+        close, open_, high, low, n, ind, avg_body_30, avg_body_10, curr_body, levels
+    )
 
     direction = "NONE"
     conditions_met = 0
@@ -2736,25 +3136,37 @@ def squeeze_breakout_strategy(
     reason = "Условия не выполнены"
 
     if buy_met > sell_met and buy_met >= 4:
-        direction      = "BUY"
+        direction = "BUY"
         conditions_met = buy_met
-        base_conf      = buy_met / _TOTAL * 80
-        reason         = " | ".join(buy_parts)
+        base_conf = buy_met / _TOTAL * 80
+        reason = " | ".join(buy_parts)
         # Squeeze duration bonus — check if last 8+ candles were all small
-        small_run = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-        if small_run >= 8:  base_conf += 5
-        if close[-1] > ind.bb_upper:  base_conf += 5   # broke BB
+        small_run = sum(
+            1
+            for i in range(1, min(9, n))
+            if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6
+        )
+        if small_run >= 8:
+            base_conf += 5
+        if close[-1] > ind.bb_upper:
+            base_conf += 5  # broke BB
         if ind.momentum > ind.momentum_prev * 2 and ind.momentum > 0:
             base_conf += 3
 
     elif sell_met > buy_met and sell_met >= 4:
-        direction      = "SELL"
+        direction = "SELL"
         conditions_met = sell_met
-        base_conf      = sell_met / _TOTAL * 80
-        reason         = " | ".join(sell_parts)
-        small_run = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6)
-        if small_run >= 8:  base_conf += 5
-        if close[-1] < ind.bb_lower:  base_conf += 5
+        base_conf = sell_met / _TOTAL * 80
+        reason = " | ".join(sell_parts)
+        small_run = sum(
+            1
+            for i in range(1, min(9, n))
+            if abs(close[-i] - open_[-i]) < avg_body_30 * 0.6
+        )
+        if small_run >= 8:
+            base_conf += 5
+        if close[-1] < ind.bb_lower:
+            base_conf += 5
         if ind.momentum < ind.momentum_prev * 2 and ind.momentum < 0:
             base_conf += 3
 
@@ -2766,15 +3178,27 @@ def squeeze_breakout_strategy(
         strategy_name="squeeze_breakout",
         reasoning=reason,
         debug={
-            "buy_met": buy_met, "sell_met": sell_met,
+            "buy_met": buy_met,
+            "sell_met": sell_met,
             "avg_body_30": round(avg_body_30, 6),
             "buy_conditions": buy_conds,
             "sell_conditions": sell_conds,
-        }
+        },
     )
 
 
-def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_body_10, curr_body, levels: LevelSet):
+def _check_buy(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    ind: Indicators,
+    avg_body_30,
+    avg_body_10,
+    curr_body,
+    levels: LevelSet,
+):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -2784,34 +3208,44 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     c0 = ind.rsi < 70 and ind.stoch_k < 85
     conds["not_exhausted"] = c0
     if not c0:
-        parts.append(f"Перекупленность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск")
+        parts.append(
+            f"Перекупленность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск"
+        )
         return 0, parts, conds
 
     # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
     c1 = ind.atr_ratio < 0.85
     conds["atr_compressed"] = c1
     if c1:
-        met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
+        met += 1
+        parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
     # 2. Small candles — relaxed: 4+ of 8 bodies < 75% of avg_30 (was 5+, threshold 60%)
-    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75)
+    small_recent = sum(
+        1
+        for i in range(1, min(9, n))
+        if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75
+    )
     c2 = small_recent >= 4
     conds["small_candles_compressed"] = c2
     if c2:
-        met += 1; parts.append(f"Сжатые свечи ({small_recent} из последних 8)")
+        met += 1
+        parts.append(f"Сжатые свечи ({small_recent} из последних 8)")
 
     # 3. Current candle body > 1.5× avg body of last 10 and bullish (relaxed from 2.0×)
     c3 = curr_body > avg_body_10 * 1.5 and close[-1] > open_[-1]
     conds["breakout_candle_bullish"] = c3
     if c3:
-        met += 1; parts.append(f"Пробойная бычья свеча (×{curr_body/avg_body_10:.1f})")
+        met += 1
+        parts.append(f"Пробойная бычья свеча (×{curr_body / avg_body_10:.1f})")
 
     # 4. Close > upper BB or > highest high of last 8 candles
-    high_8 = float(max(high[-min(9, n):-1])) if n >= 2 else float(high[-1])
+    high_8 = float(max(high[-min(9, n) : -1])) if n >= 2 else float(high[-1])
     c4 = close[-1] > ind.bb_upper or close[-1] > high_8
     conds["breaks_bb_or_range"] = c4
     if c4:
-        met += 1; parts.append("Пробой вверх (BB/диапазон)")
+        met += 1
+        parts.append("Пробой вверх (BB/диапазон)")
 
     # 5. Shadow against direction < 30% of candle range
     total_range = high[-1] - low[-1]
@@ -2819,31 +3253,45 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bod
     c5 = total_range > 0 and upper_shadow / total_range < 0.3
     conds["small_upper_shadow"] = c5
     if c5:
-        met += 1; parts.append("Малая верхняя тень")
+        met += 1
+        parts.append("Малая верхняя тень")
 
     # 6. Momentum > 0 and positive
     c6 = ind.momentum > 0
     conds["momentum_positive"] = c6
     if c6:
-        met += 1; parts.append(f"Моментум растёт ({ind.momentum:+.5f})")
+        met += 1
+        parts.append(f"Моментум растёт ({ind.momentum:+.5f})")
 
     # 7. EMA(5) turning up or already > EMA(13)
     c7 = ind.ema5 >= ind.ema13 or ind.ema5 > float(ind.ema5_series.iloc[-2])
     conds["ema5_turning_up"] = c7
     if c7:
-        met += 1; parts.append("EMA5 поворачивает вверх")
+        met += 1
+        parts.append("EMA5 поворачивает вверх")
 
     # Penalty: shadow > 60% of body or running into strong resistance
     upper_shadow_body = upper_shadow / (curr_body + 1e-10)
     if upper_shadow_body > 0.6:
-        met = max(0, met - 2)   # heavy penalty
+        met = max(0, met - 2)  # heavy penalty
     if levels.dist_to_res_pct < 0.05:
         met = max(0, met - 2)
 
     return met, parts, conds
 
 
-def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_body_10, curr_body, levels: LevelSet):
+def _check_sell(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    ind: Indicators,
+    avg_body_30,
+    avg_body_10,
+    curr_body,
+    levels: LevelSet,
+):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -2853,53 +3301,66 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
     c0 = ind.rsi > 30 and ind.stoch_k > 15
     conds["not_exhausted"] = c0
     if not c0:
-        parts.append(f"Перепроданность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск")
+        parts.append(
+            f"Перепроданность (RSI={ind.rsi:.1f}, StochK={ind.stoch_k:.1f}) — пропуск"
+        )
         return 0, parts, conds
 
     # 1. ATR compressed — relaxed: < 0.85× avg30 (was 0.70×)
     c1 = ind.atr_ratio < 0.85
     conds["atr_compressed"] = c1
     if c1:
-        met += 1; parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
+        met += 1
+        parts.append(f"ATR сжат ×{ind.atr_ratio:.2f}")
 
     # 2. Small candles — relaxed: 4+ of 8 bodies < 75% of avg_30 (was 5+, threshold 60%)
-    small_recent = sum(1 for i in range(1, min(9, n)) if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75)
+    small_recent = sum(
+        1
+        for i in range(1, min(9, n))
+        if abs(close[-i] - open_[-i]) < avg_body_30 * 0.75
+    )
     c2 = small_recent >= 4
     conds["small_candles_compressed"] = c2
     if c2:
-        met += 1; parts.append(f"Сжатые свечи ({small_recent})")
+        met += 1
+        parts.append(f"Сжатые свечи ({small_recent})")
 
     # 3. Current candle body > 1.5× avg body of last 10 and bearish (relaxed from 2.0×)
     c3 = curr_body > avg_body_10 * 1.5 and close[-1] < open_[-1]
     conds["breakout_candle_bearish"] = c3
     if c3:
-        met += 1; parts.append(f"Пробойная медвежья свеча (×{curr_body/avg_body_10:.1f})")
+        met += 1
+        parts.append(f"Пробойная медвежья свеча (×{curr_body / avg_body_10:.1f})")
 
-    low_8 = float(min(low[-min(9, n):-1])) if n >= 2 else float(low[-1])
+    low_8 = float(min(low[-min(9, n) : -1])) if n >= 2 else float(low[-1])
     c4 = close[-1] < ind.bb_lower or close[-1] < low_8
     conds["breaks_bb_or_range"] = c4
     if c4:
-        met += 1; parts.append("Пробой вниз (BB/диапазон)")
+        met += 1
+        parts.append("Пробой вниз (BB/диапазон)")
 
     total_range = high[-1] - low[-1]
     lower_shadow = min(close[-1], open_[-1]) - low[-1]
     c5 = total_range > 0 and lower_shadow / total_range < 0.3
     conds["small_lower_shadow"] = c5
     if c5:
-        met += 1; parts.append("Малая нижняя тень")
+        met += 1
+        parts.append("Малая нижняя тень")
 
     c6 = ind.momentum < 0
     conds["momentum_negative"] = c6
     if c6:
-        met += 1; parts.append(f"Моментум падает ({ind.momentum:+.5f})")
+        met += 1
+        parts.append(f"Моментум падает ({ind.momentum:+.5f})")
 
     c7 = ind.ema5 <= ind.ema13 or ind.ema5 < float(ind.ema5_series.iloc[-2])
     conds["ema5_turning_down"] = c7
     if c7:
-        met += 1; parts.append("EMA5 поворачивает вниз")
+        met += 1
+        parts.append("EMA5 поворачивает вниз")
 
     lower_shadow_body = lower_shadow / (curr_body + 1e-10)
-    if lower_shadow_body > 0.6:   # relaxed from 0.5
+    if lower_shadow_body > 0.6:  # relaxed from 0.5
         met = max(0, met - 2)
     if levels.dist_to_sup_pct < 0.05:
         met = max(0, met - 2)
@@ -2908,8 +3369,11 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, avg_body_30, avg_bo
 
 
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "squeeze_breakout", reason,
-                          extra or {})
+    return StrategyResult(
+        "NONE", 0.0, 0, _TOTAL, "squeeze_breakout", reason, extra or {}
+    )
+
+
 """
 Strategy 4 — RSI Extreme Reversal
 Scenario: Strong one-directional move pushed RSI to extreme (<25 or >75).
@@ -2940,7 +3404,7 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 8
+_TOTAL = 8
 _MIN_MET = 5
 
 
@@ -2953,9 +3417,9 @@ def rsi_reversal_strategy(
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
-    high  = df["high"].values
-    low   = df["low"].values
-    n     = len(df)
+    high = df["high"].values
+    low = df["low"].values
+    n = len(df)
 
     if n < 8:
         return _none("Мало данных")
@@ -2968,20 +3432,26 @@ def rsi_reversal_strategy(
     if 25 <= ind.rsi <= 75:
         return _none(f"RSI {ind.rsi:.0f} не в экстремуме (нужно <25 или >75)")
 
-    avg_body  = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
-    avg_range = float(np.mean(high[-min(10, n):] - low[-min(10, n):])) or 1e-8
+    avg_body = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
+    avg_range = float(np.mean(high[-min(10, n) :] - low[-min(10, n) :])) or 1e-8
 
     if ind.rsi < 25:
         # Hard reject: price at resistance — no room to go up
         if levels.dist_to_res_pct < 0.05:
             return _none("Цена у сопротивления — нет места для роста")
-        met, conf, parts = _check_buy(close, open_, high, low, n, ind, levels, avg_body, avg_range)
+        met, conf, parts = _check_buy(
+            close, open_, high, low, n, ind, levels, avg_body, avg_range
+        )
         direction = "BUY"
     else:
         # Hard reject: price at support — no room to go down
         if levels.dist_to_sup_pct < 0.05:
             return _none("Цена у поддержки — нет места для падения")
-        met, conf, parts = _check_sell(close, open_, high, low, n, ind, levels, avg_body, avg_range)
+        met, conf, parts = _check_sell(
+            close, open_, high, low, n, ind, levels, avg_body, avg_range
+        )
         direction = "SELL"
 
     if met < _MIN_MET:
@@ -2995,18 +3465,27 @@ def rsi_reversal_strategy(
         strategy_name="rsi_reversal",
         reasoning="RSI разворот: " + " | ".join(parts),
         debug={
-            "rsi":      round(ind.rsi, 1),
+            "rsi": round(ind.rsi, 1),
             "rsi_prev": round(ind.rsi_prev, 1),
-            "met":      met,
-            "conf":     round(conf, 1),
+            "met": met,
+            "conf": round(conf, 1),
         },
     )
 
 
-def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
-               avg_body: float, avg_range: float):
+def _check_buy(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    ind: Indicators,
+    levels: LevelSet,
+    avg_body: float,
+    avg_range: float,
+):
     """RSI snapback from oversold → BUY. 8 conditions, need 5."""
-    met   = 0
+    met = 0
     parts = []
 
     # CONDITION 1 — RSI extreme (< 25) — entry ticket
@@ -3026,9 +3505,11 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
         parts.append(f"Медвежий забег ({bear_count} свечей)")
 
     # CONDITION 4 — Reversal candle pattern (any one of three forms)
-    curr_body    = abs(close[-1] - open_[-1])
+    curr_body = abs(close[-1] - open_[-1])
     lower_shadow = min(close[-1], open_[-1]) - low[-1]
-    pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull")
+    pat = detect_reversal_pattern(
+        open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bull"
+    )
     reversal_candle = False
     pat_label = ""
 
@@ -3049,7 +3530,9 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
     # CONDITION 5 — Stochastic: both K and D oversold, K turning up
     if ind.stoch_k < 25 and ind.stoch_d < 25 and ind.stoch_k > ind.stoch_k_prev:
         met += 1
-        parts.append(f"Stoch перепродан и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})")
+        parts.append(
+            f"Stoch перепродан и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})"
+        )
 
     # CONDITION 6 — Price near support level
     if levels.nearest_sup > 0 and levels.dist_to_sup_pct < 0.15:
@@ -3059,7 +3542,9 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
     # CONDITION 7 — Momentum shift: was negative, now rising
     if ind.momentum > ind.momentum_prev and ind.momentum_prev < 0:
         met += 1
-        parts.append(f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})")
+        parts.append(
+            f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})"
+        )
 
     # CONDITION 8 — Reversal candle has meaningful range (not a tiny doji)
     curr_range = high[-1] - low[-1]
@@ -3087,10 +3572,19 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
     return met, base_conf + bonus, parts
 
 
-def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
-                avg_body: float, avg_range: float):
+def _check_sell(
+    close,
+    open_,
+    high,
+    low,
+    n,
+    ind: Indicators,
+    levels: LevelSet,
+    avg_body: float,
+    avg_range: float,
+):
     """RSI snapback from overbought → SELL. 8 conditions, need 5."""
-    met   = 0
+    met = 0
     parts = []
 
     # CONDITION 1 — RSI extreme (> 75) — entry ticket
@@ -3109,9 +3603,11 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
         parts.append(f"Бычий забег ({bull_count} свечей)")
 
     # CONDITION 4 — Reversal candle pattern
-    curr_body    = abs(close[-1] - open_[-1])
+    curr_body = abs(close[-1] - open_[-1])
     upper_shadow = high[-1] - max(close[-1], open_[-1])
-    pat = detect_reversal_pattern(open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear")
+    pat = detect_reversal_pattern(
+        open_[-4:], high[-4:], low[-4:], close[-4:], avg_body, "bear"
+    )
     reversal_candle = False
     pat_label = ""
 
@@ -3132,7 +3628,9 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
     # CONDITION 5 — Stochastic: both K and D overbought, K turning down
     if ind.stoch_k > 75 and ind.stoch_d > 75 and ind.stoch_k < ind.stoch_k_prev:
         met += 1
-        parts.append(f"Stoch перекуплен и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})")
+        parts.append(
+            f"Stoch перекуплен и разворачивается ({ind.stoch_k:.0f}/{ind.stoch_d:.0f})"
+        )
 
     # CONDITION 6 — Price near resistance level
     if levels.nearest_res > 0 and levels.dist_to_res_pct < 0.15:
@@ -3142,7 +3640,9 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
     # CONDITION 7 — Momentum shift: was positive, now falling
     if ind.momentum < ind.momentum_prev and ind.momentum_prev > 0:
         met += 1
-        parts.append(f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})")
+        parts.append(
+            f"Моментум разворачивается ({ind.momentum_prev:+.5f}→{ind.momentum:+.5f})"
+        )
 
     # CONDITION 8 — Reversal candle has meaningful range
     curr_range = high[-1] - low[-1]
@@ -3171,6 +3671,8 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet,
 
 def _none(reason: str) -> StrategyResult:
     return StrategyResult("NONE", 0.0, 0, _TOTAL, "rsi_reversal", reason, {})
+
+
 """
 Strategy 5 — Micro Level Breakout
 Scenario: Price tested a level 2-3 times and finally breaks through with a strong candle.
@@ -3208,9 +3710,9 @@ def micro_breakout_strategy(
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
-    high  = df["high"].values
-    low   = df["low"].values
-    n     = len(df)
+    high = df["high"].values
+    low = df["low"].values
+    n = len(df)
 
     if n < 10:
         return _none("Мало данных")
@@ -3219,10 +3721,16 @@ def micro_breakout_strategy(
     if ind.atr_ratio < 0.55:
         return _none("ATR недостаточный для микропробоя")
 
-    avg_body_10 = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    avg_body_10 = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
 
-    buy_met, buy_conf, buy_parts, buy_conds = _check_buy(close, open_, high, low, n, ind, levels, avg_body_10, ctx_trend_up)
-    sell_met, sell_conf, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, ind, levels, avg_body_10, ctx_trend_down)
+    buy_met, buy_conf, buy_parts, buy_conds = _check_buy(
+        close, open_, high, low, n, ind, levels, avg_body_10, ctx_trend_up
+    )
+    sell_met, sell_conf, sell_parts, sell_conds = _check_sell(
+        close, open_, high, low, n, ind, levels, avg_body_10, ctx_trend_down
+    )
 
     direction = "NONE"
     conditions_met = 0
@@ -3230,10 +3738,14 @@ def micro_breakout_strategy(
     reason = "Уровень не пробит"
 
     if buy_conf > sell_conf and buy_met >= 4:
-        direction = "BUY"; conditions_met = buy_met; base_conf = buy_conf
+        direction = "BUY"
+        conditions_met = buy_met
+        base_conf = buy_conf
         reason = " | ".join(buy_parts)
     elif sell_conf > buy_conf and sell_met >= 4:
-        direction = "SELL"; conditions_met = sell_met; base_conf = sell_conf
+        direction = "SELL"
+        conditions_met = sell_met
+        base_conf = sell_conf
         reason = " | ".join(sell_parts)
 
     return StrategyResult(
@@ -3244,14 +3756,17 @@ def micro_breakout_strategy(
         strategy_name="micro_breakout",
         reasoning=reason,
         debug={
-            "buy_met": buy_met, "sell_met": sell_met,
+            "buy_met": buy_met,
+            "sell_met": sell_met,
             "buy_conditions": buy_conds,
             "sell_conditions": sell_conds,
-        }
+        },
     )
 
 
-def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body_10, ctx_up):
+def _check_buy(
+    close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body_10, ctx_up
+):
     """Breakout of resistance → BUY."""
     met = 0
     parts = []
@@ -3261,7 +3776,7 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, av
     broken_res = None
     touch_count = 0
     for res in levels.strong_res:
-        if close[-1] > res:   # closed above resistance
+        if close[-1] > res:  # closed above resistance
             broken_res = res
             touch_count = 2
             break
@@ -3270,11 +3785,13 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, av
     if broken_res is None:
         return 0, 0.0, [], conds
 
-    met += 1; parts.append(f"Сопротивление {broken_res:.5f} найдено (2+ касания)")
+    met += 1
+    parts.append(f"Сопротивление {broken_res:.5f} найдено (2+ касания)")
     conds["closed_above_resistance"] = True
 
     # 2. Current candle closed ABOVE resistance (always true if broken_res found)
-    met += 1; parts.append(f"Пробой: закрылась выше {broken_res:.5f}")
+    met += 1
+    parts.append(f"Пробой: закрылась выше {broken_res:.5f}")
 
     curr_body = abs(close[-1] - open_[-1])
     upper_shadow = high[-1] - max(close[-1], open_[-1])
@@ -3283,37 +3800,47 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, av
     c3 = curr_body > avg_body_10 * 1.5
     conds["strong_body"] = c3
     if c3:
-        met += 1; parts.append(f"Мощное тело ×{curr_body/avg_body_10:.1f}")
+        met += 1
+        parts.append(f"Мощное тело ×{curr_body / avg_body_10:.1f}")
 
     # 4. Shadow against direction < 30% of body
     c4 = upper_shadow / (curr_body + 1e-10) < 0.3
     conds["small_upper_shadow"] = c4
     if c4:
-        met += 1; parts.append("Малая верхняя тень")
+        met += 1
+        parts.append("Малая верхняя тень")
 
     # 5. Momentum > 0
     c5 = ind.momentum > 0
     conds["momentum_positive"] = c5
     if c5:
-        met += 1; parts.append("Моментум положительный")
+        met += 1
+        parts.append("Моментум положительный")
 
     # 6. ATR active
     c6 = ind.atr_ratio > 0.9
     conds["atr_active"] = c6
     if c6:
-        met += 1; parts.append(f"ATR активный ×{ind.atr_ratio:.2f}")
+        met += 1
+        parts.append(f"ATR активный ×{ind.atr_ratio:.2f}")
 
     # 7. EMA pointing up
     c7a = ind.ema5 >= ind.ema13 and ind.ema13 >= ind.ema21
     c7b = ind.ema5 > float(ind.ema5_series.iloc[-3])
     conds["ema_pointing_up"] = c7a or c7b
     if c7a:
-        met += 1; parts.append("EMA вверх")
+        met += 1
+        parts.append("EMA вверх")
     elif c7b:
-        met += 1; parts.append("EMA5 поворачивает вверх")
+        met += 1
+        parts.append("EMA5 поворачивает вверх")
 
     # Penalties (applied before base_conf calculation)
-    another_res = [r for r in levels.resistances if r > broken_res and (r - close[-1]) / close[-1] < 0.0005]
+    another_res = [
+        r
+        for r in levels.resistances
+        if r > broken_res and (r - close[-1]) / close[-1] < 0.0005
+    ]
     conds["shadow_penalty"] = upper_shadow / (curr_body + 1e-10) > 0.5
     conds["wall_above"] = bool(another_res)
     conds["atr_weak"] = ind.atr_ratio < 0.6
@@ -3343,7 +3870,9 @@ def _check_buy(close, open_, high, low, n, ind: Indicators, levels: LevelSet, av
     return met, base_conf, parts, conds
 
 
-def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body_10, ctx_down):
+def _check_sell(
+    close, open_, high, low, n, ind: Indicators, levels: LevelSet, avg_body_10, ctx_down
+):
     """Breakout of support → SELL."""
     met = 0
     parts = []
@@ -3352,7 +3881,7 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
     broken_sup = None
     touch_count = 0
     for sup in levels.strong_sup:
-        if close[-1] < sup:   # closed below support
+        if close[-1] < sup:  # closed below support
             broken_sup = sup
             touch_count = 2
             break
@@ -3361,11 +3890,13 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
     if broken_sup is None:
         return 0, 0.0, [], conds
 
-    met += 1; parts.append(f"Поддержка {broken_sup:.5f} найдена (2+ касания)")
+    met += 1
+    parts.append(f"Поддержка {broken_sup:.5f} найдена (2+ касания)")
     conds["closed_below_support"] = True
 
     # 2. Current candle closed BELOW support (always true if broken_sup found)
-    met += 1; parts.append(f"Пробой: закрылась ниже {broken_sup:.5f}")
+    met += 1
+    parts.append(f"Пробой: закрылась ниже {broken_sup:.5f}")
 
     curr_body = abs(close[-1] - open_[-1])
     lower_shadow = min(close[-1], open_[-1]) - low[-1]
@@ -3374,37 +3905,47 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
     c3 = curr_body > avg_body_10 * 1.5
     conds["strong_body"] = c3
     if c3:
-        met += 1; parts.append(f"Мощное тело ×{curr_body/avg_body_10:.1f}")
+        met += 1
+        parts.append(f"Мощное тело ×{curr_body / avg_body_10:.1f}")
 
     # 4. Shadow against direction < 30% of body
     c4 = lower_shadow / (curr_body + 1e-10) < 0.3
     conds["small_lower_shadow"] = c4
     if c4:
-        met += 1; parts.append("Малая нижняя тень")
+        met += 1
+        parts.append("Малая нижняя тень")
 
     # 5. Momentum < 0
     c5 = ind.momentum < 0
     conds["momentum_negative"] = c5
     if c5:
-        met += 1; parts.append("Моментум отрицательный")
+        met += 1
+        parts.append("Моментум отрицательный")
 
     # 6. ATR active
     c6 = ind.atr_ratio > 0.9
     conds["atr_active"] = c6
     if c6:
-        met += 1; parts.append(f"ATR активный ×{ind.atr_ratio:.2f}")
+        met += 1
+        parts.append(f"ATR активный ×{ind.atr_ratio:.2f}")
 
     # 7. EMA pointing down
     c7a = ind.ema5 <= ind.ema13 and ind.ema13 <= ind.ema21
     c7b = ind.ema5 < float(ind.ema5_series.iloc[-3])
     conds["ema_pointing_down"] = c7a or c7b
     if c7a:
-        met += 1; parts.append("EMA вниз")
+        met += 1
+        parts.append("EMA вниз")
     elif c7b:
-        met += 1; parts.append("EMA5 поворачивает вниз")
+        met += 1
+        parts.append("EMA5 поворачивает вниз")
 
     # Penalties (applied before base_conf calculation)
-    another_sup = [s for s in levels.supports if s < broken_sup and (close[-1] - s) / close[-1] < 0.0005]
+    another_sup = [
+        s
+        for s in levels.supports
+        if s < broken_sup and (close[-1] - s) / close[-1] < 0.0005
+    ]
     conds["shadow_penalty"] = lower_shadow / (curr_body + 1e-10) > 0.5
     conds["wall_below"] = bool(another_sup)
     conds["atr_weak"] = ind.atr_ratio < 0.6
@@ -3436,6 +3977,8 @@ def _check_sell(close, open_, high, low, n, ind: Indicators, levels: LevelSet, a
 
 def _none(reason: str) -> StrategyResult:
     return StrategyResult("NONE", 0.0, 0, _TOTAL, "micro_breakout", reason, {})
+
+
 """
 Strategy 6 — Micro Divergence
 Scenario: Price makes new high/low but RSI does not confirm → exhaustion → snapback.
@@ -3474,20 +4017,26 @@ def divergence_strategy(
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
-    high  = df["high"].values
-    low   = df["low"].values
-    n     = len(df)
+    high = df["high"].values
+    low = df["low"].values
+    n = len(df)
 
     if n < 15:
         return _none("Мало данных для дивергенции", {"early_reject": "n<15"})
 
     # Divergence works in moderate conditions — lower bar than breakouts
     if ind.atr_ratio < 0.35:
-        return _none("ATR мёртвый — рынок стоит",
-                     {"early_reject": f"atr_ratio={round(ind.atr_ratio,3)}<0.35",
-                      "atr_ratio": round(ind.atr_ratio, 3)})
+        return _none(
+            "ATR мёртвый — рынок стоит",
+            {
+                "early_reject": f"atr_ratio={round(ind.atr_ratio, 3)}<0.35",
+                "atr_ratio": round(ind.atr_ratio, 3),
+            },
+        )
 
-    avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
+    avg_body = (
+        float(np.mean(np.abs(close[-min(10, n) :] - open_[-min(10, n) :]))) or 1e-8
+    )
 
     buy_met, buy_conf, buy_parts, buy_conds = _check_bullish_div(
         close, open_, high, low, n, ind, levels, avg_body, ctx_trend_up, mode
@@ -3502,10 +4051,14 @@ def divergence_strategy(
     reason = "Дивергенция не обнаружена"
 
     if buy_conf > sell_conf and buy_met >= 4:
-        direction = "BUY"; conditions_met = buy_met; base_conf = buy_conf
+        direction = "BUY"
+        conditions_met = buy_met
+        base_conf = buy_conf
         reason = " | ".join(buy_parts)
     elif sell_conf > buy_conf and sell_met >= 4:
-        direction = "SELL"; conditions_met = sell_met; base_conf = sell_conf
+        direction = "SELL"
+        conditions_met = sell_met
+        base_conf = sell_conf
         reason = " | ".join(sell_parts)
 
     return StrategyResult(
@@ -3516,59 +4069,66 @@ def divergence_strategy(
         strategy_name="divergence",
         reasoning=reason,
         debug={
-            "buy_met": buy_met, "sell_met": sell_met,
+            "buy_met": buy_met,
+            "sell_met": sell_met,
             "rsi": round(ind.rsi, 1),
             "buy_conditions": buy_conds,
             "sell_conditions": sell_conds,
-        }
+        },
     )
 
 
-def _find_two_lows(low: np.ndarray, n: int, lookback: int = 20) -> tuple[int, int] | None:
+def _find_two_lows(
+    low: np.ndarray, n: int, lookback: int = 20
+) -> tuple[int, int] | None:
     """Find two local minima within lookback bars. Returns (idx1, idx2) with idx2 > idx1."""
     scan = low[-lookback:]
     m = len(scan)
     lows_idx = []
     for i in range(1, m - 1):
-        if scan[i] <= scan[i-1] and scan[i] <= scan[i+1]:
+        if scan[i] <= scan[i - 1] and scan[i] <= scan[i + 1]:
             lows_idx.append(i)
     if len(lows_idx) < 2:
         return None
     # Take last two
     i1, i2 = lows_idx[-2], lows_idx[-1]
-    if scan[i2] < scan[i1]:   # second low is lower — needed for divergence
+    if scan[i2] < scan[i1]:  # second low is lower — needed for divergence
         return (i1, i2)
     return None
 
 
-def _find_two_highs(high: np.ndarray, n: int, lookback: int = 20) -> tuple[int, int] | None:
+def _find_two_highs(
+    high: np.ndarray, n: int, lookback: int = 20
+) -> tuple[int, int] | None:
     """Find two local maxima. Returns (idx1, idx2) with idx2 > idx1."""
     scan = high[-lookback:]
     m = len(scan)
     highs_idx = []
     for i in range(1, m - 1):
-        if scan[i] >= scan[i-1] and scan[i] >= scan[i+1]:
+        if scan[i] >= scan[i - 1] and scan[i] >= scan[i + 1]:
             highs_idx.append(i)
     if len(highs_idx) < 2:
         return None
     i1, i2 = highs_idx[-2], highs_idx[-1]
-    if scan[i2] > scan[i1]:   # second high is higher
+    if scan[i2] > scan[i1]:  # second high is higher
         return (i1, i2)
     return None
 
 
-def _approx_rsi_at(close: np.ndarray, idx: int, lookback: int, period: int = 7) -> float:
+def _approx_rsi_at(
+    close: np.ndarray, idx: int, lookback: int, period: int = 7
+) -> float:
     """Approximate RSI at a given index using a small window."""
     start = max(0, idx - period * 2)
-    sub = pd.Series(close[start:idx+1])
+    sub = pd.Series(close[start : idx + 1])
     delta = sub.diff()
-    gain  = delta.clip(lower=0)
-    loss  = (-delta).clip(lower=0)
-    ag    = gain.ewm(com=period - 1, min_periods=period).mean()
-    al    = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs    = ag / al.replace(0, np.nan)
-    r     = 100 - (100 / (1 + rs))
-    v     = float(r.iloc[-1])
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    ag = gain.ewm(com=period - 1, min_periods=period).mean()
+    al = loss.ewm(com=period - 1, min_periods=period).mean()
+    rs = ag / al.replace(0, np.nan)
+    r = 100 - (100 / (1 + rs))
+    v = float(r.iloc[-1])
     return v if not np.isnan(v) else 50.0
 
 
@@ -3604,15 +4164,18 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
     parts = []
 
     # 1. Two price lows, second lower — already verified above (pre-check)
-    met += 1; parts.append(f"Бычья дивергенция: цена {low2:.5f} < {low1:.5f}")
+    met += 1
+    parts.append(f"Бычья дивергенция: цена {low2:.5f} < {low1:.5f}")
 
     # 2. RSI at second low > RSI at first low
     if rsi2 > rsi1:
-        met += 1; parts.append(f"RSI: {rsi2:.0f} > {rsi1:.0f} (рост при падении цены)")
+        met += 1
+        parts.append(f"RSI: {rsi2:.0f} > {rsi1:.0f} (рост при падении цены)")
 
     # 3. RSI difference > 5
     if rsi_diff >= 5:
-        met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
+        met += 1
+        parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
     # 4. Bullish candle appeared after second low
     c4_bull = n > abs_i2 and close[-1] > open_[-1]
@@ -3622,26 +4185,34 @@ def _check_bullish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_up
         c4_shadow = lower_shadow > abs(close[-1] - open_[-1]) * 1.5
     conds["bullish_candle_or_shadow"] = c4_bull or c4_shadow
     if c4_bull:
-        met += 1; parts.append("Бычья свеча после минимума")
+        met += 1
+        parts.append("Бычья свеча после минимума")
     elif c4_shadow:
-        met += 1; parts.append("Нижняя тень (бычье давление)")
+        met += 1
+        parts.append("Нижняя тень (бычье давление)")
 
     # 5. Stochastic turning up
     c5 = ind.stoch_k > ind.stoch_k_prev
     conds["stoch_turning_up"] = c5
     if c5:
-        met += 1; parts.append(f"Stoch поворачивает вверх ({ind.stoch_k:.0f})")
+        met += 1
+        parts.append(f"Stoch поворачивает вверх ({ind.stoch_k:.0f})")
 
     # Confidence: conditions-driven (not hardcoded)
     base_conf = (met / _TOTAL) * 85
-    if _divergence_at_level(low2, levels.supports): base_conf += 7
-    if abs(rsi_diff) > 10:                          base_conf += 5
-    if mode == "RANGE":                             base_conf += 3
+    if _divergence_at_level(low2, levels.supports):
+        base_conf += 7
+    if abs(rsi_diff) > 10:
+        base_conf += 5
+    if mode == "RANGE":
+        base_conf += 3
 
     return met, base_conf, parts, conds
 
 
-def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_down, mode):
+def _check_bearish_div(
+    close, open_, high, low, n, ind, levels, avg_body, ctx_down, mode
+):
     """Bearish divergence: price makes higher high, RSI makes lower high → SELL."""
     conds: dict[str, bool] = {}
     lookback = min(20, n - 1)
@@ -3664,7 +4235,7 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     rsi1 = _approx_rsi_at(close, abs_i1, lookback)
     rsi2 = _approx_rsi_at(close, abs_i2, lookback)
 
-    rsi_diff = rsi1 - rsi2   # rsi2 < rsi1 at higher price = bearish divergence
+    rsi_diff = rsi1 - rsi2  # rsi2 < rsi1 at higher price = bearish divergence
     conds["rsi_lower_at_higher_price"] = rsi2 < rsi1
     conds["rsi_diff_significant"] = rsi_diff >= 5
 
@@ -3673,15 +4244,18 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
     parts = []
 
     # 1. Two price highs, second higher — already verified above (pre-check)
-    met += 1; parts.append(f"Медвежья дивергенция: цена {high2:.5f} > {high1:.5f}")
+    met += 1
+    parts.append(f"Медвежья дивергенция: цена {high2:.5f} > {high1:.5f}")
 
     # 2. RSI at second high < RSI at first high
     if rsi2 < rsi1:
-        met += 1; parts.append(f"RSI: {rsi2:.0f} < {rsi1:.0f} (падение при росте цены)")
+        met += 1
+        parts.append(f"RSI: {rsi2:.0f} < {rsi1:.0f} (падение при росте цены)")
 
     # 3. RSI difference > 5
     if rsi_diff >= 5:
-        met += 1; parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
+        met += 1
+        parts.append(f"Разница RSI {rsi_diff:.0f}pts — значимая")
 
     c4_bear = n > abs_i2 and close[-1] < open_[-1]
     c4_shadow = False
@@ -3690,20 +4264,26 @@ def _check_bearish_div(close, open_, high, low, n, ind, levels, avg_body, ctx_do
         c4_shadow = upper_shadow > abs(close[-1] - open_[-1]) * 1.5
     conds["bearish_candle_or_shadow"] = c4_bear or c4_shadow
     if c4_bear:
-        met += 1; parts.append("Медвежья свеча после максимума")
+        met += 1
+        parts.append("Медвежья свеча после максимума")
     elif c4_shadow:
-        met += 1; parts.append("Верхняя тень (медвежье давление)")
+        met += 1
+        parts.append("Верхняя тень (медвежье давление)")
 
     c5 = ind.stoch_k < ind.stoch_k_prev
     conds["stoch_turning_down"] = c5
     if c5:
-        met += 1; parts.append(f"Stoch поворачивает вниз ({ind.stoch_k:.0f})")
+        met += 1
+        parts.append(f"Stoch поворачивает вниз ({ind.stoch_k:.0f})")
 
     # Confidence: conditions-driven (not hardcoded)
     base_conf = (met / _TOTAL) * 85
-    if _divergence_at_level(high2, levels.resistances): base_conf += 7
-    if rsi_diff > 10:                                   base_conf += 5
-    if mode == "RANGE":                                 base_conf += 3
+    if _divergence_at_level(high2, levels.resistances):
+        base_conf += 7
+    if rsi_diff > 10:
+        base_conf += 5
+    if mode == "RANGE":
+        base_conf += 3
 
     return met, base_conf, parts, conds
 
@@ -3714,5 +4294,4 @@ def _divergence_at_level(price: float, levels: list[float]) -> bool:
 
 
 def _none(reason: str, extra: dict | None = None) -> StrategyResult:
-    return StrategyResult("NONE", 0.0, 0, _TOTAL, "divergence", reason,
-                          extra or {})
+    return StrategyResult("NONE", 0.0, 0, _TOTAL, "divergence", reason, extra or {})
