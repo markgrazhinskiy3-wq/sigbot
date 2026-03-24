@@ -166,7 +166,7 @@ def apply_global_filters(
     hi = df["high"].values
     lo = df["low"].values
     dead_lookback = min(10, n)
-    _DEAD_RANGE_PCT = 0.015   # (high-low)/close < 0.015% for ALL last 10 candles = dead
+    _DEAD_RANGE_PCT = 0.008   # (high-low)/close < 0.008% for ALL last 10 candles = dead (was 0.015 — too strict for low-vol pairs)
     dead_market = all(
         (float(hi[-i]) - float(lo[-i])) / price * 100 < _DEAD_RANGE_PCT
         for i in range(1, dead_lookback + 1)

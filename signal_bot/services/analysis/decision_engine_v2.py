@@ -133,6 +133,16 @@ def run_decision_engine_v2(
         ip.debug.get("direction_gap", 0), ip.debug.get("countertrend", False),
     )
 
+    # ── 3e. IP score cap (applied before ANY filter) ──────────────────────────
+    # Ensures cap is visible in debug even if pattern is later filtered out.
+    # Fixes: BHD/CNY IP score=100 was not being capped.
+    for cand in candidates:
+        if cand["name"] == "impulse_pullback" and cand["score"] > _IP_SCORE_CAP:
+            cand["score"] = _IP_SCORE_CAP
+            cand.setdefault("filter_reasons", []).append(
+                f"ip_score_cap: capped at {_IP_SCORE_CAP:.0f} (raw score was >{_IP_SCORE_CAP:.0f})"
+            )
+
     # ── 4. Apply global filters (now with expiry) ─────────────────────────────
     valid: list[dict] = []
     filter_log: list[str] = []
@@ -185,17 +195,20 @@ def run_decision_engine_v2(
             continue
 
         # ── RANGE restriction ───────────────────────────────────────────────
-        # v5: hard reject — data shows range_penalty=1 has 45.8% WR.
-        # IP in ranging market is a reversal trap; LR/FB are unaffected.
+        # Soft penalty: -10pts. Strong IP signals (raw 86+) still survive.
+        # Hard reject blocked too many pairs — all sideways markets went silent.
         if _regime_quick == "RANGE":
-            reason = (
-                f"impulse_pullback {cand['direction']} REJECTED: "
-                f"RANGE regime — EMA spread={_ema_spread_q:.4f}% "
-                f"(range_penalty hard reject, WR=45.8%)"
+            _range_penalty = 10.0
+            cand["score"] = max(0.0, cand["score"] - _range_penalty)
+            cand["filter_penalty"] = cand.get("filter_penalty", 0.0) + _range_penalty
+            cand.setdefault("filter_reasons", []).append(
+                f"range_penalty: RANGE regime EMA_spread={_ema_spread_q:.4f}% "
+                f"(-{_range_penalty:.0f}pts, WR=45.8%)"
             )
-            filter_log.append(reason)
-            logger.debug(reason)
-            continue
+            logger.debug(
+                "impulse_pullback %s: RANGE soft penalty -%d → score=%.1f",
+                cand["direction"], _range_penalty, cand["score"],
+            )
 
         # ── Borderline 1m confirm quality check ────────────────────────────
         # IP borderline setups (score in 68-78) must have a solid confirmation
@@ -240,15 +253,6 @@ def run_decision_engine_v2(
             1,
         )
         cand["ctx_score"] = ctx_score
-
-    # ── 6a. IP score cap ──────────────────────────────────────────────────────
-    # Data: score>88 has same WR as 85-89 — caps prevent false high-confidence.
-    for cand in expiry_filtered:
-        if cand["name"] == "impulse_pullback" and cand["final_score"] > _IP_SCORE_CAP:
-            cand["final_score"] = _IP_SCORE_CAP
-            cand.setdefault("filter_reasons", []).append(
-                f"ip_score_cap: capped at {_IP_SCORE_CAP:.0f} (score>88 = late trend risk)"
-            )
 
     # ── 6b. Noisy market + weak score = reject ────────────────────────────────
     # Data: noisy=1 has 50.7% WR; only strong signals survive noise.
