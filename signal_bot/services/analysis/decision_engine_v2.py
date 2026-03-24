@@ -174,7 +174,7 @@ def run_decision_engine_v2(
     _ema_spread_q = abs(_ema5_quick - _ema13_quick) / (price + 1e-10) * 100
     # 0.015% spread ≈ 1-2 typical pip moves — real impulses exceed this;
     # flat chop stays well below → safe to separate RANGE from TRENDING
-    if _ema_spread_q > 0.015:
+    if _ema_spread_q > 0.008:
         _regime_quick = "TRENDING"
 
     guarded: list[dict] = []
@@ -198,7 +198,7 @@ def run_decision_engine_v2(
         # Soft penalty: -10pts. Strong IP signals (raw 86+) still survive.
         # Hard reject blocked too many pairs — all sideways markets went silent.
         if _regime_quick == "RANGE":
-            _range_penalty = 10.0
+            _range_penalty = 5.0
             cand["score"] = max(0.0, cand["score"] - _range_penalty)
             cand["filter_penalty"] = cand.get("filter_penalty", 0.0) + _range_penalty
             cand.setdefault("filter_reasons", []).append(
@@ -217,7 +217,7 @@ def run_decision_engine_v2(
             raw_score   = cand["score"]
             conf_ratio  = cand.get("pattern_debug", {}).get("conf_body_ratio", 1.0)
             # Widened: more IP trades now require strong confirmation (was 78)
-            _IP_BORDERLINE_MAX  = 82.0   # below this = borderline zone (was 78)
+            _IP_BORDERLINE_MAX  = 72.0   # below this = borderline zone (was 82 — caused impossible filter for range-penalized signals)
             _IP_CONF_RATIO_1M   = 0.55   # need >= 55% of avg_body for borderline 1m
             if raw_score < _IP_BORDERLINE_MAX and conf_ratio < _IP_CONF_RATIO_1M:
                 reason = (
