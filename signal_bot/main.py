@@ -144,6 +144,32 @@ async def main() -> None:
 
     asyncio.create_task(_init_monitor())
 
+    # ── Optional candle probe (set PROBE_CANDLES=1 env var on Railway) ─────────
+    if os.environ.get("PROBE_CANDLES") == "1":
+        async def _run_probe():
+            from services.po_ws_client import is_available
+            logger.info("[PROBE] Waiting for WS auth to run candle probe...")
+            for _ in range(120):
+                if is_available():
+                    break
+                await asyncio.sleep(5)
+            else:
+                logger.warning("[PROBE] WS auth never became available — skipping probe")
+                return
+            try:
+                import importlib.util, pathlib
+                spec = importlib.util.spec_from_file_location(
+                    "probe_candles",
+                    pathlib.Path(__file__).parent / "probe_candles.py",
+                )
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                await mod.main()
+            except Exception as exc:
+                logger.exception("[PROBE] probe_candles.py failed: %s", exc)
+        asyncio.create_task(_run_probe())
+    # ────────────────────────────────────────────────────────────────────────────
+
     bot = Bot(
         token=config.TELEGRAM_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
