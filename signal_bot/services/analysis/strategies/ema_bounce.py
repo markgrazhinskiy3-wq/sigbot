@@ -115,26 +115,15 @@ def ema_bounce_strategy(
             base_conf += 5
             reason += " | Свеча ниже предыдущей (+5)"
 
-    # ── RANGE regime gate + penalty ──────────────────────────────────────────
-    # In RANGE, EMA bounce is weaker — require c3 (close above/below EMA13) AND
-    # c4 (strong bounce candle) to BOTH be true.  If either is missing, the
-    # price is just drifting near EMA with no real momentum → block.
-    # Also apply -10 to confidence so RANGE needs 6+ conditions to pass 55.
+    # ── RANGE hard block ─────────────────────────────────────────────────────
+    # ema_bounce is a trend strategy — EMA has no directional bias in RANGE.
+    # Data: 42-49% WR in RANGE vs 56-58% in TRENDING. Block entirely.
+    # level_bounce handles RANGE markets instead.
     if direction != "NONE" and mode == "RANGE":
-        if direction == "BUY":
-            c3_ok = buy_conds.get("close_above_ema13", False)
-            c4_ok = buy_conds.get("bounce_candle_bullish", False)
-        else:
-            c3_ok = sell_conds.get("close_below_ema13", False)
-            c4_ok = sell_conds.get("bounce_candle_bearish", False)
-        if not (c3_ok and c4_ok):
-            return _none(
-                f"RANGE: нет momentum (c3={c3_ok}, c4={c4_ok}) — сигнал слабый",
-                {"range_block": True, "c3_ok": c3_ok, "c4_ok": c4_ok,
-                 "buy_conditions": buy_conds, "sell_conditions": sell_conds},
-            )
-        base_conf -= 10
-        reason += " | RANGE -10"
+        return _none(
+            "RANGE: ema_bounce заблокирован — работает только в тренде",
+            {"range_block": True},
+        )
 
     # ── Trend momentum penalty (FIX 1) ───────────────────────────────────────
     # A weak bull/bear ratio contradicts the trend classification.
