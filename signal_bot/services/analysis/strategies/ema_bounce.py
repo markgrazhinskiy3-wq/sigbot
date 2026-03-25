@@ -28,7 +28,7 @@ class StrategyResult:
 
 
 _TOTAL   = 8
-_MIN_MET = 4
+_MIN_MET = 5
 
 
 def ema_bounce_strategy(
@@ -81,8 +81,8 @@ def ema_bounce_strategy(
     if buy_wins and buy_met >= _MIN_MET:
         direction      = "BUY"
         conditions_met = buy_met
-        # Anchored curve: 4→40, 5→50, 6→60, 7→70, 8→80
-        base_conf      = 40 + max(0, buy_met - 4) * 10
+        # Anchored curve: 4→35, 5→45, 6→55, 7→65, 8→75
+        base_conf      = 35 + max(0, buy_met - 4) * 10
         reason         = " | ".join(buy_parts)
         # Precision touch bonus (very close to EMA13 — within 0.01%)
         if abs(low[-1] - ind.ema13) / price < 0.0001:
@@ -93,12 +93,16 @@ def ema_bounce_strategy(
         # RSI in comfortable buy zone
         if 45 <= ind.rsi <= 60:
             base_conf += 3
+        # Condition #9 (bonus): current candle closes higher than previous
+        if n >= 2 and close[-1] > close[-2]:
+            base_conf += 5
+            reason += " | Свеча выше предыдущей (+5)"
 
     elif sell_wins and sell_met >= _MIN_MET:
         direction      = "SELL"
         conditions_met = sell_met
-        # Same anchored curve as buy side: 4→40, 5→50, 6→60, 7→70, 8→80
-        base_conf      = 40 + max(0, sell_met - 4) * 10
+        # Anchored curve: 4→35, 5→45, 6→55, 7→65, 8→75
+        base_conf      = 35 + max(0, sell_met - 4) * 10
         reason         = " | ".join(sell_parts)
         if abs(high[-1] - ind.ema13) / price < 0.0001:
             base_conf += 5
@@ -106,6 +110,10 @@ def ema_bounce_strategy(
             base_conf += 3
         if 40 <= ind.rsi <= 55:
             base_conf += 3
+        # Condition #9 (bonus): current candle closes lower than previous
+        if n >= 2 and close[-1] < close[-2]:
+            base_conf += 5
+            reason += " | Свеча ниже предыдущей (+5)"
 
     # ── Trend momentum penalty (FIX 1) ───────────────────────────────────────
     # A weak bull/bear ratio contradicts the trend classification.
@@ -215,12 +223,12 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c1:
         met += 1; parts.append("EMA выровнены вверх")
 
-    # 2. Price low touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
-    ema13_zone = ind.ema13 * 1.0007
+    # 2. Price low touched EMA(13) zone — ±0.04% (tightened: price must actually touch EMA)
+    ema13_zone = ind.ema13 * 1.0004
     c2 = any(float(low[-i]) <= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 (±0.07%)")
+        met += 1; parts.append("Коснулась EMA13 (±0.04%)")
 
     # 3. Candle closed ABOVE EMA(13)
     c3 = close[-1] > ind.ema13
@@ -291,12 +299,12 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind: Indicators):
     if c1:
         met += 1; parts.append("EMA выровнены вниз")
 
-    # 2. Price high touched EMA(13) zone — ±0.07% (widened for OTC spread tolerance)
-    ema13_zone = ind.ema13 * 0.9993
+    # 2. Price high touched EMA(13) zone — ±0.04% (tightened: price must actually touch EMA)
+    ema13_zone = ind.ema13 * 0.9996
     c2 = any(float(high[-i]) >= ema13_zone for i in range(1, min(4, n)))
     conds["price_near_ema13"] = c2
     if c2:
-        met += 1; parts.append("Коснулась EMA13 сверху (±0.07%)")
+        met += 1; parts.append("Коснулась EMA13 сверху (±0.04%)")
 
     # 3. Candle closed BELOW EMA(13)
     c3 = close[-1] < ind.ema13
