@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 ALL_STRATEGIES = [
     "ema_bounce",
     "level_breakout",
+    "level_bounce",
 ]
 
 
