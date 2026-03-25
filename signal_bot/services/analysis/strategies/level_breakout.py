@@ -132,9 +132,9 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
             met += 1
             parts.append(f"Закрылась выше {res_price:.5f}")
 
-        # 3. momentum_candle: bullish body > 1.5x avg
+        # 3. momentum_candle: bullish body > 1.0x avg (was 1.5x — too rare on 15s)
         body = abs(float(close[-1]) - float(open_[-1]))
-        c3 = body > avg_body * 1.5 and float(close[-1]) > float(open_[-1])
+        c3 = body > avg_body * 1.0 and float(close[-1]) > float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
             met += 1
@@ -203,9 +203,9 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
             met += 1
             parts.append(f"Закрылась ниже {sup_price:.5f}")
 
-        # 3. momentum_candle: bearish body > 1.5x avg
+        # 3. momentum_candle: bearish body > 1.0x avg (was 1.5x — too rare on 15s)
         body = abs(float(close[-1]) - float(open_[-1]))
-        c3 = body > avg_body * 1.5 and float(close[-1]) < float(open_[-1])
+        c3 = body > avg_body * 1.0 and float(close[-1]) < float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
             met += 1
