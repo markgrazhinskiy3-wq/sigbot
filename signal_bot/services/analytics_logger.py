@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS signals_log (
     noisy                  INTEGER,          -- 0/1
     range_penalty          INTEGER,          -- 0/1
 
+    -- Condition breakdown (for winning strategy)
+    conditions_passed      TEXT,             -- comma-separated names of True conditions
+    conditions_failed      TEXT,             -- comma-separated names of False conditions
+    conditions_ratio       TEXT,             -- "X/Y" passed/total
+
+    -- Indicator snapshot at signal time
+    rsi_value              REAL,             -- RSI(14), rounded to 1 decimal
+    stoch_k                REAL,             -- Stochastic %K, rounded to 1 decimal
+    stoch_d                REAL,             -- Stochastic %D, rounded to 1 decimal
+    atr_pct                REAL,             -- ATR as % of price (atr_ratio), 4 decimals
+
     -- Result (filled by update_result)
     close_price            REAL,
     result                 TEXT DEFAULT 'pending',  -- WIN | LOSS | error | pending
@@ -136,6 +147,14 @@ async def init_analytics() -> None:
             ("fb_reclaim_type",        "TEXT"),
             ("fb_bars_ago",            "INTEGER"),
             ("source",                 "TEXT"),
+            # v1 condition + indicator columns
+            ("conditions_passed",      "TEXT"),
+            ("conditions_failed",      "TEXT"),
+            ("conditions_ratio",       "TEXT"),
+            ("rsi_value",              "REAL"),
+            ("stoch_k",                "REAL"),
+            ("stoch_d",                "REAL"),
+            ("atr_pct",                "REAL"),
         ]
         for col, dtype in _new_cols:
             try:
@@ -199,6 +218,21 @@ async def log_signal(
         lr_fields = _extract_lr_fields(pat, pattern_winner)
         fb_fields = _extract_fb_fields(pat, dbg.get("pattern_debug", {}), pattern_winner)
 
+        # Condition breakdown for winning strategy (v1 engine)
+        cond_info = _extract_conditions(dbg, pattern_winner)
+
+        # Indicator snapshot — nested under "indicators" in v1 success debug
+        ind_dbg = dbg.get("indicators", {})
+        rsi_value = ind_dbg.get("rsi") or dbg.get("rsi")
+        stoch_k   = ind_dbg.get("stoch_k") or dbg.get("stoch_k")
+        stoch_d   = ind_dbg.get("stoch_d") or dbg.get("stoch_d")
+        atr_pct   = ind_dbg.get("atr_ratio") or dbg.get("atr_ratio")
+
+        # final_score: confidence AFTER all multipliers/bonuses/penalties
+        # raw_pattern_score: raw strategy confidence BEFORE engine multipliers
+        final_score       = dbg.get("conf_after_multipliers") or d.get("confidence_raw")
+        raw_pattern_score = dbg.get("conf_before_multipliers")
+
         now = datetime.utcnow().isoformat()
 
         async with aiosqlite.connect(_DB) as db:
@@ -219,6 +253,8 @@ async def log_signal(
                     fb_level_price, fb_side, fb_reclaim_type, fb_bars_ago,
                     no_room_decision, opposite_level_class,
                     dead_market, exhaustion, noisy, range_penalty,
+                    conditions_passed, conditions_failed, conditions_ratio,
+                    rsi_value, stoch_k, stoch_d, atr_pct,
                     result
                 ) VALUES (
                     ?,?,?,?,?,?,?,?,
@@ -231,6 +267,8 @@ async def log_signal(
                     ?,?,?,?,?,
                     ?,?,?,?,
                     ?,?,
+                    ?,?,?,?,
+                    ?,?,?,
                     ?,?,?,?,
                     'pending'
                 )
@@ -246,14 +284,14 @@ async def log_signal(
                     entry_price,
                     # engine
                     pattern_winner,
-                    dbg.get("final_score"),
-                    dbg.get("raw_score"),
+                    final_score,
+                    raw_pattern_score,
                     direction_gap,
                     d.get("market_mode") or dbg.get("context", {}).get("regime"),
                     1 if countertrend else 0,
-                    dbg.get("n_15s"),
-                    dbg.get("n_1m"),
-                    dbg.get("n_5m"),
+                    dbg.get("n_15s") or dbg.get("n_bars_15s"),
+                    dbg.get("n_1m") or dbg.get("n_bars_1m"),
+                    dbg.get("n_5m") or dbg.get("n_bars_5m"),
                     dbg.get("score_gap"),
                     dbg.get("filter_penalty"),
                     # levels
@@ -286,15 +324,26 @@ async def log_signal(
                     filt_info["exhaustion"],
                     filt_info["noisy"],
                     filt_info["range_penalty"],
+                    # conditions
+                    cond_info["conditions_passed"],
+                    cond_info["conditions_failed"],
+                    cond_info["conditions_ratio"],
+                    # indicators
+                    rsi_value,
+                    stoch_k,
+                    stoch_d,
+                    atr_pct,
                 ),
             )
             signals_log_id = cursor.lastrowid
             await db.commit()
 
         logger.debug(
-            "Analytics: signal logged id=%d outcome_id=%s %s %s %s score=%.1f",
+            "Analytics: signal logged id=%d outcome_id=%s %s %s %s score=%.1f raw=%.1f conds=%s",
             signals_log_id or 0, outcome_id, pair, direction, expiry,
-            dbg.get("final_score") or 0,
+            final_score or 0,
+            raw_pattern_score or 0,
+            cond_info["conditions_ratio"] or "?",
         )
 
         # ── Candidates log ────────────────────────────────────────────────────
@@ -479,6 +528,28 @@ async def get_summary(source: str | None = None) -> dict:
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _extract_conditions(dbg: dict, pattern_winner: str | None) -> dict:
+    """
+    Extract per-condition breakdown for the winning strategy.
+    Returns passed/failed lists and X/Y ratio string.
+    """
+    strategies = dbg.get("strategies", {})
+    strat_data = strategies.get(pattern_winner or "", {})
+    conds: dict = strat_data.get("conditions", {})
+
+    passed = [k for k, v in conds.items() if v is True]
+    failed = [k for k, v in conds.items() if v is False]
+    met    = strat_data.get("conditions_met", len(passed))
+    total  = strat_data.get("total", len(passed) + len(failed))
+    ratio  = f"{met}/{total}" if total else None
+
+    return {
+        "conditions_passed": ",".join(passed) if passed else None,
+        "conditions_failed": ",".join(failed) if failed else None,
+        "conditions_ratio":  ratio,
+    }
+
 
 def _parse_filter_reasons(reasons: list[str]) -> dict:
     """
