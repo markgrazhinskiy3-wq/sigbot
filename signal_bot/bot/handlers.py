@@ -1,6 +1,7 @@
 import asyncio
 import html
 import logging
+from datetime import datetime
 
 from aiogram import Router, F, Bot
 from aiogram.exceptions import TelegramBadRequest
@@ -1822,22 +1823,43 @@ async def cmd_paper_test(message: Message) -> None:
                     uid, "<pre>" + "\n".join(chunk) + "</pre>",
                     parse_mode="HTML",
                 )
-            # Also export CSV
-            import tempfile
+            # Export CSV — only trades from this session (not historical DB rows)
+            import tempfile, csv
             from aiogram.types import FSInputFile
-            with tempfile.NamedTemporaryFile(
-                suffix=".csv", prefix="paper_export_", delete=False, mode="w"
-            ) as tmp:
-                fpath = tmp.name
-            n_rows = await analytics_logger.export_csv(fpath)
-            if n_rows > 0:
+            if results:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".csv", prefix="paper_export_", delete=False,
+                    mode="w", newline="", encoding="utf-8",
+                ) as tmp:
+                    fpath = tmp.name
+                    writer = csv.writer(tmp)
+                    writer.writerow([
+                        "pair", "symbol", "direction", "expiry",
+                        "entry_price", "close_price", "result", "pnl_pct",
+                        "entry_time", "strategy", "confidence",
+                    ])
+                    for r in results:
+                        dbg  = r.trade.details.get("debug", {})
+                        writer.writerow([
+                            r.trade.pair,
+                            r.trade.symbol,
+                            r.trade.direction,
+                            r.trade.expiry,
+                            r.trade.entry_price,
+                            r.close_price,
+                            r.result,
+                            r.pnl_pct,
+                            datetime.fromtimestamp(r.trade.entry_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            r.trade.details.get("primary_strategy", ""),
+                            dbg.get("final_score") or r.trade.details.get("confidence_raw", ""),
+                        ])
                 try:
                     doc = FSInputFile(fpath, filename="paper_signals_log.csv")
                     await bot.send_document(
                         uid, doc,
                         caption=(
                             f"📊 <b>Paper signals_log.csv</b>\n"
-                            f"Строк (всего): <b>{n_rows}</b>"
+                            f"Строк (сессия): <b>{len(results)}</b>"
                         ),
                         parse_mode="HTML",
                     )
