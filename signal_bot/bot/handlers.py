@@ -176,7 +176,7 @@ async def _monitor_pair(
             symbol=symbol,
         )
 
-        text = _fmt(signal)
+        text = _fmt(signal, is_admin=_is_admin(user_id))
         await bot.send_message(
             chat_id, text, parse_mode="HTML",
             reply_markup=signal_result_keyboard(symbol, exp),
@@ -1098,7 +1098,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 
     try:
         signal = await get_signal(symbol, pair_label, expiration_sec)
-        text = format_signal_message(signal)
+        text = format_signal_message(signal, is_admin=_is_admin(callback.from_user.id))
 
         kb = (
             no_signal_keyboard(symbol, expiration_sec)

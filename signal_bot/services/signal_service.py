@@ -145,22 +145,26 @@ def _format_nosignal_debug(d: dict) -> list[str]:
     return lines
 
 
-def format_signal_message(signal: SignalResponse) -> str:
+def format_signal_message(signal: SignalResponse, *, is_admin: bool = False) -> str:
     if signal.direction == "NO_SIGNAL":
         d        = signal.details if isinstance(signal.details, dict) else {}
         mode     = d.get("market_mode", "")
         mode_lbl = _mode_label(mode) or d.get("regime_label", "")
-
-        debug_lines = _format_nosignal_debug(d)
 
         lines = [
             f"🔍 <b>{html.escape(signal.pair)}</b>",
             "",
             f"⏳ <b>Нет точки входа</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
             "",
-            "<b>Причина:</b>",
         ]
-        lines.extend(debug_lines)
+
+        if is_admin:
+            debug_lines = _format_nosignal_debug(d)
+            lines.append("<b>Причина:</b>")
+            lines.extend(debug_lines)
+        else:
+            lines.append("Чёткого сигнала пока нет — рынок неоднозначен.")
+
         lines.append("")
         lines.append("Нажмите <b>«Включить мониторинг»</b> или <b>«Попробовать снова»</b>.")
         return "\n".join(lines)
