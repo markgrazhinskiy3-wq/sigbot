@@ -1,0 +1,74 @@
+📊 Condition Stats  (всего eval: 22427)
+Условия отсортированы: худшие сверху
+
+divergence — eval: 335
+  🔴 rsi_diff_significant: 46/249 (18%) █░░░░
+  🔴 rsi_higher_at_lower_price: 31/117 (26%) █░░░░
+  🟡 rsi_lower_at_higher_price: 46/132 (35%) ██░░░
+  🟢 two_lows_found: 117/186 (63%) ███░░
+  🟢 stoch_turning_up: 80/117 (68%) ███░░
+  🟢 stoch_turning_down: 102/132 (77%) ████░
+  🟢 two_highs_found: 132/132 (100%) █████
+
+EMA Bounce — eval: 7302
+  🟢 stoch_turning_up: 2208/3395 (65%) ███░░
+  🟢 stoch_turning_down: 1672/2549 (66%) ███░░
+  🟢 ema_aligned_up: 1989/2951 (67%) ███░░
+  🟢 ema_aligned_down: 1653/2256 (73%) ████░
+  🟢 rsi_ok: 4404/5944 (74%) ████░
+  🟢 real_pullback: 2335/3023 (77%) ████░
+  🟢 price_near_ema13: 5880/5944 (99%) █████
+
+Level Bounce — eval: 7073
+  🔴 rejection_candle_15s: 901/6648 (14%) █░░░░
+  🔴 stoch_turning_up: 3/22 (14%) █░░░░
+  🔴 stoch_confirm: 1406/6648 (21%) █░░░░
+  🔴 stoch_turning_down: 4/18 (22%) █░░░░
+  🔴 rsi_oversold: 6/22 (27%) █░░░░
+  🔴 rsi_overbought: 5/18 (28%) █░░░░
+  🟡 room_to_resistance: 7/22 (32%) ██░░░
+  🟡 room_to_support: 8/18 (44%) ██░░░
+  🟡 reversal_pattern: 18/40 (45%) ██░░░
+  🟡 rsi_extreme_15s: 3942/6648 (59%) ███░░
+  🟢 room_to_target: 5631/6648 (85%) ████░
+  🟢 price_at_level: 5846/6648 (88%) ████░
+  🟢 zone_touch: 39/40 (98%) █████
+  🟢 close_above_support: 22/22 (100%) █████
+  🟢 close_below_resistance: 18/18 (100%) █████
+  🟢 level_found: 40/40 (100%) █████
+  🟢 levels_available: 61/61 (100%) █████
+  🟢 strong_1m_level: 6648/6648 (100%) █████
+
+Level Breakout — eval: 4764
+  🔴 momentum_candle: 258/4082 (6%) ░░░░░
+  🟡 not_exhausted: 2093/4082 (51%) ███░░
+  🟢 follow_through: 2684/4082 (66%) ███░░
+  🟢 close_beyond: 3109/4082 (76%) ████░
+  🟢 ema_aligned: 3461/4082 (85%) ████░
+  🟢 tested_level: 4082/4082 (100%) █████
+
+micro_breakout — eval: 117
+  🔴 atr_weak: 0/20 (0%) ░░░░░
+  🔴 wall_above: 0/14 (0%) ░░░░░
+  🔴 wall_below: 0/6 (0%) ░░░░░
+  🔴 resistance_found: 14/98 (14%) █░░░░
+  🟡 momentum_negative: 3/6 (50%) ██░░░
+  🟢 ema_pointing_up: 9/14 (64%) ███░░
+  🟢 momentum_positive: 9/14 (64%) ███░░
+  🟢 atr_active: 13/20 (65%) ███░░
+  🟢 ema_pointing_down: 4/6 (67%) ███░░
+  🟢 closed_above_resistance: 14/14 (100%) █████
+  🟢 closed_below_support: 6/6 (100%) █████
+  🟢 support_found: 6/6 (100%) █████
+
+RSI Rev — eval: 530
+  (нет данных об условиях)
+
+squeeze_breakout — eval: 2306
+  🔴 atr_compressed: 360/2131 (17%) █░░░░
+  🟡 momentum_positive: 604/1337 (45%) ██░░░
+  🟡 momentum_negative: 379/794 (48%) ██░░░
+  🟡 ema5_turning_up: 694/1337 (52%) ███░░
+  🟡 ema5_turning_down: 445/794 (56%) ███░░
+  🟡 small_candles_compressed: 1239/2131 (58%) ███░░
+  🟢 not_exhausted: 1678/1835 (91%) █████
