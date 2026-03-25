@@ -12,3 +12,9 @@ id = "WsSjcr5r4flsWK1YhF4Vb"
 uri = "file://decision_engine_v2.txt"
 type = "text"
 title = "decision_engine_v2.py"
+
+[[outputs]]
+id = "bvwhVlYMUuOS1-zl1fL_D"
+uri = "file://signal_bot/docs/ema_bounce_breakdown.md"
+type = "text"
+title = "EMA Bounce — полный разбор"
