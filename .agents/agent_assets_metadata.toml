@@ -18,3 +18,9 @@ id = "bvwhVlYMUuOS1-zl1fL_D"
 uri = "file://signal_bot/docs/ema_bounce_breakdown.md"
 type = "text"
 title = "EMA Bounce — полный разбор"
+
+[[outputs]]
+id = "4DE2LyLDJrFZVHnWw4N49"
+uri = "file://signal_bot/docs/ema_bounce_breakdown.txt"
+type = "text"
+title = "EMA Bounce — полный разбор"
