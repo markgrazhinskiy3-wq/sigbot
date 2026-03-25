@@ -222,12 +222,6 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
         else:
             items.append("Цена кратко подросла и снова пошла вниз — тренд продолжается.")
 
-    elif strategy == "squeeze_breakout":
-        if is_buy:
-            items.append("Рынок долго стоял на месте и резко двинулся вверх — хороший момент для входа.")
-        else:
-            items.append("Рынок долго стоял на месте и резко двинулся вниз — хороший момент для входа.")
-
     elif strategy == "level_bounce":
         if is_buy:
             items.append("Цена опустилась до важной отметки, откуда уже несколько раз разворачивалась вверх.")
@@ -239,18 +233,6 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
             items.append("Цена слишком сильно упала и технически перегрета — ожидаем отскок вверх.")
         else:
             items.append("Цена слишком сильно выросла и технически перегрета — ожидаем откат вниз.")
-
-    elif strategy == "micro_breakout":
-        if is_buy:
-            items.append("Цена несколько раз пыталась пробить уровень вверх и наконец пробила.")
-        else:
-            items.append("Цена несколько раз пыталась пробить уровень вниз и наконец пробила.")
-
-    elif strategy == "divergence":
-        if is_buy:
-            items.append("Цена упала ниже, но сила падения ослабла — разворот вверх вероятен.")
-        else:
-            items.append("Цена выросла выше, но сила роста ослабла — разворот вниз вероятен.")
 
     # ── V2 pattern-first strategies ──────────────────────────────────────────
     elif strategy == "level_rejection":
@@ -348,17 +330,8 @@ def format_result_caption(
         else:
             reasons.append("📉 Отскок от скользящей средней — тренд продолжается вниз")
 
-    elif strategy == "squeeze_breakout":
-        reasons.append("💥 Пробой после сжатия — импульс в вашу сторону")
-
     elif strategy == "level_bounce":
         reasons.append("🎯 Отскок от важного уровня поддержки/сопротивления")
-
-    elif strategy == "micro_breakout":
-        reasons.append("🔓 Пробой ключевого уровня с подтверждением")
-
-    elif strategy == "divergence":
-        reasons.append("📐 Дивергенция: цена и индикаторы расходятся — разворот ожидается")
 
     reasons_text = "\n".join(reasons) if reasons else "• Большинство факторов сошлись в одном направлении"
 

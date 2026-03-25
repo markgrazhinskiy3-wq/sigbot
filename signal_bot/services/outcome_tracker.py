@@ -21,13 +21,11 @@ from services import analytics_logger
 logger = logging.getLogger(__name__)
 
 _STRATEGY_LABELS = {
-    # new engine strategies
-    "ema_bounce":       "Отскок от EMA",
-    "squeeze_breakout": "Пробой сжатия",
-    "level_bounce":     "Отскок от уровня",
-    "rsi_reversal":     "Разворот RSI",
-    "micro_breakout":   "Пробой уровня",
-    "divergence":       "Дивергенция",
+    # active strategies
+    "ema_bounce":    "Отскок от EMA",
+    "level_bounce":  "Отскок от уровня",
+    "level_breakout": "Пробой уровня",
+    "rsi_reversal":  "Разворот RSI",
     # legacy (old engine)
     "impulse":  "Импульс по тренду",
     "bounce":   "Отскок от уровня",
@@ -45,20 +43,13 @@ def _build_explanation(outcome: str, direction: str, strategy: str, pct: float) 
 
     # outcome == "loss" — explain by strategy
     strategy_reasons = {
-        "ema_bounce":       "Цена не удержалась у скользящей средней — рынок продолжил движение против сигнала.",
-        "squeeze_breakout": "Пробой не получил продолжения — возможно это был ложный пробой.",
-        "level_bounce":     "Уровень не удержал цену — давление оказалось сильнее.",
-        "rsi_reversal":     "Разворот не состоялся — импульс продолжился в старом направлении.",
-        "micro_breakout":   "Пробой уровня развернулся обратно — рынок не подтвердил движение.",
-        "divergence":       "Дивергенция не отработала на данной экспирации — нужно больше времени.",
+        "ema_bounce":     "Цена не удержалась у скользящей средней — рынок продолжил движение против сигнала.",
+        "level_bounce":   "Уровень не удержал цену — давление оказалось сильнее.",
+        "level_breakout": "Пробой не получил продолжения — возможно это был ложный пробой.",
+        "rsi_reversal":   "Разворот не состоялся — импульс продолжился в старом направлении.",
     }
     reason = strategy_reasons.get(strategy, "Цена пошла против сигнала.")
-
-    suffix = (
-        " На короткой экспирации даже точный прогноз иногда не срабатывает — одна свеча может всё изменить."
-        if strategy not in ("divergence",) else
-        " Попробуйте более длинную экспирацию для этой стратегии."
-    )
+    suffix = " На короткой экспирации даже точный прогноз иногда не срабатывает — одна свеча может всё изменить."
     return reason + suffix
 
 

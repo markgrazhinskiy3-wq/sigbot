@@ -1492,13 +1492,11 @@ async def cmd_report(message: Message) -> None:
         return
 
     _STRAT_LABEL = {
-        "ema_bounce":        "EMA Bounce",
-        "level_bounce":      "Level Bounce",
-        "squeeze_breakout":  "Squeeze BO",
-        "micro_breakout":    "Micro BO",
-        "rsi_reversal":      "RSI Rev",
-        "divergence":        "Divergence",
-        "unknown":           "Unknown",
+        "ema_bounce":     "EMA Bounce",
+        "level_bounce":   "Level Bounce",
+        "level_breakout": "Level Breakout",
+        "rsi_reversal":   "RSI Rev",
+        "unknown":        "Unknown",
     }
 
     period_label = f"последние {days} дн." if days else "всё время"
@@ -1575,10 +1573,10 @@ async def cmd_condstats(message: Message) -> None:
         return
 
     _STRAT_LABELS = {
-        "ema_bounce":       "EMA Bounce",
-        "squeeze_breakout": "Squeeze BO",
-        "level_bounce":     "Level Bounce",
-        "divergence":       "Divergence",
+        "ema_bounce":     "EMA Bounce",
+        "level_bounce":   "Level Bounce",
+        "level_breakout": "Level Breakout",
+        "rsi_reversal":   "RSI Rev",
     }
 
     # Total evaluations across all strategies (denominator for header)

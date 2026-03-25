@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 import pandas as pd
 
 from .indicators  import Indicators, calculate_indicators
-from .levels      import LevelSet, detect_levels, _swing_highs, _swing_lows
+from .levels      import LevelSet, detect_levels
 from .market_mode import MarketMode, detect_market_mode
 
 logger = logging.getLogger(__name__)
@@ -219,64 +219,30 @@ def calculate_strategy_availability(
         if ema_aligned and atr_ratio > 0.5 and trend_candles >= 3:
             applicable.append("EMA Bounce")
 
-        # ── 2. Squeeze Breakout ───────────────────────────────
-        bb_narrowing = ind.bb_bw < ind.bb_bw_prev * 1.05
-        avg_body_30  = float(abs(df["close"] - df["open"]).tail(30).mean())
-        avg_body_5   = float(abs(last5["close"] - last5["open"]).mean())
-        body_squeezed = avg_body_30 > 0 and avg_body_5 < avg_body_30 * 0.6
-        if (atr_ratio < 0.7 and body_squeezed and bb_narrowing) or \
-           (atr_ratio < 0.7 and bb_narrowing):
-            applicable.append("Squeeze Breakout")
-
-        # ── 3. Level Bounce ───────────────────────────────────
+        # ── 2. Level Bounce ───────────────────────────────────
         near_level = any(
             abs(p - current) / current < 0.003 for p in sig_prices
         )
         if sig_levels and near_level:
             applicable.append("Level Bounce")
 
-        # ── 4. RSI Reversal ───────────────────────────────────
-        rsi_now  = ind.rsi
-        rsi_extreme        = rsi_now < 25 or rsi_now > 75
-        rsi_recent_extreme = False  # simplified (no series available here)
+        # ── 3. RSI Reversal ───────────────────────────────────
+        rsi_now = ind.rsi
+        rsi_extreme = rsi_now < 25 or rsi_now > 75
         last_c = df["close"].tail(5).values
         consec_up = all(last_c[i] < last_c[i + 1] for i in range(len(last_c) - 1))
         consec_dn = all(last_c[i] > last_c[i + 1] for i in range(len(last_c) - 1))
         consec_move = (consec_up or consec_dn) and atr_ratio > 0.7
-        if rsi_extreme or rsi_recent_extreme or consec_move:
+        if rsi_extreme or consec_move:
             applicable.append("RSI Reversal")
-
-        # ── 5. Micro Breakout ─────────────────────────────────
-        very_near = any(abs(p - current) / current < 0.002 for p in sig_prices)
-        level_tested_recently = False
-        for p in sig_prices:
-            touches_20 = int(
-                ((last20["high"] - p).abs() / p < 0.002).sum() +
-                ((last20["low"]  - p).abs() / p < 0.002).sum()
-            )
-            if touches_20 >= 2:
-                level_tested_recently = True
-                break
-        if sig_levels and very_near and level_tested_recently:
-            applicable.append("Micro Breakout")
-
-        # ── 6. Divergence ─────────────────────────────────────
-        sh20 = _swing_highs(last20["high"], window=2)
-        sl20 = _swing_lows(last20["low"],   window=2)
-        # RSI range from ema series — approximate using atr as proxy
-        # Use bb_bw as volatility proxy for RSI range estimation
-        rsi_range_ok = ind.bb_bw > 0.001  # proxy: meaningful BB width implies RSI moved
-        if (len(sh20) >= 2 or len(sl20) >= 2) and rsi_range_ok and atr_ratio > 0.5:
-            applicable.append("Divergence")
 
     except Exception as exc:
         logger.debug("Strategy availability error: %s", exc)
 
     n = len(applicable)
-    if   n >= 4: score = 100
-    elif n == 3: score = 80
-    elif n == 2: score = 60
-    elif n == 1: score = 35
+    if   n >= 3: score = 100
+    elif n == 2: score = 70
+    elif n == 1: score = 40
     else:        score = 5
 
     return score, applicable
