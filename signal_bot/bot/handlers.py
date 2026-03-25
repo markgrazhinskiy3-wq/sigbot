@@ -1494,9 +1494,9 @@ async def cmd_report(message: Message) -> None:
 
     _STRAT_LABEL = {
         "ema_bounce":     "EMA Bounce",
-        "level_bounce":   "Level Bounce",
         "level_breakout": "Level Breakout",
-        "rsi_reversal":   "RSI Rev",
+        "level_bounce":   "Level Bounce (legacy)",
+        "rsi_reversal":   "RSI Rev (legacy)",
         "unknown":        "Unknown",
     }
 
@@ -1575,9 +1575,9 @@ async def cmd_condstats(message: Message) -> None:
 
     _STRAT_LABELS = {
         "ema_bounce":     "EMA Bounce",
-        "level_bounce":   "Level Bounce",
         "level_breakout": "Level Breakout",
-        "rsi_reversal":   "RSI Rev",
+        "level_bounce":   "Level Bounce (legacy)",
+        "rsi_reversal":   "RSI Rev (legacy)",
     }
 
     # Total evaluations across all strategies (denominator for header)

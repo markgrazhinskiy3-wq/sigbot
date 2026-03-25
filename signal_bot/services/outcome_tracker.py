@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 
 _STRATEGY_LABELS = {
     # active strategies
-    "ema_bounce":    "Отскок от EMA",
-    "level_bounce":  "Отскок от уровня",
+    "ema_bounce":     "Отскок от EMA",
     "level_breakout": "Пробой уровня",
+    # legacy
+    "level_bounce":  "Отскок от уровня",
     "rsi_reversal":  "Разворот RSI",
-    # legacy (old engine)
-    "impulse":  "Импульс по тренду",
-    "bounce":   "Отскок от уровня",
-    "breakout": "Ложный пробой",
+    "impulse":       "Импульс по тренду",
+    "bounce":        "Отскок от уровня",
+    "breakout":      "Ложный пробой",
 }
 
 

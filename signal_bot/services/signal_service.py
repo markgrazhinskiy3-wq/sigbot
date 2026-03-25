@@ -222,19 +222,7 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
         else:
             items.append("Цена кратко подросла и снова пошла вниз — тренд продолжается.")
 
-    elif strategy == "level_bounce":
-        if is_buy:
-            items.append("Цена опустилась до важной отметки, откуда уже несколько раз разворачивалась вверх.")
-        else:
-            items.append("Цена поднялась до важной отметки, откуда уже несколько раз разворачивалась вниз.")
-
-    elif strategy == "rsi_reversal":
-        if is_buy:
-            items.append("Цена слишком сильно упала и технически перегрета — ожидаем отскок вверх.")
-        else:
-            items.append("Цена слишком сильно выросла и технически перегрета — ожидаем откат вниз.")
-
-    # ── V2 pattern-first strategies ──────────────────────────────────────────
+    # ── legacy / removed strategies (kept for historical outcome messages) ────
     elif strategy == "level_rejection":
         if is_buy:
             items.append("Цена опустилась к уровню поддержки, показала отбой (длинный хвост) и подтвердила разворот вверх.")
@@ -330,8 +318,11 @@ def format_result_caption(
         else:
             reasons.append("📉 Отскок от скользящей средней — тренд продолжается вниз")
 
-    elif strategy == "level_bounce":
-        reasons.append("🎯 Отскок от важного уровня поддержки/сопротивления")
+    elif strategy == "level_breakout":
+        if is_buy:
+            reasons.append("📈 Пробой уровня сопротивления вверх")
+        else:
+            reasons.append("📉 Пробой уровня поддержки вниз")
 
     reasons_text = "\n".join(reasons) if reasons else "• Большинство факторов сошлись в одном направлении"
 

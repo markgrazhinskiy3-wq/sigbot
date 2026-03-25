@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 
 ALL_STRATEGIES = [
     "ema_bounce",
-    "level_bounce",
     "level_breakout",
-    "rsi_reversal",
 ]
 
 
