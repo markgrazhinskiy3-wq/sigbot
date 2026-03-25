@@ -31,8 +31,9 @@ REFRESH_INTERVAL: int = 45
 
 # How many candles to keep per pair.
 # At 15s per candle and 45s refresh interval, each pair grows by ~3 candles/cycle.
-# 200 bars ≈ 50 min of history at steady state (~37 min accumulation after startup).
-CANDLE_COUNT: int = 200
+# 480 bars = 2 hours of 15s history → 120 one-minute candles after resample.
+# PO provides ~12 min on connect; full 2h accumulates in ~2h of uptime.
+CANDLE_COUNT: int = 480
 
 # Minimum minutes of accumulation before signals are allowed.
 # After startup the cache has ~55 bars (13 min); we wait until enough WS cycles

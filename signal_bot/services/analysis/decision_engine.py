@@ -107,9 +107,10 @@ def run_decision_engine(
     Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
 
     Args:
-        df1m:        15-sec OHLC DataFrame (entry timing), oldest→newest, min 20 rows
+        df1m:        1-min resampled OHLC DataFrame (primary analysis), oldest→newest, min 15 rows
+                     Falls back to raw 15s OHLC at startup (fewer than 15 one-minute bars).
         df5m:        5-min resampled OHLC (macro context, optional)
-        df1m_ctx:    1-min resampled OHLC (intermediate context, optional)
+        df1m_ctx:    1-min resampled OHLC (same as df1m — used for MTF context inside engine)
         raised_threshold: if True, minimum confidence is raised to 70
         n_bars_15s:  number of raw 15-sec bars (informational, for debug)
         n_bars_1m:   number of 1-min bars after resampling

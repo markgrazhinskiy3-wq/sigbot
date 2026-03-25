@@ -119,11 +119,24 @@ async def calculate_signal(
     except Exception as e:
         logger.warning("5-min resampling failed: %s", e, exc_info=True)
 
+    # ── Promote 1m candles to primary analysis timeframe ─────────────────────
+    # All indicators (EMA, RSI, Stoch, ATR, BB) and strategies now run on 1m
+    # candles instead of raw 15s, reducing noise significantly.
+    # Fallback: if not enough 1m bars yet (startup), use raw 15s temporarily.
+    if df1m_ctx is not None and len(df1m_ctx) >= 15:
+        df_primary = df1m_ctx
+    else:
+        df_primary = df   # startup fallback — fewer than 15 one-minute bars
+        logger.warning(
+            "Falling back to 15s candles for analysis: only %d 1m bars available (need ≥15)",
+            len(df1m_ctx) if df1m_ctx is not None else 0,
+        )
+
     # ── Decision Engine V1 (original) ────────────────────────────────────────
     eng: EngineResult = run_decision_engine(
-        df1m=df,
+        df1m=df_primary,   # 1m candles (raw 15s only as startup fallback)
         df5m=df5m,
-        df1m_ctx=df1m_ctx,
+        df1m_ctx=df1m_ctx, # same 1m data — used for MTF context inside engine
         raised_threshold=raised_threshold,
         n_bars_15s=len(df),
         n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,

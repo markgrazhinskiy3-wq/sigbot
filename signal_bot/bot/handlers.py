@@ -229,7 +229,7 @@ async def _monitor_pair(
             symbol=symbol,
             on_candles=on_candles,
             max_duration=300.0,
-            check_interval=15.0,
+            check_interval=60.0,   # check once per 1m candle close (was 15s)
         )
     except asyncio.CancelledError:
         cancelled = True
