@@ -32,6 +32,7 @@ from .strategies   import (
     ema_bounce_strategy,
     level_breakout_strategy,
     level_bounce_strategy,
+    level_touch_strategy,
 )
 
 # Strategy adaptation — optional import, falls back gracefully if unavailable
@@ -48,30 +49,37 @@ logger = logging.getLogger(__name__)
 # Data: ema_bounce TRENDING_UP 57%, level_breakout TRENDING_UP 58.5%, level_bounce 49.1% overall.
 # level_bounce runs as secondary in RANGE/SQUEEZE where it may outperform.
 _MODE_STRATEGIES: dict[str, dict] = {
+    # level_touch is PRIORITY in every mode — if it fires, skip primary/secondary
     "TRENDING_UP": {
+        "priority":  ["level_touch"],
         "primary":   ["ema_bounce", "level_breakout"],
         "secondary": [],
     },
     "TRENDING_DOWN": {
+        "priority":  ["level_touch"],
         "primary":   ["ema_bounce", "level_breakout"],
         "secondary": [],
     },
     "RANGE": {
+        "priority":  ["level_touch"],
         # ema_bounce blocked in RANGE internally; level_breakout primary, level_bounce secondary
         "primary":   ["level_breakout"],
         "secondary": ["level_bounce"],
     },
     "VOLATILE": {
+        "priority":  ["level_touch"],
         "primary":   ["level_breakout"],
         "secondary": [],
     },
     "SQUEEZE": {
+        "priority":  ["level_touch"],
         "primary":   ["ema_bounce", "level_breakout"],
         "secondary": ["level_bounce"],
     },
 }
 
 _STRATEGY_FNS = {
+    "level_touch":    level_touch_strategy,
     "ema_bounce":     ema_bounce_strategy,
     "level_breakout": level_breakout_strategy,
     "level_bounce":   level_bounce_strategy,
@@ -251,6 +259,13 @@ def run_decision_engine(
 
     debug_strategies: dict = {}
 
+    def _tier_of(name: str) -> str:
+        if name in routing.get("priority", []):
+            return "priority"
+        if name in routing.get("primary", []):
+            return "primary"
+        return "secondary"
+
     def _run_batch(names: list[str]) -> list:
         """Run a list of strategy names, return fired candidates."""
         fired = []
@@ -268,6 +283,8 @@ def run_decision_engine(
                     kwargs["mode"] = mode_obj.mode
                 if name in ("level_breakout", "level_bounce"):
                     kwargs["df1m_ctx"] = df1m_ctx
+                if name == "level_touch":
+                    kwargs["df5m"] = df5m
                 res = fn(**kwargs)
             except Exception as e:
                 logger.warning("Strategy %s failed: %s", name, e)
@@ -293,7 +310,7 @@ def run_decision_engine(
                 "conditions_met": res.conditions_met,
                 "total": res.total_conditions,
                 "pct": round(pct * 100),
-                "tier": "primary" if name in routing["primary"] else "secondary",
+                "tier": _tier_of(name),
                 "early_reject": res.debug.get("early_reject"),
                 "conditions": conds,
             }
@@ -301,12 +318,17 @@ def run_decision_engine(
                 fired.append(res)
         return fired
 
-    # PRIMARY first; secondaries only if no primary fires
-    candidates = _run_batch(routing["primary"])
-    used_tier = "primary"
+    # PRIORITY first (level_touch) — if it fires, skip primary/secondary entirely
+    candidates = _run_batch(routing.get("priority", []))
+    used_tier = "priority"
     if not candidates:
-        candidates = _run_batch(routing["secondary"])
-        used_tier = "secondary"
+        # PRIMARY strategies
+        candidates = _run_batch(routing["primary"])
+        used_tier = "primary"
+        if not candidates:
+            # SECONDARY strategies (fallback)
+            candidates = _run_batch(routing["secondary"])
+            used_tier = "secondary"
 
     # ── Record condition frequencies (fire-and-forget, never blocks signal) ──
     try:
