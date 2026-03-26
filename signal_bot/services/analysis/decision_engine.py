@@ -1,21 +1,28 @@
 """
 Decision Engine — Layer 4
 Selects strategies based on market mode, picks the best signal,
-applies multipliers, enforces thresholds, and returns final decision.
+applies new additive confidence, enforces thresholds, returns final decision.
 
 Architecture:
   Mode → select primary + secondary strategies
   → run all selected strategies
-  → pick best (conditions_met >= 60%)
-  → apply confirmation (±10 / ×0.75)
-  → apply multipliers (floor ×0.60)
-  → compare against thresholds: strong≥70, moderate≥52
-  → map to 5-star system: ≥88→5, ≥80→4, ≥70→3, ≥52→2
+  → pick best (conditions_met >= 37%)
+  → replace strategy confidence with new additive system (base 50, +3 per factor, max 68)
+  → compare against threshold: min 56 (2 factors), raised 65 (5 factors) after 2 losses
+  → map to 5-star system: ≥65→5★, ≥62→4★, ≥59→3★, ≥56→2★
+
+Confidence factors (each adds +3):
+  1. RSI confirms direction (>50 for BUY, <50 for SELL)
+  2. Stochastic confirms direction (K>D for BUY, K<D for SELL, not extreme)
+  3. 1m short-term trend aligns (EMA3 vs EMA8 on 1m)
+  4. Macro slope aligns (linear regression on 1m closes)
+  5. ATR sufficient volatility (atr_ratio >= 0.7)
+  6. Near key S/R level (dist <= 0.3% of price)
 
 Rate limiting (state object injected from outside):
   - min 90s between signals
   - max 3 consecutive same direction
-  - after 2 losses: threshold raised to 70 for 5 min (caller enforces)
+  - after 2 losses: threshold raised to 65 for 5 min (caller enforces)
 """
 from __future__ import annotations
 import logging
@@ -31,7 +38,7 @@ from .levels       import LevelSet, detect_levels
 from .strategies   import (
     ema_bounce_strategy,
     level_breakout_strategy,
-    level_bounce_strategy,
+    # level_bounce_strategy,  # DISABLED: 45.8% WR — losing strategy
 )
 
 # Strategy adaptation — optional import, falls back gracefully if unavailable
@@ -57,9 +64,10 @@ _MODE_STRATEGIES: dict[str, dict] = {
         "secondary": [],
     },
     "RANGE": {
-        # ema_bounce blocked in RANGE internally; level_breakout primary, level_bounce secondary
+        # ema_bounce blocked in RANGE internally; level_breakout primary
+        # level_bounce DISABLED (45.8% WR)
         "primary":   ["level_breakout"],
-        "secondary": ["level_bounce"],
+        "secondary": [],
     },
     "VOLATILE": {
         "primary":   ["level_breakout"],
@@ -67,14 +75,14 @@ _MODE_STRATEGIES: dict[str, dict] = {
     },
     "SQUEEZE": {
         "primary":   ["ema_bounce", "level_breakout"],
-        "secondary": ["level_bounce"],
+        "secondary": [],  # level_bounce DISABLED (45.8% WR)
     },
 }
 
 _STRATEGY_FNS = {
     "ema_bounce":     ema_bounce_strategy,
     "level_breakout": level_breakout_strategy,
-    "level_bounce":   level_bounce_strategy,
+    # "level_bounce": level_bounce_strategy,  # DISABLED: 45.8% WR — losing strategy
 }
 
 
@@ -374,57 +382,27 @@ def run_decision_engine(
             best = best_buy if best_buy.confidence > best_sell.confidence else best_sell
 
     direction = best.direction
-    conf_raw  = best.confidence
 
-    # ── Layer 4: Multipliers ───────────────────────────────────────────────────
-
-    # 4a. Multi-timeframe context confirmation / penalty
-    # Bonus (+7):  1m EMA direction AND macro slope BOTH agree with signal
-    # Penalty ×0.82: BOTH oppose signal (true counter-trend, not just noise)
-    ctx_up_strong = ctx_up_1m and ctx_macro_up
-    ctx_dn_strong = ctx_dn_1m and ctx_macro_dn
-
-    if direction == "BUY":
-        if ctx_up_strong and best.conditions_met >= 5:
-            conf_raw += 3        # 1m EMA + slope confirm upward (only solid signals)
-        elif ctx_dn_strong:
-            conf_raw *= 0.82     # both layers oppose → counter-trend penalty
-    else:  # SELL
-        if ctx_dn_strong and best.conditions_met >= 5:
-            conf_raw += 3
-        elif ctx_up_strong:
-            conf_raw *= 0.82
-
-    # 4b. Market mode strength multiplier
-    mode_str_m = mode_obj.strength / 100.0   # 0-1
-    # Only apply if confidence is moderate (don't destroy already-great signals)
-    if conf_raw < 75:
-        conf_raw = conf_raw * (0.88 + 0.12 * mode_str_m)
-
-    # 4c. Hard floor: if after all multipliers conf < 60% of raw → apply ×0.60
-    floor_conf = best.confidence * 0.60
-    if conf_raw < floor_conf:
-        conf_raw = floor_conf
-
-    conf_raw = min(100.0, conf_raw)
-
-    # 4d. Trend guard: penalise signals strongly against confirmed trend
-    # Strong trend = market mode is TRENDING + EMA stack is fully aligned
-    strong_down = (mode_obj.mode == "TRENDING_DOWN" and ind.ema5 < ind.ema13 < ind.ema21)
-    strong_up   = (mode_obj.mode == "TRENDING_UP"   and ind.ema5 > ind.ema13 > ind.ema21)
-
-    if direction == "BUY" and strong_down:
-        conf_raw *= 0.50   # BUY against downtrend: conf halved → likely below threshold
-    if direction == "SELL" and strong_up:
-        conf_raw *= 0.50   # SELL against uptrend: conf halved → likely below threshold
+    # ── Layer 4: New additive confidence ──────────────────────────────────────
+    # Replaces all old multipliers. Simple and honest: base 50, +3 per factor.
+    # Max possible: 68. Min to send: 56 (2+ factors confirmed).
+    conf_raw = _compute_new_confidence(
+        direction=direction,
+        ind=ind,
+        levels=levels,
+        ctx_up_1m=ctx_up_1m,
+        ctx_dn_1m=ctx_dn_1m,
+        ctx_macro_up=ctx_macro_up,
+        ctx_macro_dn=ctx_macro_dn,
+    )
 
     # ── Threshold check ────────────────────────────────────────────────────────
-    # Hard floor: 55 for all tiers — no signal below 55 ever becomes a trade.
-    # After 2 consecutive losses: threshold raises to 70.
+    # Min 56 = 2 confirmed factors. After 2 losses: raises to 65 (5 factors).
+    # Max possible confidence is 68, so raised=70 would never pass — use 65.
     if raised_threshold:
-        min_threshold = 70
+        min_threshold = 65
     else:
-        min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
+        min_threshold = 56
 
     if conf_raw < min_threshold:
         return _no_signal(
@@ -443,14 +421,18 @@ def run_decision_engine(
             }
         )
 
-    # ── Stars ──────────────────────────────────────────────────────────────────
-    if   conf_raw >= 75: stars = 5
-    elif conf_raw >= 65: stars = 4
-    else:                stars = 3
+    # ── Stars ─────────────────────────────────────────────────────────────────
+    # New scale: max conf = 68. Each +3 = one extra factor.
+    # 56 = 2 factors (min), 59 = 3, 62 = 4, 65 = 5, 68 = 6 (max)
+    if   conf_raw >= 65: stars = 5
+    elif conf_raw >= 62: stars = 4
+    elif conf_raw >= 59: stars = 3
+    else:                stars = 2
 
-    if   conf_raw >= 75: quality = "strong"
-    elif conf_raw >= 65: quality = "good"
-    else:                quality = "moderate"
+    if   conf_raw >= 65: quality = "strong"
+    elif conf_raw >= 62: quality = "good"
+    elif conf_raw >= 59: quality = "moderate"
+    else:                quality = "weak"
 
     # ── Expiry hint ────────────────────────────────────────────────────────────
     expiry = _pick_expiry(best.strategy_name, quality)
@@ -482,8 +464,8 @@ def run_decision_engine(
             "min_threshold": min_threshold,
             "strategies": debug_strategies,
             "best_strategy": best.strategy_name,
-            "conf_before_multipliers": round(best.confidence, 1),
-            "conf_after_multipliers": round(conf_raw, 1),
+            "conf_strategy_raw": round(best.confidence, 1),
+            "conf_final": round(conf_raw, 1),
             "raised_threshold": raised_threshold,
             "avg_body_pct": round(avg_body_pct, 6),
             "ema_spread_pct": round(ema_spread_pct, 6),
@@ -510,6 +492,69 @@ def run_decision_engine(
             },
         }
     )
+
+
+# ── New additive confidence ───────────────────────────────────────────────────
+
+def _compute_new_confidence(
+    direction: str,
+    ind: Indicators,
+    levels: LevelSet,
+    ctx_up_1m: bool,
+    ctx_dn_1m: bool,
+    ctx_macro_up: bool,
+    ctx_macro_dn: bool,
+) -> float:
+    """
+    Simple additive confidence: base 50, +3 per confirmed factor.
+    Max possible = 68 (all 6 factors). Min to signal = 56 (2 factors).
+    Hard cap at 68 — high confidence was the problem (inverted in data).
+
+    Factors:
+      1. RSI confirms direction       — >50 for BUY, <50 for SELL
+      2. Stochastic confirms          — K>D for BUY, K<D for SELL, not extreme
+      3. 1m short-term trend aligns  — EMA3 > EMA8 for BUY, EMA3 < EMA8 for SELL
+      4. Macro slope aligns           — linear regression of 1m closes
+      5. ATR sufficient volatility   — atr_ratio >= 0.7
+      6. Near key S/R level           — within 0.3% of price
+    """
+    conf = 50.0
+
+    # Factor 1: RSI confirms direction
+    if direction == "BUY"  and ind.rsi > 50:
+        conf += 3
+    elif direction == "SELL" and ind.rsi < 50:
+        conf += 3
+
+    # Factor 2: Stochastic confirms direction (not in extreme zone)
+    if direction == "BUY"  and ind.stoch_k > ind.stoch_d and ind.stoch_k < 80:
+        conf += 3
+    elif direction == "SELL" and ind.stoch_k < ind.stoch_d and ind.stoch_k > 20:
+        conf += 3
+
+    # Factor 3: 1m short-term trend aligns (EMA3 vs EMA8)
+    if direction == "BUY"  and ctx_up_1m:
+        conf += 3
+    elif direction == "SELL" and ctx_dn_1m:
+        conf += 3
+
+    # Factor 4: Macro slope aligns (linear regression on 1m closes)
+    if direction == "BUY"  and ctx_macro_up:
+        conf += 3
+    elif direction == "SELL" and ctx_macro_dn:
+        conf += 3
+
+    # Factor 5: ATR sufficient volatility
+    if ind.atr_ratio >= 0.7:
+        conf += 3
+
+    # Factor 6: Near key S/R level (within 0.3% of price)
+    if direction == "BUY"  and levels.dist_to_sup_pct <= 0.3:
+        conf += 3
+    elif direction == "SELL" and levels.dist_to_res_pct <= 0.3:
+        conf += 3
+
+    return min(68.0, conf)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

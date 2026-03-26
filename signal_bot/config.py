@@ -55,12 +55,13 @@ OTC_PAIRS: list[dict] = [
     {"label": "AUD/NZD OTC",  "symbol": "#AUDNZD_otc",  "payout": 92},
     {"label": "CAD/CHF OTC",  "symbol": "#CADCHF_otc",  "payout": 92},
     # Additional pairs confirmed on PocketOption (92%)
-    {"label": "AED/CNY OTC",  "symbol": "#AEDCNY_otc",  "payout": 92},
-    {"label": "BHD/CNY OTC",  "symbol": "#BHDCNY_otc",  "payout": 92},
+    # {"label": "AED/CNY OTC",  "symbol": "#AEDCNY_otc",  "payout": 92},  # REMOVED: exotic, low WR
+    # {"label": "BHD/CNY OTC",  "symbol": "#BHDCNY_otc",  "payout": 92},  # REMOVED: exotic, low WR
+    # {"label": "AED/USD OTC",  "symbol": "#AEDUSD_otc",  "payout": 92},  # REMOVED: exotic, low WR
+    # {"label": "KES/USD OTC",  "symbol": "#KESUSD_otc",  "payout": 92},  # REMOVED: exotic, low WR
     {"label": "CAD/JPY OTC",  "symbol": "#CADJPY_otc",  "payout": 92},
     {"label": "EUR/CHF OTC",  "symbol": "#EURCHF_otc",  "payout": 92},
     {"label": "GBP/AUD OTC",  "symbol": "#GBPAUD_otc",  "payout": 92},
-    {"label": "KES/USD OTC",  "symbol": "#KESUSD_otc",  "payout": 92},
     # Other pairs (payout varies — shown when no live data available)
     {"label": "GBP/USD OTC",  "symbol": "#GBPUSD_otc",  "payout": 82},
     {"label": "USD/JPY OTC",  "symbol": "#USDJPY_otc",  "payout": 82},

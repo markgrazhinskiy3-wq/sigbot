@@ -132,13 +132,13 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
             met += 1
             parts.append(f"Закрылась выше {res_price:.5f}")
 
-        # 3. momentum_candle: bullish body > 1.0x avg (was 1.5x — too rare on 15s)
+        # 3. momentum_candle: bullish body > 1.5x ATR — strong breakout candle required
         body = abs(float(close[-1]) - float(open_[-1]))
-        c3 = body > avg_body * 1.0 and float(close[-1]) > float(open_[-1])
+        c3 = body > ind.atr * 1.5 and float(close[-1]) > float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
             met += 1
-            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            parts.append(f"Сильный импульс (тело {body/ind.atr:.2f}x ATR)")
 
         # 4. follow_through: previous 15s candle also bullish
         c4 = n >= 2 and float(close[-2]) > float(open_[-2])
@@ -203,13 +203,13 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
             met += 1
             parts.append(f"Закрылась ниже {sup_price:.5f}")
 
-        # 3. momentum_candle: bearish body > 1.0x avg (was 1.5x — too rare on 15s)
+        # 3. momentum_candle: bearish body > 1.5x ATR — strong breakout candle required
         body = abs(float(close[-1]) - float(open_[-1]))
-        c3 = body > avg_body * 1.0 and float(close[-1]) < float(open_[-1])
+        c3 = body > ind.atr * 1.5 and float(close[-1]) < float(open_[-1])
         conds["momentum_candle"] = c3
         if c3:
             met += 1
-            parts.append(f"Импульс (тело {body/avg_body:.1f}x avg)")
+            parts.append(f"Сильный импульс (тело {body/ind.atr:.2f}x ATR)")
 
         # 4. follow_through: previous 15s candle also bearish
         c4 = n >= 2 and float(close[-2]) < float(open_[-2])
