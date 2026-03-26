@@ -1,4 +1,4 @@
-"""
+с"""
 Decision Engine — Layer 4
 Selects strategies based on market mode, picks the best signal,
 applies new additive confidence, enforces thresholds, returns final decision.
