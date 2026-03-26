@@ -1222,6 +1222,9 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
         results   = await scan_pairs_fresh(pairs_map, payout_map)
 
         if not results:
+            results = scan_all_pairs(pairs_map, payout_map)
+
+        if not results:
             await callback.message.edit_text(
                 "⚠️ <b>Подходящих пар не найдено</b>\n\n"
                 "<i>Нажмите «Обновить» через 1–2 минуты.</i>",
