@@ -459,7 +459,6 @@ def run_decision_engine(
             "ctx_up_1m": ctx_up_1m,   "ctx_dn_1m": ctx_dn_1m,
             "ctx_macro_up": ctx_macro_up, "ctx_macro_dn": ctx_macro_dn,
             "ctx_macro_note": ctx_macro_note,
-            "ctx_up_strong": ctx_up_strong, "ctx_dn_strong": ctx_dn_strong,
             "used_tier": used_tier,
             "min_threshold": min_threshold,
             "strategies": debug_strategies,
