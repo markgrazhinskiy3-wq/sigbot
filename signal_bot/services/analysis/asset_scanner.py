@@ -465,16 +465,20 @@ async def scan_pairs_fresh(
 
         else:
             # V1 legacy path: conditions_met across strategy dict
+            # Skip level_bounce — disabled (45.8% WR), its conditions must not inflate score
+            _DISABLED_STRATEGIES = {"level_bounce"}
             strategies: dict = debug.get("strategies", {})
             max_met = 0
-            for sd in strategies.values():
+            for sname, sd in strategies.items():
+                if sname in _DISABLED_STRATEGIES:
+                    continue
                 if sd.get("skipped") or sd.get("early_reject"):
                     continue
                 met = sd.get("conditions_met", 0)
                 if met > max_met:
                     max_met = met
 
-            if max_met < 3:
+            if max_met < 4:
                 continue
 
             if direction in ("BUY", "SELL"):
@@ -484,7 +488,7 @@ async def scan_pairs_fresh(
                 fallback = max_met * 10
                 quality_score = int(
                     debug.get("conf_raw",
-                    debug.get("conf_after_multipliers", fallback))
+                    debug.get("conf_final", fallback))
                 )
 
         market_mode = details.get("market_mode") or debug.get("mode", "")
