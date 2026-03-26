@@ -193,9 +193,8 @@ def format_signal_message(signal: SignalResponse, *, is_admin: bool = False) -> 
         "",
         f" {arrow} Сигнал: <b>{dir_label}</b>",
         f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
+        "",
     ]
-    lines.append(f"⏱ Экспирация: <b>{expiry}</b>")
-    lines.append("")
 
     if explanation_lines:
         lines.append("<b>Почему:</b>")

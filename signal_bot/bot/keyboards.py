@@ -9,9 +9,6 @@ import config
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="📈 Получить сигнал", callback_data="action:get_signal"),
-    )
-    builder.row(
         InlineKeyboardButton(text="📊 Рекомендуемые пары", callback_data="action:recommended_pairs"),
     )
     builder.row(
@@ -49,16 +46,14 @@ def pairs_keyboard(pairs: list[dict] | None = None) -> InlineKeyboardMarkup:
 def expiration_keyboard(symbol: str, recommended_sec: int | None = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for exp in config.EXPIRATIONS:
-        is_recommended = (recommended_sec is not None and exp["seconds"] == recommended_sec)
-        label = f"⭐ {exp['label']} (рекомендуется)" if is_recommended else exp["label"]
         builder.row(
             InlineKeyboardButton(
-                text=label,
+                text=exp["label"],
                 callback_data=f"exp:{symbol}:{exp['seconds']}",
             )
         )
     builder.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="action:get_signal"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="action:recommended_pairs"),
     )
     return builder.as_markup()
 
@@ -85,7 +80,7 @@ def no_signal_keyboard(symbol: str, expiration_sec: int) -> InlineKeyboardMarkup
         )
     )
     builder.row(
-        InlineKeyboardButton(text="🔀 Выбрать другую пару", callback_data="action:get_signal"),
+        InlineKeyboardButton(text="🔀 Выбрать другую пару", callback_data="action:recommended_pairs"),
     )
     builder.row(
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="action:back_to_menu"),
