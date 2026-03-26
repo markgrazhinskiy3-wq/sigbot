@@ -465,8 +465,7 @@ async def scan_pairs_fresh(
 
         else:
             # V1 legacy path: conditions_met across strategy dict
-            # Skip level_bounce — disabled (45.8% WR), its conditions must not inflate score
-            _DISABLED_STRATEGIES = {"level_bounce"}
+            _DISABLED_STRATEGIES: set[str] = set()
             strategies: dict = debug.get("strategies", {})
             max_met = 0
             for sname, sd in strategies.items():
