@@ -478,7 +478,7 @@ async def scan_pairs_fresh(
                 if met > max_met:
                     max_met = met
 
-            if max_met < 4:
+            if max_met < 3:
                 continue
 
             if direction in ("BUY", "SELL"):
