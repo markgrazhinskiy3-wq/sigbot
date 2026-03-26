@@ -24,3 +24,9 @@ id = "4DE2LyLDJrFZVHnWw4N49"
 uri = "file://signal_bot/docs/ema_bounce_breakdown.txt"
 type = "text"
 title = "EMA Bounce — полный разбор"
+
+[[outputs]]
+id = "QqnqGXmSSCSogduBRclqy"
+uri = "file://decision_engine.txt"
+type = "text"
+title = "decision_engine.py (актуальный)"
