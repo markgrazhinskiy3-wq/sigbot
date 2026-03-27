@@ -1,10 +1,10 @@
 """
 Strategy 7 — Level Breakout (1m levels + 15s entry)
 
-STEP 1: Find levels on 1m candles (need 2+ touches for breakout validity).
+STEP 1: Find levels on 1m candles (need 3+ touches for breakout validity).
 STEP 2: Detect breakout close on 15s candles + momentum confirmation.
 
-Need 4 of 6 conditions. Base confidence: 40 + (met-4)*10.
+Need 5 of 6 conditions. Base confidence: 40 + (met-4)*10.
 All 6 conditions are always evaluated and returned in debug.
 """
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pandas as pd
 from dataclasses import dataclass
 from ..indicators import Indicators
 from ..levels import LevelSet
-from .level_bounce import find_1m_levels
 
 
 @dataclass
@@ -28,7 +27,50 @@ class StrategyResult:
 
 
 _TOTAL   = 6
-_MIN_MET = 4
+_MIN_MET = 5
+
+
+def find_1m_levels(df1m: pd.DataFrame) -> tuple[list[tuple[float, int]], list[tuple[float, int]]]:
+    """
+    Scan last 50 1m candles for S/R levels.
+    Returns (supports, resistances) as list of (price, touch_count) tuples,
+    sorted by touch_count descending.
+    """
+    _CLUSTER_PCT = 0.0012
+    n = min(50, len(df1m))
+    highs = df1m["high"].values[-n:].astype(float)
+    lows  = df1m["low"].values[-n:].astype(float)
+
+    res_prices: list[float] = []
+    for i in range(1, n - 1):
+        if highs[i] >= highs[i - 1] and highs[i] >= highs[i + 1]:
+            res_prices.append(highs[i])
+
+    sup_prices: list[float] = []
+    for i in range(1, n - 1):
+        if lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1]:
+            sup_prices.append(lows[i])
+
+    def _cluster(prices: list[float]) -> list[tuple[float, int]]:
+        if not prices:
+            return []
+        prices_s = sorted(prices)
+        used = [False] * len(prices_s)
+        out: list[tuple[float, int]] = []
+        for i, p in enumerate(prices_s):
+            if used[i]:
+                continue
+            group = [p]
+            used[i] = True
+            for j in range(i + 1, len(prices_s)):
+                if not used[j] and abs(prices_s[j] - p) / p < _CLUSTER_PCT:
+                    group.append(prices_s[j])
+                    used[j] = True
+            out.append((float(np.mean(group)), len(group)))
+        out.sort(key=lambda x: x[1], reverse=True)
+        return out
+
+    return _cluster(sup_prices), _cluster(res_prices)
 
 
 def level_breakout_strategy(
@@ -112,14 +154,14 @@ def _eval_breakout_buy(close, open_, high, low, n, price, avg_body,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for res_price, touch_count in res_levels[:5]:
-        if touch_count < 2:
+        if touch_count < 3:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. tested_level: 2+ touches on 1m chart
+        # 1. tested_level: 3+ touches on 1m chart
         c1 = True
         conds["tested_level"] = c1
         met += 1
@@ -183,14 +225,14 @@ def _eval_breakout_sell(close, open_, high, low, n, price, avg_body,
     best: dict = {"met": 0, "conf": 0.0, "reason": "", "conds": {}}
 
     for sup_price, touch_count in sup_levels[:5]:
-        if touch_count < 2:
+        if touch_count < 3:
             continue
 
         conds: dict[str, bool] = {}
         met   = 0
         parts: list[str] = []
 
-        # 1. tested_level: 2+ touches
+        # 1. tested_level: 3+ touches
         c1 = True
         conds["tested_level"] = c1
         met += 1

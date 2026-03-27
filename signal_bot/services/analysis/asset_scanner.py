@@ -219,12 +219,12 @@ def calculate_strategy_availability(
         if ema_aligned and atr_ratio > 0.5 and trend_candles >= 3:
             applicable.append("EMA Bounce")
 
-        # ── 2. Level Bounce ───────────────────────────────────
+        # ── 2. Level Touch ────────────────────────────────────
         near_level = any(
             abs(p - current) / current < 0.003 for p in sig_prices
         )
         if sig_levels and near_level:
-            applicable.append("Level Bounce")
+            applicable.append("Level Touch")
 
         # ── 3. RSI Reversal ───────────────────────────────────
         rsi_now = ind.rsi

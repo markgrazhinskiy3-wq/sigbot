@@ -28,7 +28,7 @@ class StrategyResult:
 
 
 _TOTAL   = 8
-_MIN_MET = 5
+_MIN_MET = 6
 
 
 def ema_bounce_strategy(

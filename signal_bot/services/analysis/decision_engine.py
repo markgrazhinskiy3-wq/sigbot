@@ -31,7 +31,6 @@ from .levels       import LevelSet, detect_levels
 from .strategies   import (
     ema_bounce_strategy,
     level_breakout_strategy,
-    level_bounce_strategy,
     level_touch_strategy,
 )
 
@@ -45,9 +44,8 @@ logger = logging.getLogger(__name__)
 
 
 # ── Mode → strategy routing ───────────────────────────────────────────────────
-# PRIMARY strategies run first.  Secondary strategies run ONLY if no primary fires.
-# Data: ema_bounce TRENDING_UP 57%, level_breakout TRENDING_UP 58.5%, level_bounce 49.1% overall.
-# level_bounce runs as secondary in RANGE/SQUEEZE where it may outperform.
+# PRIMARY strategies compete on confidence — highest score wins.
+# level_bounce removed (43% WR, duplicated by level_touch which scores 62%+).
 _MODE_STRATEGIES: dict[str, dict] = {
     "TRENDING_UP": {
         "priority":  [],
@@ -61,9 +59,8 @@ _MODE_STRATEGIES: dict[str, dict] = {
     },
     "RANGE": {
         "priority":  [],
-        # ema_bounce blocked in RANGE internally; level_breakout primary, level_bounce secondary
         "primary":   ["level_touch", "level_breakout"],
-        "secondary": ["level_bounce"],
+        "secondary": [],
     },
     "VOLATILE": {
         "priority":  [],
@@ -73,7 +70,7 @@ _MODE_STRATEGIES: dict[str, dict] = {
     "SQUEEZE": {
         "priority":  [],
         "primary":   ["level_touch", "ema_bounce", "level_breakout"],
-        "secondary": ["level_bounce"],
+        "secondary": [],
     },
 }
 
@@ -81,7 +78,6 @@ _STRATEGY_FNS = {
     "level_touch":    level_touch_strategy,
     "ema_bounce":     ema_bounce_strategy,
     "level_breakout": level_breakout_strategy,
-    "level_bounce":   level_bounce_strategy,
 }
 
 
@@ -278,9 +274,9 @@ def run_decision_engine(
             try:
                 kwargs = dict(df=df1m, ind=ind, levels=levels,
                               ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
-                if name in ("level_breakout", "ema_bounce", "level_bounce"):
+                if name in ("level_breakout", "ema_bounce"):
                     kwargs["mode"] = mode_obj.mode
-                if name in ("level_breakout", "level_bounce"):
+                if name == "level_breakout":
                     kwargs["df1m_ctx"] = df1m_ctx
                 if name == "level_touch":
                     kwargs["df5m"] = df5m
@@ -364,7 +360,7 @@ def run_decision_engine(
     _STRATEGY_PRIORITY = {
         "level_breakout": 1,
         "ema_bounce":     2,
-        "level_bounce":   3,
+        "level_touch":    3,
     }
 
     buy_cands  = [r for r in candidates if r.direction == "BUY"]
@@ -537,7 +533,7 @@ def run_decision_engine(
 
 def _pick_expiry(strategy: str, quality: str) -> str:
     """Bounce/breakout → 1m, trend-follow → 2m."""
-    if strategy in ("level_breakout", "ema_bounce", "level_bounce"):
+    if strategy in ("level_breakout", "ema_bounce"):
         return "1m"
     return "2m"
 
