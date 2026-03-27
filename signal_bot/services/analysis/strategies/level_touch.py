@@ -1,22 +1,24 @@
 """
 Strategy: level_touch
-Simplest level-bounce — no indicator confirmation.
+Level-bounce with candle confirmation.
 
-Level detection: 1m candles, last 100 bars (~100 minutes)
+Level detection: 1m candles, last 120 bars (2 hours)
 Entry signal:    last closed 1m candle
 
-SELL: resistance in 1m (2+ touches, last 100 bars)
+SELL: resistance in 1m (3+ touches, last 120 bars)
       + last 1m HIGH >= level (±0.02%)
-      + last 1m CLOSE < level
+      + last 1m CLOSE < level      (closed below resistance)
+      + last 1m CLOSE < last OPEN  (bearish candle body required)
+      + 5m trend is NOT upward     (no SELL against rising 5m momentum)
       → SELL
 
-BUY:  support in 1m (2+ touches, last 100 bars)
+BUY:  support in 1m (3+ touches, last 120 bars)
       + last 1m LOW <= level (±0.02%)
       + last 1m CLOSE > level
       → BUY
 
 Confidence: base 60
-  +5  level touched 3+ times
+  +5  level touched 3+ times (always true since min is 3)
   +5  pin bar (rejection wick)
   +3  5m trend confirms reversal direction
 """
@@ -88,8 +90,13 @@ def level_touch_strategy(
         tol = res_price * _TOLERANCE
         c1_touched = last_high >= res_price - tol   # high reached the level
         c2_closed  = last_close < res_price          # candle closed below it
+        c3_bearish = last_close < last_open          # candle body is bearish
 
-        if not (c1_touched and c2_closed):
+        if not (c1_touched and c2_closed and c3_bearish):
+            continue
+
+        # Block SELL when 5m trend is clearly upward (price likely breaking resistance)
+        if trend_5m_up:
             continue
 
         conf  = 60.0
