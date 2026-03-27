@@ -82,7 +82,7 @@ def level_touch_strategy(
 
     # ── SELL: price touched resistance, closed below ───────────────────────────
     for res_price, touch_count in res_levels:
-        if touch_count < 2:
+        if touch_count < 3:
             continue
 
         tol = res_price * _TOLERANCE
@@ -139,7 +139,7 @@ def level_touch_strategy(
 
     # ── BUY: price touched support, closed above ───────────────────────────────
     for sup_price, touch_count in sup_levels:
-        if touch_count < 2:
+        if touch_count < 3:
             continue
 
         tol = sup_price * _TOLERANCE

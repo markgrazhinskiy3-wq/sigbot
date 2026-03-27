@@ -49,31 +49,30 @@ logger = logging.getLogger(__name__)
 # Data: ema_bounce TRENDING_UP 57%, level_breakout TRENDING_UP 58.5%, level_bounce 49.1% overall.
 # level_bounce runs as secondary in RANGE/SQUEEZE where it may outperform.
 _MODE_STRATEGIES: dict[str, dict] = {
-    # level_touch is PRIORITY in every mode — if it fires, skip primary/secondary
     "TRENDING_UP": {
-        "priority":  ["level_touch"],
-        "primary":   ["ema_bounce", "level_breakout"],
+        "priority":  [],
+        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
         "secondary": [],
     },
     "TRENDING_DOWN": {
-        "priority":  ["level_touch"],
-        "primary":   ["ema_bounce", "level_breakout"],
+        "priority":  [],
+        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
         "secondary": [],
     },
     "RANGE": {
-        "priority":  ["level_touch"],
+        "priority":  [],
         # ema_bounce blocked in RANGE internally; level_breakout primary, level_bounce secondary
-        "primary":   ["level_breakout"],
+        "primary":   ["level_touch", "level_breakout"],
         "secondary": ["level_bounce"],
     },
     "VOLATILE": {
-        "priority":  ["level_touch"],
-        "primary":   ["level_breakout"],
+        "priority":  [],
+        "primary":   ["level_touch", "level_breakout"],
         "secondary": [],
     },
     "SQUEEZE": {
-        "priority":  ["level_touch"],
-        "primary":   ["ema_bounce", "level_breakout"],
+        "priority":  [],
+        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
         "secondary": ["level_bounce"],
     },
 }
