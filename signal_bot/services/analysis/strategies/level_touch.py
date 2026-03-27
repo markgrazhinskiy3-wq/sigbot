@@ -44,7 +44,7 @@ class StrategyResult:
 
 _TOTAL     = 3        # 3 core conditions: level exists, price touched, candle closed
 _TOLERANCE = 0.0002   # 0.02% proximity tolerance
-_N_CANDLES = 100      # how many 1m bars to look back for level detection
+_N_CANDLES = 120      # how many 1m bars to look back for level detection (2 hours)
 
 
 def level_touch_strategy(
