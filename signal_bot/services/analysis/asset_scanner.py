@@ -324,7 +324,7 @@ def _build_explanation(df: pd.DataFrame, ind, levels_info: dict, applicable: lis
         sups = levels_info.get("supports", [])
         ress = levels_info.get("resistances", [])
         all_lvls = sups + ress
-        if all_lvls and ("Level Bounce" in applicable or "Micro Breakout" in applicable):
+        if all_lvls and ("Level Touch" in applicable or "Micro Breakout" in applicable):
             nearest = min(all_lvls, key=lambda lv: abs(lv["price"] - current))
             dist    = abs(nearest["price"] - current) / current * 100
             parts.append(f"Уровень {nearest['price']:.5g} ({nearest['touches']} касания, {dist:.2f}% от цены).")

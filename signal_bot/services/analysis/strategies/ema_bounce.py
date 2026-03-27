@@ -118,7 +118,7 @@ def ema_bounce_strategy(
     # ── RANGE hard block ─────────────────────────────────────────────────────
     # ema_bounce is a trend strategy — EMA has no directional bias in RANGE.
     # Data: 42-49% WR in RANGE vs 56-58% in TRENDING. Block entirely.
-    # level_bounce handles RANGE markets instead.
+    # level_touch handles RANGE markets instead.
     if direction != "NONE" and mode == "RANGE":
         return _none(
             "RANGE: ema_bounce заблокирован — работает только в тренде",
