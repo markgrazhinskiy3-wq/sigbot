@@ -289,12 +289,16 @@ class PaperRunner:
                 if not entry_price:
                     continue
 
-                exp_sec = 120 if exp_str == "2m" else 60
+                # Use engine's expiry_hint (e.g. level_touch → "2m") if available
+                actual_expiry = d.get("expiry_hint") or exp_str
+                if actual_expiry not in ("1m", "2m"):
+                    actual_expiry = exp_str
+                exp_sec = 120 if actual_expiry == "2m" else 60
                 trade = PaperTrade(
                     symbol      = sym,
                     pair        = label,
                     direction   = result.direction,
-                    expiry      = exp_str,
+                    expiry      = actual_expiry,
                     expiry_sec  = exp_sec,
                     entry_price = entry_price,
                     entry_time  = now,
@@ -310,7 +314,7 @@ class PaperRunner:
                         pair=label,
                         symbol=sym,
                         direction=result.direction,
-                        expiry=exp_str,
+                        expiry=actual_expiry,
                         entry_price=entry_price,
                         details=d,
                         source="paper",
@@ -319,7 +323,7 @@ class PaperRunner:
 
                 logger.info(
                     "PaperRunner: SIGNAL %s %s %s entry=%.6f score=%.1f",
-                    label, result.direction, exp_str, entry_price,
+                    label, result.direction, actual_expiry, entry_price,
                     d.get("debug", {}).get("final_score") or 0,
                 )
                 break  # one signal per pair per scan
