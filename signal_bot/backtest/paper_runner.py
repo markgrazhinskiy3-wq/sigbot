@@ -34,6 +34,7 @@ import config
 from services.strategy_engine import calculate_signal
 from services.candle_cache import resample_to_1m, resample_to_5m
 from services import analytics_logger
+from services.analysis.session_trend import get_session_direction
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class PaperTrade:
     entry_price: float
     entry_time:  float        # unix timestamp
     details:     dict
+    session_dir: str          = "NEUTRAL"   # BULL | BEAR | NEUTRAL at entry
     outcome_id:  int | None = None  # analytics FK (None for paper)
     logged_at:   float = field(default_factory=time.time)
 
@@ -245,6 +247,13 @@ class PaperRunner:
         """Run the signal engine on each idle pair and record any signals fired."""
         now = time.time()
 
+        # ── Session trend filter: computed ONCE per scan ───────────────────────
+        # Examines EUR/USD, GBP/USD, AUD/USD 5m EMA trend.
+        # BULL → suppress SELL signals (market rising, shorts lose).
+        # BEAR → suppress BUY  signals (market falling, longs lose).
+        # NEUTRAL → allow both directions.
+        session_dir = get_session_direction(candles_map)
+
         # Pick expiry for this scan
         expiry_modes = []
         if self.expiry == "both":
@@ -283,6 +292,21 @@ class PaperRunner:
                 if result.direction not in ("BUY", "SELL"):
                     continue
 
+                # ── Session trend filter ───────────────────────────────────
+                # Block signals that go against the detected session direction.
+                if session_dir == "BULL" and result.direction == "SELL":
+                    logger.info(
+                        "SessionFilter: BLOCKED %s SELL (%s) — BULL session",
+                        label, exp_str,
+                    )
+                    continue
+                if session_dir == "BEAR" and result.direction == "BUY":
+                    logger.info(
+                        "SessionFilter: BLOCKED %s BUY (%s) — BEAR session",
+                        label, exp_str,
+                    )
+                    continue
+
                 # Signal found!
                 d            = result.details if isinstance(result.details, dict) else {}
                 entry_price  = d.get("debug", {}).get("last_close")
@@ -299,6 +323,7 @@ class PaperRunner:
                     entry_price = entry_price,
                     entry_time  = now,
                     details     = d,
+                    session_dir = session_dir,
                 )
                 self._active[sym] = trade
                 self._cooldown[sym] = now
@@ -477,6 +502,23 @@ class PaperRunner:
             bwr = round(bw / len(rs) * 100, 1)
             bar = _bar(bwr)
             lines.append(f"  {label:<8}  {bw:>3}/{len(rs):<3}  {bwr:>5.1f}%  {bar}")
+
+        lines.append("")
+
+        # ── By session direction ─────────────────────────────────────────────
+        lines.append("── Winrate by session direction ──")
+        sess_map: dict[str, list[TradeResult]] = {}
+        for r in results:
+            sd = getattr(r.trade, "session_dir", "NEUTRAL")
+            sess_map.setdefault(sd, []).append(r)
+        for sd in ("BULL", "BEAR", "NEUTRAL"):
+            rs = sess_map.get(sd, [])
+            if not rs:
+                continue
+            sw  = sum(1 for r in rs if r.result == "WIN")
+            swr = round(sw / len(rs) * 100, 1)
+            bar = _bar(swr)
+            lines.append(f"  {sd:<8}  {sw:>3}/{len(rs):<3}  {swr:>5.1f}%  {bar}")
 
         lines.append("")
 

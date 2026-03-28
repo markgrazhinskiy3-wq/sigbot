@@ -1823,7 +1823,7 @@ async def cmd_paper_test(message: Message) -> None:
                     writer.writerow([
                         "pair", "symbol", "direction", "expiry",
                         "entry_price", "close_price", "result", "pnl_pct",
-                        "entry_time", "strategy", "confidence",
+                        "entry_time", "strategy", "confidence", "session",
                     ])
                     for r in results:
                         dbg  = r.trade.details.get("debug", {})
@@ -1839,6 +1839,7 @@ async def cmd_paper_test(message: Message) -> None:
                             datetime.fromtimestamp(r.trade.entry_time).strftime("%Y-%m-%d %H:%M:%S"),
                             r.trade.details.get("primary_strategy", ""),
                             dbg.get("final_score") or r.trade.details.get("confidence_raw", ""),
+                            getattr(r.trade, "session_dir", "NEUTRAL"),
                         ])
                 try:
                     doc = FSInputFile(fpath, filename="paper_signals_log.csv")
