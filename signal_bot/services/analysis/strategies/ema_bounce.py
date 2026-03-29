@@ -196,6 +196,45 @@ def ema_bounce_strategy(
              "sell_conditions": sell_conds, "buy_conditions": buy_conds}
         )
 
+    # ── 1m momentum confirmation gate ────────────────────────────────────────
+    # Problem: C4 checks only the single bounce candle is bearish/bullish.
+    # A brief red candle inside a strong upward move still passes C4 → false signal.
+    #
+    # Fix: require that LOCAL 1m momentum (EMA5 slope over last 3 bars) is
+    # actually turning in the signal direction, OR that price itself is moving
+    # in the signal direction (close[-1] vs close[-2]).
+    #
+    # Block ONLY when BOTH fail — permissive gate, catches the worst cases:
+    #   SELL blocked if: EMA5 still rising  AND  last close ≥ previous close
+    #   BUY  blocked if: EMA5 still falling AND  last close ≤ previous close
+    if direction != "NONE" and n >= 5:
+        ema5_vals  = ind.ema5_series.values
+        ema5_slope = float(ema5_vals[-1]) - float(ema5_vals[-4])  # 3-bar slope
+
+        if direction == "SELL":
+            ema5_ok      = ema5_slope <= 0            # EMA5 flat or falling ✓
+            price_moving = close[-1] < close[-2]      # price falling on last bar ✓
+            if not ema5_ok and not price_moving:
+                return _none(
+                    f"SELL блок: 1m моментум вверх (EMA5 {ema5_slope:+.5f}, close {close[-1]:.5f}≥{close[-2]:.5f})",
+                    {"momentum_block": "sell_1m_rising",
+                     "ema5_slope_3bar": round(ema5_slope, 6),
+                     "close_last": round(close[-1], 6),
+                     "close_prev": round(close[-2], 6)},
+                )
+
+        elif direction == "BUY":
+            ema5_ok      = ema5_slope >= 0            # EMA5 flat or rising ✓
+            price_moving = close[-1] > close[-2]      # price rising on last bar ✓
+            if not ema5_ok and not price_moving:
+                return _none(
+                    f"BUY блок: 1m моментум вниз (EMA5 {ema5_slope:+.5f}, close {close[-1]:.5f}≤{close[-2]:.5f})",
+                    {"momentum_block": "buy_1m_falling",
+                     "ema5_slope_3bar": round(ema5_slope, 6),
+                     "close_last": round(close[-1], 6),
+                     "close_prev": round(close[-2], 6)},
+                )
+
     return StrategyResult(
         direction=direction,
         confidence=max(0.0, min(100.0, base_conf)),
