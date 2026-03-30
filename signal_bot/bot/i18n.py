@@ -84,6 +84,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "auto_enabled":       "🔔 <b>Авто-сигналы включены</b>\n\nБот будет присылать сигналы автоматически, когда видит хорошую точку входа.\n⏱ Экспирация: <b>2 минуты</b>",
         "auto_disabled":      "🔕 <b>Авто-сигналы отключены</b>\n\nВы больше не будете получать автоматические сигналы.",
         "auto_signal_header": "🤖 <b>Авто-сигнал</b> (2 мин)",
+        "auto_pre_alert":     "📌 <b>Готовьтесь!</b>\n\nОткрывайте в Pocket Option:\n<b>{pair}</b>\n\n⏳ Сигнал придёт через <b>~{delay} сек</b> — ждите направления входа.",
+        "auto_signal_cancelled": "❌ <b>Сигнал отменён — {pair}</b>\n\nУсловия изменились после оповещения. Ждите следующего.",
 
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Выберите пару для анализа:",
@@ -159,6 +161,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "auto_enabled":       "🔔 <b>Auto-signals enabled</b>\n\nThe bot will send signals automatically when it spots a good entry.\n⏱ Expiry: <b>2 minutes</b>",
         "auto_disabled":      "🔕 <b>Auto-signals disabled</b>\n\nYou will no longer receive automatic signals.",
         "auto_signal_header": "🤖 <b>Auto-signal</b> (2 min)",
+        "auto_pre_alert":     "📌 <b>Get ready!</b>\n\nOpen in Pocket Option:\n<b>{pair}</b>\n\n⏳ Signal coming in <b>~{delay} sec</b> — wait for entry direction.",
+        "auto_signal_cancelled": "❌ <b>Signal cancelled — {pair}</b>\n\nConditions changed after the alert. Wait for the next one.",
 
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Select a pair to analyse:",
