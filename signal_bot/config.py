@@ -49,7 +49,7 @@ OTC_PAIRS: list[dict] = [
     # Confirmed 92% payout (from live PocketOption data)
     {"label": "EUR/USD OTC",  "symbol": "#EURUSD_otc",  "payout": 92},
     {"label": "EUR/JPY OTC",  "symbol": "#EURJPY_otc",  "payout": 92},
-    {"label": "GBP/JPY OTC",  "symbol": "#GBPJPY_otc",  "payout": 92},
+    # GBP/JPY removed: consistently 25-33% WR across tests 11-15 (10 tests, structural weakness)
     {"label": "AUD/USD OTC",  "symbol": "#AUDUSD_otc",  "payout": 92},
     {"label": "AUD/CAD OTC",  "symbol": "#AUDCAD_otc",  "payout": 92},
     {"label": "AUD/NZD OTC",  "symbol": "#AUDNZD_otc",  "payout": 92},

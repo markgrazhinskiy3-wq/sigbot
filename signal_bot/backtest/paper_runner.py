@@ -307,6 +307,19 @@ class PaperRunner:
                     )
                     continue
 
+                # ema_bounce requires a clear trend context to work.
+                # In NEUTRAL session the basket shows no dominant direction →
+                # ema_bounce signals are structurally unreliable (40.7% WR in test 15).
+                # level_touch and level_breakout are still allowed in NEUTRAL.
+                if session_dir == "NEUTRAL":
+                    strat = (result.details or {}).get("primary_strategy", "")
+                    if strat == "ema_bounce":
+                        logger.info(
+                            "SessionFilter: BLOCKED ema_bounce on %s (%s) — NEUTRAL session (no trend)",
+                            label, exp_str,
+                        )
+                        continue
+
                 # Signal found!
                 d            = result.details if isinstance(result.details, dict) else {}
                 entry_price  = d.get("debug", {}).get("last_close")
