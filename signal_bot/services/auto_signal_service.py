@@ -19,10 +19,11 @@ _auto_enabled: dict[int, bool] = {}
 _pair_cooldown: dict[str, float] = {}
 COOLDOWN_SEC = 300          # 5 minutes — minimum gap between signals on same pair
 
-AUTO_EXPIRY_SEC    = 120    # 2-minute option
-SCAN_INTERVAL_SEC  = 60     # scan all pairs every minute
-MIN_CONFIDENCE     = 65     # minimum confidence to trigger pre-alert
-PRE_ALERT_DELAY    = 20     # seconds between pre-alert and actual signal
+AUTO_EXPIRY_SEC       = 120  # 2-minute option
+SCAN_INTERVAL_SEC     = 60   # scan all pairs every minute
+MIN_CONFIDENCE        = 65   # minimum confidence to trigger pre-alert
+PRE_ALERT_WAIT_MAX    = 55   # max seconds to wait for a fresh cache refresh (~45s cycle + buffer)
+PRE_ALERT_POLL_SEC    = 2    # how often to poll while waiting for cache refresh
 
 
 def is_auto_enabled(user_id: int) -> bool:
@@ -165,25 +166,41 @@ async def _fire_pre_alert_then_signal(
     """
     Two-phase delivery:
       1. Pre-alert  — tells users which pair to open in PO
-      2. 20-second pause — user navigates to the pair
-      3. Signal     — BUY / SELL direction (or cancellation if signal reversed)
+      2. Wait for the candle cache to actually refresh with new market data
+      3. Signal     — BUY / SELL on fresh candles (or cancellation if conditions changed)
     """
     from bot.i18n import get_lang, t
     from bot.keyboards import signal_result_keyboard
+    from services.candle_cache import get_cache_fetched_at
+
+    # Snapshot the cache age BEFORE sending the pre-alert
+    snapshot_fetched_at = get_cache_fetched_at(symbol)
 
     # ── Phase 1: pre-alert ────────────────────────────────────────────────────
     for user_id in recipients:
         try:
             lang = get_lang(user_id)
-            text = t("auto_pre_alert", lang, pair=pair_label, delay=PRE_ALERT_DELAY)
+            text = t("auto_pre_alert", lang, pair=pair_label)
             await bot.send_message(user_id, text, parse_mode="HTML")
         except Exception as exc:
             logger.debug("Pre-alert send failed user %d: %s", user_id, exc)
 
-    # ── Pause — user opens PO and navigates to the pair ──────────────────────
-    await asyncio.sleep(PRE_ALERT_DELAY)
+    # ── Wait for a genuine cache refresh (new 15s candle data) ───────────────
+    # The background refresher updates every ~45s. We poll every 2s until the
+    # fetched_at timestamp changes — meaning real new market data has arrived.
+    deadline = time.monotonic() + PRE_ALERT_WAIT_MAX
+    while time.monotonic() < deadline:
+        await asyncio.sleep(PRE_ALERT_POLL_SEC)
+        if get_cache_fetched_at(symbol) > snapshot_fetched_at:
+            logger.debug("Fresh cache received for %s — proceeding to signal", symbol)
+            break
+    else:
+        logger.warning(
+            "Cache for %s did not refresh within %ds — using best available data",
+            symbol, PRE_ALERT_WAIT_MAX,
+        )
 
-    # ── Phase 2: re-check on fresh candles ───────────────────────────────────
+    # ── Phase 2: re-check on fresh (or best available) candles ───────────────
     candles = get_candles(symbol)
     signal = None
     if candles and len(candles) >= 60:

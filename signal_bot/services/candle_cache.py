@@ -78,6 +78,12 @@ def get_cached_symbols() -> list[str]:
     return list(_cache.keys())
 
 
+def get_cache_fetched_at(symbol: str) -> float:
+    """Return the unix timestamp of when this symbol's cache was last populated (0 if missing)."""
+    entry = _cache.get(symbol)
+    return entry.fetched_at if entry else 0.0
+
+
 def get_cached(symbol: str) -> list[dict] | None:
     """
     Return cached candles for symbol if they are still fresh, else None.
