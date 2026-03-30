@@ -214,10 +214,14 @@ def ema_bounce_strategy(
         if direction == "SELL":
             ema5_ok      = ema5_slope <= 0            # EMA5 flat or falling ✓
             price_moving = close[-1] < close[-2]      # price falling on last bar ✓
-            if not ema5_ok and not price_moving:
+            # Strict AND gate: BOTH EMA5 must be flat/falling AND price must be falling.
+            # Previously permissive OR (only blocked when both fail) → ema_bounce SELL
+            # WR was 22–32% in tests 13,16 (high-conf 88,86,85 all lost).
+            # Requiring both conditions ensures real local momentum before firing.
+            if not ema5_ok or not price_moving:
                 return _none(
-                    f"SELL блок: 1m моментум вверх (EMA5 {ema5_slope:+.5f}, close {close[-1]:.5f}≥{close[-2]:.5f})",
-                    {"momentum_block": "sell_1m_rising",
+                    f"SELL блок: 1m моментум не подтверждён (EMA5 {ema5_slope:+.5f}, close {close[-1]:.5f} vs {close[-2]:.5f})",
+                    {"momentum_block": "sell_1m_no_confirm",
                      "ema5_slope_3bar": round(ema5_slope, 6),
                      "close_last": round(close[-1], 6),
                      "close_prev": round(close[-2], 6)},
