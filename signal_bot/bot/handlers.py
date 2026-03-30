@@ -133,11 +133,19 @@ async def _monitor_pair(
     signal_found = False
     conditions_worsened = False
 
-    async def on_candles(candles: list) -> bool:
+    async def on_candles(_ws_candles: list) -> bool:
+        """
+        Called by stream_pair on every check interval.
+        We ignore the raw WS candles (too few for strategy engine) and instead
+        read the full cached history which always has 200-480 candles.
+        """
         nonlocal checks, signal_found, conditions_worsened
+        from services.candle_cache import get_cached
         checks += 1
 
+        candles = get_cached(symbol) or []
         if len(candles) < 20:
+            logger.debug("Monitor check %d: cache not warm yet (%d candles)", checks, len(candles))
             return False
 
         # Check if conditions have worsened
