@@ -44,9 +44,9 @@ _last_fired_signal: dict[int, dict] = {}
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
-    recommended_pairs_keyboard, lang_select_keyboard,
+    recommended_pairs_keyboard, lang_select_keyboard, accept_terms_keyboard,
 )
-from bot.i18n import get_lang, set_lang, t
+from bot.i18n import get_lang, set_lang, t, has_accepted_terms, accept_terms
 from services.auto_signal_service import is_auto_enabled, set_auto_enabled
 
 logger = logging.getLogger(__name__)
@@ -291,16 +291,27 @@ async def cmd_start(message: Message) -> None:
         await message.answer(t("denied_msg", get_lang(user_id)))
         return
 
-    # Show language selection for first-time users (no lang set yet)
+    # Step 1: first-time user — no language chosen yet
     from bot.i18n import _user_lang
     if user_id not in _user_lang:
         await message.answer(
-            t("select_lang", "ru"),  # bilingual prompt, no lang yet
+            t("select_lang", "ru"),  # bilingual prompt shown before lang is chosen
             reply_markup=lang_select_keyboard(),
         )
         return
 
     lang = get_lang(user_id)
+
+    # Step 2: language chosen but risk disclaimer not yet accepted
+    if not has_accepted_terms(user_id):
+        await message.answer(
+            t("risk_warning", lang),
+            parse_mode="HTML",
+            reply_markup=accept_terms_keyboard(lang=lang),
+        )
+        return
+
+    # Step 3: fully onboarded — show main menu
     await message.answer(
         t("welcome", lang),
         parse_mode="HTML",
@@ -315,27 +326,49 @@ async def cb_set_lang(callback: CallbackQuery) -> None:
     user_id = callback.from_user.id
     set_lang(user_id, lang)
 
-    await callback.message.edit_text(
-        t("lang_set", lang),
-        reply_markup=None,
-    )
-
-    # Check access to decide what to show next
+    # Check access first
     status = await check_access(user_id)
     if _is_admin(user_id):
         status = "approved"
 
-    if status == "approved":
-        await callback.message.answer(
+    if status != "approved":
+        await callback.message.edit_text(
+            t("pending_msg", lang),
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    # Already accepted terms (e.g. changing language from main menu) — skip disclaimer
+    if has_accepted_terms(user_id):
+        await callback.message.edit_text(
             t("welcome", lang),
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
         )
-    else:
-        await callback.message.answer(
-            t("pending_msg", lang),
-            parse_mode="HTML",
-        )
+        await callback.answer()
+        return
+
+    # First time — show risk disclaimer before granting access
+    await callback.message.edit_text(
+        t("risk_warning", lang),
+        parse_mode="HTML",
+        reply_markup=accept_terms_keyboard(lang=lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "action:accept_terms")
+async def cb_accept_terms(callback: CallbackQuery) -> None:
+    """User pressed 'I accept' on the risk disclaimer."""
+    user_id = callback.from_user.id
+    accept_terms(user_id)
+    lang = get_lang(user_id)
+    await callback.message.edit_text(
+        t("welcome", lang),
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
+    )
     await callback.answer()
 
 

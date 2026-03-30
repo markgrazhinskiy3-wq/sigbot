@@ -6,6 +6,15 @@ Usage:  from bot.i18n import t, get_lang, set_lang, _user_lang
 from __future__ import annotations
 
 _user_lang: dict[int, str] = {}
+_terms_accepted: set[int] = set()
+
+
+def has_accepted_terms(user_id: int) -> bool:
+    return user_id in _terms_accepted
+
+
+def accept_terms(user_id: int) -> None:
+    _terms_accepted.add(user_id)
 
 
 def get_lang(user_id: int) -> str:
@@ -79,6 +88,29 @@ _STRINGS: dict[str, dict[str, str]] = {
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Выберите пару для анализа:",
         "no_pairs":        "Нет доступных пар. Попробуйте позже.",
+
+        # ── Risk disclaimer ────────────────────────────────────────────────────
+        "risk_warning": (
+            "⚠️ <b>Предупреждение о рисках</b>\n\n"
+            "Торговля на финансовых рынках связана с риском.\n"
+            "Сигналы, которые предоставляет бот, <b>не являются финансовой рекомендацией</b> "
+            "и не гарантируют получение прибыли.\n\n"
+            "Все решения о входе в сделку вы принимаете самостоятельно и несёте полную "
+            "ответственность за результат торговли.\n\n"
+            "Бот предоставляет торговые сигналы и аналитику, но <b>может ошибаться</b>.\n\n"
+            "<b>Вы самостоятельно:</b>\n"
+            "• принимаете решения о входе в сделки\n"
+            "• выбираете сумму сделки\n"
+            "• несёте ответственность за результат торговли\n\n"
+            "<b>Мы настоятельно рекомендуем:</b>\n"
+            "• соблюдать риск-менеджмент\n"
+            "• не входить более чем на 1–2% от депозита\n"
+            "• не торговать на последние деньги\n"
+            "• начинать с минимальных сумм\n\n"
+            "Нажимая кнопку ниже, вы подтверждаете, что понимаете риски "
+            "и принимаете ответственность за свою торговлю."
+        ),
+        "btn_accept_terms": "✅ Принимаю условия",
     },
 
     "en": {
@@ -131,5 +163,28 @@ _STRINGS: dict[str, dict[str, str]] = {
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Select a pair to analyse:",
         "no_pairs":        "No pairs available. Please try later.",
+
+        # ── Risk disclaimer ────────────────────────────────────────────────────
+        "risk_warning": (
+            "⚠️ <b>Risk Warning</b>\n\n"
+            "Trading financial markets involves risk.\n"
+            "Signals provided by this bot <b>are not financial advice</b> "
+            "and do not guarantee profit.\n\n"
+            "All trading decisions are made solely by you, and you bear full "
+            "responsibility for the outcome of your trades.\n\n"
+            "The bot provides trading signals and analytics but <b>can be wrong</b>.\n\n"
+            "<b>You independently:</b>\n"
+            "• make decisions to enter trades\n"
+            "• choose the trade amount\n"
+            "• bear responsibility for the trading outcome\n\n"
+            "<b>We strongly recommend:</b>\n"
+            "• practise proper risk management\n"
+            "• risk no more than 1–2% of your deposit per trade\n"
+            "• never trade money you cannot afford to lose\n"
+            "• start with minimum amounts\n\n"
+            "By pressing the button below you confirm that you understand the risks "
+            "and accept responsibility for your own trading."
+        ),
+        "btn_accept_terms": "✅ I accept the terms",
     },
 }

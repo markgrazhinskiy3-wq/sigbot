@@ -11,6 +11,17 @@ def _t(key: str, lang: str) -> str:
     return t(key, lang)
 
 
+def accept_terms_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=_t("btn_accept_terms", lang),
+            callback_data="action:accept_terms",
+        )
+    )
+    return builder.as_markup()
+
+
 def lang_select_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
