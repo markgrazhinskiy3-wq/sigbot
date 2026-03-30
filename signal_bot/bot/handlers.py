@@ -392,7 +392,7 @@ async def cb_toggle_auto(callback: CallbackQuery) -> None:
     user_id = callback.from_user.id
     lang = get_lang(user_id)
     new_state = not is_auto_enabled(user_id)
-    set_auto_enabled(user_id, new_state)
+    await set_auto_enabled(user_id, new_state)
     msg_key = "auto_enabled" if new_state else "auto_disabled"
     await callback.message.edit_text(
         t(msg_key, lang),

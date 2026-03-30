@@ -17,10 +17,11 @@ async def init_db() -> None:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                user_id     INTEGER PRIMARY KEY,
-                username    TEXT,
-                status      TEXT NOT NULL DEFAULT 'pending',
-                created_at  TEXT NOT NULL
+                user_id      INTEGER PRIMARY KEY,
+                username     TEXT,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                created_at   TEXT NOT NULL,
+                auto_signals INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -91,6 +92,17 @@ async def init_db() -> None:
         )
 
         await db.commit()
+
+        # ── Migrations: add columns to existing databases ──────────────────────
+        try:
+            await db.execute(
+                "ALTER TABLE users ADD COLUMN auto_signals INTEGER NOT NULL DEFAULT 0"
+            )
+            await db.commit()
+            logger.info("Migration applied: users.auto_signals column added")
+        except Exception:
+            pass  # column already exists
+
     logger.info("Database initialized at %s", DB_PATH)
 
     # Analytics tables (separate module — init after core tables)
@@ -99,6 +111,36 @@ async def init_db() -> None:
         await init_analytics()
     except Exception as _ae:
         logger.warning("Analytics init failed (non-critical): %s", _ae)
+
+
+async def get_auto_signals(user_id: int) -> bool:
+    """Return True if the user has auto-signals enabled (persisted in DB)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT auto_signals FROM users WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return bool(row[0]) if row else False
+
+
+async def set_auto_signals(user_id: int, enabled: bool) -> None:
+    """Persist auto-signals preference for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET auto_signals = ? WHERE user_id = ?",
+            (1 if enabled else 0, user_id),
+        )
+        await db.commit()
+
+
+async def load_all_auto_signals() -> dict[int, bool]:
+    """Load auto_signals flag for all approved users (for startup warm-up)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id, auto_signals FROM users WHERE status = 'approved'"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return {row[0]: bool(row[1]) for row in rows}
 
 
 async def add_or_get_user(user_id: int, username: str | None) -> tuple[dict, bool]:

@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# Per-user opt-in flag
+# Per-user opt-in flag — in-memory cache, loaded from DB at startup
 _auto_enabled: dict[int, bool] = {}
 
 # Per-pair cooldown: don't re-send same pair within COOLDOWN_SEC
@@ -25,11 +25,18 @@ MIN_CONFIDENCE    = 65      # only broadcast high-quality signals
 
 
 def is_auto_enabled(user_id: int) -> bool:
+    """Sync check against in-memory cache (DB-backed on startup & toggle)."""
     return _auto_enabled.get(user_id, False)
 
 
-def set_auto_enabled(user_id: int, enabled: bool) -> None:
+async def set_auto_enabled(user_id: int, enabled: bool) -> None:
+    """Toggle auto-signals and persist to DB so it survives restarts."""
+    from db.database import set_auto_signals
     _auto_enabled[user_id] = enabled
+    try:
+        await set_auto_signals(user_id, enabled)
+    except Exception as exc:
+        logger.warning("Failed to persist auto_signals for %d: %s", user_id, exc)
 
 
 async def auto_signal_loop(bot) -> None:
@@ -45,6 +52,17 @@ async def auto_signal_loop(bot) -> None:
 
     logger.info("Auto-signal broadcaster started (expiry=%ds, min_conf=%d)",
                 AUTO_EXPIRY_SEC, MIN_CONFIDENCE)
+
+    # Restore auto-signals preferences from DB (survives restarts)
+    try:
+        from db.database import load_all_auto_signals
+        restored = await load_all_auto_signals()
+        _auto_enabled.update(restored)
+        enabled_count = sum(1 for v in restored.values() if v)
+        logger.info("Auto-signals: restored %d user settings (%d enabled)",
+                    len(restored), enabled_count)
+    except Exception as exc:
+        logger.warning("Could not restore auto-signals from DB: %s", exc)
 
     # Give the candle cache a chance to warm up before first scan
     await asyncio.sleep(120)
