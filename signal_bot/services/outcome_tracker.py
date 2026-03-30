@@ -20,6 +20,36 @@ from services import analytics_logger
 
 logger = logging.getLogger(__name__)
 
+# ── Pip/point helpers ──────────────────────────────────────────────────────────
+
+def _pip_multiplier(price: float) -> int:
+    """
+    Return multiplier to convert raw price difference to integer 'points'.
+    JPY-style pairs (price > 20): 1 point = 0.001 → ×1 000
+    All other forex OTC pairs:    1 point = 0.00001 → ×100 000
+    """
+    return 1_000 if price > 20 else 100_000
+
+
+def _format_points(entry: float, close: float, direction: str) -> str:
+    """
+    Return a signed points string relative to trade direction, e.g. '+41 пункт' or '-12 пунктов'.
+    Positive = price moved in the right direction for the trade.
+    """
+    mult = _pip_multiplier(entry)
+    raw = round((close - entry) * mult)
+    directional = raw if direction == "BUY" else -raw
+    sign = "+" if directional >= 0 else ""
+    n = abs(directional)
+    if n % 10 == 1 and n % 100 != 11:
+        unit = "пункт"
+    elif 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+        unit = "пункта"
+    else:
+        unit = "пунктов"
+    return f"{sign}{directional} {unit}"
+
+
 _STRATEGY_LABELS = {
     # active strategies
     "ema_bounce":     "Отскок от EMA",
@@ -124,6 +154,7 @@ async def track_outcome(
         strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
         exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
         explanation = _build_explanation(outcome, direction, strategy or "", pct)
+        points_str = _format_points(signal_price, result_price, direction)
 
         text = (
             f"{icon} <b>{header}</b>\n"
@@ -133,7 +164,7 @@ async def track_outcome(
             f"\n"
             f"Цена входа:  <code>{signal_price:.5g}</code>\n"
             f"Цена выхода: <code>{result_price:.5g}</code> {arrow}\n"
-            f"Изменение:   {pct:.3f}%\n"
+            f"Разница:     <b>{points_str}</b>\n"
             f"\n"
             f"<i>{explanation}</i>\n"
         )
@@ -170,12 +201,50 @@ async def _recover_one(
     signal_price: float,
     pair_label: str,
     delay_sec: float,
+    stale_sec: float = 0.0,
 ) -> None:
-    """Resolve a single pending outcome after an optional delay, then notify user."""
+    """
+    Resolve a single pending outcome after an optional delay, then notify user.
+
+    stale_sec: how many seconds have already passed AFTER expiry at restart time.
+    If > 60s, the current market price is no longer a reliable proxy for the
+    trade close price — we mark the outcome as unknown and ask the user to verify.
+    """
+    _STALE_THRESHOLD = 60  # seconds past expiry before we stop guessing
+
     try:
         if delay_sec > 0:
             await asyncio.sleep(delay_sec)
 
+        strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
+        exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
+
+        # ── Trade expired long before bot restarted: result unknowable ─────────
+        if stale_sec > _STALE_THRESHOLD:
+            await resolve_outcome(outcome_id, 0.0, "error")
+            text = (
+                f"⚠️ <b>Результат неизвестен — {pair_label}</b>\n"
+                f"\n"
+                f"📊 <b>{pair_label}</b> · {direction} · {exp_label}\n"
+                f"💡 Стратегия: {strategy_label}\n"
+                f"\n"
+                f"Бот был перезапущен через ~{int(stale_sec)}с после закрытия сделки.\n"
+                f"Текущая цена уже не отражает момент закрытия.\n"
+                f"\n"
+                f"<i>Проверьте итог сделки в истории Pocket Option.</i>"
+            )
+            await bot.send_message(
+                user_id, text,
+                parse_mode="HTML",
+                reply_markup=after_result_keyboard(symbol),
+            )
+            logger.info(
+                "recover_one: stale=%ds → unknown id=%d (%s %s)",
+                int(stale_sec), outcome_id, direction, pair_label,
+            )
+            return
+
+        # ── Freshly expired (or still live): determine result from price ───────
         candles = []
         try:
             from services.po_ws_client import fetch_all_pairs, is_available
@@ -217,14 +286,10 @@ async def _recover_one(
         ))
         icon   = "✅" if outcome == "win" else "❌"
         header = "Сделка закрылась в плюс!" if outcome == "win" else "Сделка закрылась в минус."
-        if outcome == "win":
-            arrow = "⬆️" if direction == "BUY" else "⬇️"
-        else:
-            arrow = "⬇️" if direction == "BUY" else "⬆️"
+        arrow  = ("⬆️" if direction == "BUY" else "⬇️") if outcome == "win" else ("⬇️" if direction == "BUY" else "⬆️")
 
-        strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
-        exp_label  = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
-        explanation = _build_explanation(outcome, direction, strategy or "", pct)
+        explanation  = _build_explanation(outcome, direction, strategy or "", pct)
+        points_str   = _format_points(signal_price, result_price, direction)
 
         text = (
             f"{icon} <b>{header}</b>\n"
@@ -234,7 +299,7 @@ async def _recover_one(
             f"\n"
             f"Цена входа:  <code>{signal_price:.5g}</code>\n"
             f"Цена выхода: <code>{result_price:.5g}</code> {arrow}\n"
-            f"Изменение:   {pct:.3f}%\n"
+            f"Разница:     <b>{points_str}</b>\n"
             f"\n"
             f"<i>{explanation}</i>\n"
             f"<i>⚠️ Результат восстановлен после перезапуска бота.</i>"
@@ -280,8 +345,11 @@ async def recover_pending_outcomes(bot: Bot) -> None:
                 age_sec    = (now - created_at).total_seconds()
                 # How many seconds left until expiry (may be negative = already expired)
                 delay_sec  = max(0.0, row["expiration_sec"] - age_sec + 2)
+                # How long ago did the trade expire? (0 if not yet expired)
+                stale_sec  = max(0.0, age_sec - row["expiration_sec"])
             except Exception:
                 delay_sec = 0.0
+                stale_sec = 0.0
 
             asyncio.create_task(_recover_one(
                 bot           = bot,
@@ -294,6 +362,7 @@ async def recover_pending_outcomes(bot: Bot) -> None:
                 signal_price  = row["signal_price"],
                 pair_label    = row["pair_label"],
                 delay_sec     = delay_sec,
+                stale_sec     = stale_sec,
             ))
 
     except Exception as e:
