@@ -81,9 +81,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "monitor_worsened": "⚠️ <b>Условия на {pair} ухудшились</b>\n\nСкор торгуемости упал до {score}/100.\nРекомендуем выбрать другую пару.",
 
         # ── Auto-signals ───────────────────────────────────────────────────────
-        "auto_enabled":       "🔔 <b>Авто-сигналы включены</b>\n\nБот будет присылать сигналы автоматически, когда видит хорошую точку входа.\n⏱ Экспирация: <b>1 минута</b>",
+        "auto_enabled":       "🔔 <b>Авто-сигналы включены</b>\n\nБот будет присылать сигналы автоматически, когда видит хорошую точку входа.\n⏱ Экспирация: <b>2 минуты</b>",
         "auto_disabled":      "🔕 <b>Авто-сигналы отключены</b>\n\nВы больше не будете получать автоматические сигналы.",
-        "auto_signal_header": "🤖 <b>Авто-сигнал</b> (1 мин)",
+        "auto_signal_header": "🤖 <b>Авто-сигнал</b> (2 мин)",
 
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Выберите пару для анализа:",
@@ -156,9 +156,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "monitor_worsened": "⚠️ <b>Conditions on {pair} deteriorated</b>\n\nTradability score dropped to {score}/100.\nWe recommend choosing another pair.",
 
         # ── Auto-signals ───────────────────────────────────────────────────────
-        "auto_enabled":       "🔔 <b>Auto-signals enabled</b>\n\nThe bot will send signals automatically when it spots a good entry.\n⏱ Expiry: <b>1 minute</b>",
+        "auto_enabled":       "🔔 <b>Auto-signals enabled</b>\n\nThe bot will send signals automatically when it spots a good entry.\n⏱ Expiry: <b>2 minutes</b>",
         "auto_disabled":      "🔕 <b>Auto-signals disabled</b>\n\nYou will no longer receive automatic signals.",
-        "auto_signal_header": "🤖 <b>Auto-signal</b> (1 min)",
+        "auto_signal_header": "🤖 <b>Auto-signal</b> (2 min)",
 
         # ── Pair selection ─────────────────────────────────────────────────────
         "select_pair":     "Select a pair to analyse:",

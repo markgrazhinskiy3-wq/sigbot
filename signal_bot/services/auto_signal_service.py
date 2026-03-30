@@ -19,7 +19,7 @@ _auto_enabled: dict[int, bool] = {}
 _pair_cooldown: dict[str, float] = {}
 COOLDOWN_SEC = 300          # 5 minutes
 
-AUTO_EXPIRY_SEC   = 60      # 1-minute option (same as manual signals — strategies are calibrated for 1m)
+AUTO_EXPIRY_SEC   = 120     # 2-minute option — gives users time to navigate to the pair in PO
 SCAN_INTERVAL_SEC = 60      # check every minute
 MIN_CONFIDENCE    = 65      # only broadcast high-quality signals
 
