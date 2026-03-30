@@ -39,28 +39,36 @@ def _all_config_pairs() -> list[dict]:
 def _dynamic_pairs(live_assets: dict) -> list[dict] | None:
     """
     Build the full pair list from live PocketOption asset registry.
-    Includes ALL currency OTC pairs with payout >= MIN_PAYOUT.
-    This matches PocketOption's "Валюты" section exactly.
+    Only includes pairs that are in config.OTC_PAIRS (our supported set).
+    Live data is used to pull the current payout % for each pair.
     Returns None if no suitable pairs found (caller falls back to config).
     """
     if not live_assets:
         return None
 
+    # Build lookup: normalised symbol → config entry
+    _supported: dict[str, dict] = {
+        p["symbol"].lower(): p for p in config.OTC_PAIRS
+    }
+
     result = []
     for key, asset in live_assets.items():
-        # Only currency OTC pairs (matches PocketOption "Валюты" tab)
         if asset.get("category") != "currency":
             continue
         if "_otc" not in key:
             continue
+        sym = asset["symbol"]        # e.g. "AEDCNY_otc"  (no leading #)
+        full_sym = f"#{sym}"         # e.g. "#AEDCNY_otc"
+        # Only include pairs we have optimised strategies for
+        if full_sym.lower() not in _supported:
+            continue
         payout = asset["payout"]
         if payout < MIN_PAYOUT:
             continue
-        name = asset["name"]          # e.g. "AED/CNY OTC"
-        sym  = asset["symbol"]        # e.g. "AEDCNY_otc"  (no leading #)
+        name = asset["name"]         # e.g. "AED/CNY OTC"
         result.append({
             "label":  name,
-            "symbol": f"#{sym}",      # e.g. "#AEDCNY_otc"
+            "symbol": full_sym,
             "payout": payout,
             "name":   name,
         })

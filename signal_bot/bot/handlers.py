@@ -44,8 +44,10 @@ _last_fired_signal: dict[int, dict] = {}
 from bot.keyboards import (
     main_menu_keyboard, pairs_keyboard, expiration_keyboard,
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
-    recommended_pairs_keyboard,
+    recommended_pairs_keyboard, lang_select_keyboard,
 )
+from bot.i18n import get_lang, set_lang, t
+from services.auto_signal_service import is_auto_enabled, set_auto_enabled
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -124,6 +126,9 @@ async def _monitor_pair(
     from services.po_ws_client import stream_pair
     from bot.keyboards import signal_result_keyboard, back_to_menu_keyboard, monitor_timeout_keyboard
 
+    user_id = chat_id  # DM chat_id == user_id; alias avoids NameError in closure
+    lang = get_lang(user_id)
+
     checks = 0
     signal_found = False
     conditions_worsened = False
@@ -141,11 +146,9 @@ async def _monitor_pair(
             conditions_worsened = True
             await bot.send_message(
                 chat_id,
-                f"⚠️ <b>Условия на {pair_label} ухудшились</b>\n\n"
-                f"Скор торгуемости упал до {tr.score}/100.\n"
-                f"Рекомендуем выбрать другую пару.",
+                t("monitor_worsened", lang, pair=pair_label, score=tr.score),
                 parse_mode="HTML",
-                reply_markup=monitor_timeout_keyboard(),
+                reply_markup=monitor_timeout_keyboard(lang=lang),
             )
             return True  # stop streaming
 
@@ -244,11 +247,9 @@ async def _monitor_pair(
         try:
             await bot.send_message(
                 chat_id,
-                f"⏱ <b>Мониторинг завершён — {pair_label}</b>\n\n"
-                f"За 5 минут сигнал не появился.\n"
-                f"Попробуйте другую пару или запустите мониторинг снова.",
+                t("monitor_timeout", lang, pair=pair_label),
                 parse_mode="HTML",
-                reply_markup=monitor_timeout_keyboard(),
+                reply_markup=monitor_timeout_keyboard(lang=lang),
             )
         except Exception as exc:
             logger.debug("Timeout notification failed: %s", exc)
@@ -273,21 +274,91 @@ async def cmd_start(message: Message) -> None:
 
     if status == "pending":
         await message.answer(
-            "⏳ <b>Ожидайте одобрения администратора.</b>\n\n"
-            "Ваша заявка на доступ отправлена. Вы получите уведомление после рассмотрения.",
+            t("pending_msg", get_lang(user_id)),
             parse_mode="HTML",
         )
         return
 
     if status == "denied":
-        await message.answer("⛔ Доступ к боту запрещён.")
+        await message.answer(t("denied_msg", get_lang(user_id)))
         return
 
+    # Show language selection for first-time users (no lang set yet)
+    from bot.i18n import _user_lang
+    if user_id not in _user_lang:
+        await message.answer(
+            t("select_lang", "ru"),  # bilingual prompt, no lang yet
+            reply_markup=lang_select_keyboard(),
+        )
+        return
+
+    lang = get_lang(user_id)
     await message.answer(
-        "👋 <b>Pocket Option Signal Bot</b>\n\nВыберите действие:",
+        t("welcome", lang),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
     )
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_set_lang(callback: CallbackQuery) -> None:
+    """User selected a language from the language picker."""
+    lang = callback.data.split(":")[1]  # "ru" or "en"
+    user_id = callback.from_user.id
+    set_lang(user_id, lang)
+
+    await callback.message.edit_text(
+        t("lang_set", lang),
+        reply_markup=None,
+    )
+
+    # Check access to decide what to show next
+    status = await check_access(user_id)
+    if _is_admin(user_id):
+        status = "approved"
+
+    if status == "approved":
+        await callback.message.answer(
+            t("welcome", lang),
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
+        )
+    else:
+        await callback.message.answer(
+            t("pending_msg", lang),
+            parse_mode="HTML",
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "action:change_lang")
+async def cb_change_lang(callback: CallbackQuery) -> None:
+    """User pressed 'Language' button from main menu."""
+    if not await _check_user_access(callback):
+        return
+    await callback.message.edit_text(
+        t("select_lang", get_lang(callback.from_user.id)),
+        reply_markup=lang_select_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "action:toggle_auto")
+async def cb_toggle_auto(callback: CallbackQuery) -> None:
+    """Toggle auto-signals on/off for this user."""
+    if not await _check_user_access(callback):
+        return
+    user_id = callback.from_user.id
+    lang = get_lang(user_id)
+    new_state = not is_auto_enabled(user_id)
+    set_auto_enabled(user_id, new_state)
+    msg_key = "auto_enabled" if new_state else "auto_disabled"
+    await callback.message.edit_text(
+        t(msg_key, lang),
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(lang=lang, auto_enabled=new_state),
+    )
+    await callback.answer()
 
 
 # ─── Admin commands ──────────────────────────────────────────────────────────
@@ -874,28 +945,32 @@ async def cb_admin_deny(callback: CallbackQuery) -> None:
 
 
 async def _check_user_access(callback: CallbackQuery) -> bool:
-    if _is_admin(callback.from_user.id):
+    user_id = callback.from_user.id
+    if _is_admin(user_id):
         return True
-    status = await check_access(callback.from_user.id)
+    status = await check_access(user_id)
     if status == "approved":
         return True
+    lang = get_lang(user_id)
     if status == "pending":
-        await callback.answer("⏳ Ваша заявка ещё на рассмотрении.", show_alert=True)
+        await callback.answer(t("access_pending", lang), show_alert=True)
     elif status == "denied":
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+        await callback.answer(t("access_denied", lang), show_alert=True)
     else:
-        await callback.answer("⛔ Нет доступа. Напишите /start", show_alert=True)
+        await callback.answer(t("access_none", lang), show_alert=True)
     return False
 
 
 @router.callback_query(F.data == "action:back_to_menu")
 async def cb_back_to_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    _cancel_monitor(callback.from_user.id)
+    user_id = callback.from_user.id
+    _cancel_monitor(user_id)
     await state.clear()
+    lang = get_lang(user_id)
     await callback.message.edit_text(
-        "👋 <b>Pocket Option Signal Bot</b>\n\nВыберите действие:",
+        t("main_menu_title", lang),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
     )
     await callback.answer()
 
@@ -912,6 +987,7 @@ async def cb_monitor_start(callback: CallbackQuery) -> None:
     expiration_sec = int(parts[3])
     pair_label = _label_for_symbol(symbol)
     user_id = callback.from_user.id
+    lang = get_lang(user_id)
 
     _cancel_monitor(user_id)
     task = asyncio.create_task(
@@ -926,14 +1002,11 @@ async def cb_monitor_start(callback: CallbackQuery) -> None:
     _monitor_tasks[user_id] = task
 
     await callback.message.edit_text(
-        f"🔔 <b>Мониторинг запущен — {pair_label}</b>\n\n"
-        f"Бот отслеживает пару в реальном времени (до 5 минут).\n"
-        f"Как только появится сигнал — пришлёт уведомление автоматически.\n\n"
-        f"<i>Нажмите «Остановить», чтобы отменить мониторинг.</i>",
+        t("monitor_start", lang, pair=pair_label),
         parse_mode="HTML",
-        reply_markup=monitoring_active_keyboard(symbol, expiration_sec),
+        reply_markup=monitoring_active_keyboard(symbol, expiration_sec, lang=lang),
     )
-    await callback.answer("🔔 Мониторинг запущен")
+    await callback.answer(t("monitor_start_cb", lang))
 
 
 @router.callback_query(F.data.startswith("monitor:stop:"))
@@ -948,16 +1021,16 @@ async def cb_monitor_stop(callback: CallbackQuery) -> None:
     expiration_sec = int(parts[3])
     pair_label = _label_for_symbol(symbol)
     user_id = callback.from_user.id
+    lang = get_lang(user_id)
 
     _cancel_monitor(user_id)
 
     await callback.message.edit_text(
-        f"⏹ <b>Мониторинг остановлен — {pair_label}</b>\n\n"
-        f"Вы можете запросить сигнал вручную или выбрать другую пару.",
+        t("monitor_stop", lang, pair=pair_label),
         parse_mode="HTML",
-        reply_markup=no_signal_keyboard(symbol, expiration_sec),
+        reply_markup=no_signal_keyboard(symbol, expiration_sec, lang=lang),
     )
-    await callback.answer("Мониторинг остановлен")
+    await callback.answer(t("monitor_stop_cb", lang))
 
 
 def _label_for_symbol(symbol: str) -> str:

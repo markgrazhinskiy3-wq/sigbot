@@ -37,6 +37,7 @@ from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
 from services.strategy_adaptation import initialize as init_strategy_adaptation
 from services.outcome_tracker import recover_pending_outcomes
+from services.auto_signal_service import auto_signal_loop
 import services.pairs_cache as pairs_cache
 
 logging.basicConfig(
@@ -179,6 +180,9 @@ async def main() -> None:
 
     # Recover any pending outcomes lost due to previous restart
     asyncio.create_task(recover_pending_outcomes(bot))
+
+    # Start auto-signal broadcaster (waits 2 min internally for candle warm-up)
+    asyncio.create_task(auto_signal_loop(bot))
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
