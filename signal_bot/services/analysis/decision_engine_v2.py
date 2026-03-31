@@ -45,10 +45,7 @@ logger = logging.getLogger(__name__)
 # IP gets stricter threshold; LR and FB get lower thresholds to increase signal flow.
 _STRATEGY_THRESHOLDS: dict[str, dict[str, float]] = {
     "impulse_pullback":     {"1m": 76.0, "2m": 73.0},
-    # level_rejection raised from 68/65 → 70/67:
-    # test-17 (200 signals) shows 65-70 confidence band has 45.3% WR (worse than random).
-    # Raising threshold skips that dead zone; 70+ band is cleaner.
-    "level_rejection":      {"1m": 70.0, "2m": 67.0},
+    "level_rejection":      {"1m": 68.0, "2m": 65.0},
     "false_breakout":       {"1m": 68.0, "2m": 65.0},
     "compression_breakout": {"1m": 68.0, "2m": 65.0},
 }
