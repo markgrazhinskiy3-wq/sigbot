@@ -47,9 +47,9 @@ SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", 
 
 OTC_PAIRS: list[dict] = [
     # Confirmed 92% payout (from live PocketOption data)
-    {"label": "EUR/USD OTC",  "symbol": "#EURUSD_otc",  "payout": 92},
+    # EUR/USD removed: test-17 4W/11L (26.7%) — structural weakness on level_touch
     {"label": "EUR/JPY OTC",  "symbol": "#EURJPY_otc",  "payout": 92},
-    # GBP/JPY removed: consistently 25-33% WR across tests 11-15 (10 tests, structural weakness)
+    # GBP/JPY removed: consistently 25-33% WR across tests 11-15 (10 tests)
     {"label": "AUD/USD OTC",  "symbol": "#AUDUSD_otc",  "payout": 92},
     {"label": "AUD/CAD OTC",  "symbol": "#AUDCAD_otc",  "payout": 92},
     {"label": "AUD/NZD OTC",  "symbol": "#AUDNZD_otc",  "payout": 92},
@@ -65,14 +65,14 @@ OTC_PAIRS: list[dict] = [
     # Other pairs (payout varies — shown when no live data available)
     {"label": "GBP/USD OTC",  "symbol": "#GBPUSD_otc",  "payout": 82},
     {"label": "USD/JPY OTC",  "symbol": "#USDJPY_otc",  "payout": 82},
-    {"label": "USD/CAD OTC",  "symbol": "#USDCAD_otc",  "payout": 82},
-    {"label": "USD/CHF OTC",  "symbol": "#USDCHF_otc",  "payout": 82},
+    # USD/CAD removed: test-17 5W/10L (33.3%)
+    # USD/CHF removed: test-17 0W/4L (0%)
     {"label": "NZD/USD OTC",  "symbol": "#NZDUSD_otc",  "payout": 82},
     {"label": "EUR/GBP OTC",  "symbol": "#EURGBP_otc",  "payout": 82},
     {"label": "AUD/JPY OTC",  "symbol": "#AUDJPY_otc",  "payout": 82},
     {"label": "AUD/CHF OTC",  "symbol": "#AUDCHF_otc",  "payout": 82},
     {"label": "NZD/JPY OTC",  "symbol": "#NZDJPY_otc",  "payout": 82},
-    {"label": "CHF/JPY OTC",  "symbol": "#CHFJPY_otc",  "payout": 82},
+    # CHF/JPY removed: test-17 2W/6L (25%)
     {"label": "EUR/TRY OTC",  "symbol": "#EURTRY_otc",  "payout": 82},
 ]
 
