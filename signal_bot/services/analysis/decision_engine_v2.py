@@ -53,6 +53,11 @@ _STRATEGY_THRESHOLDS: dict[str, dict[str, float]] = {
 # IP score cap: data shows score>88 has same WR as 85-89 (late trend entries).
 _IP_SCORE_CAP = 88.0
 
+# LR upper bound: test-17 (200 signals) shows level_rejection WR collapses above 70:
+#   60-65%: 56.8%  65-70%: 45.3%  70-75%: 42.9%  75-100%: 41.7%
+# High score = overfit/exhausted setup arriving too late. Reject if score > 73.
+_LR_SCORE_MAX = 73.0
+
 # ── Expiry → fit_for mapping ─────────────────────────────────────────────────
 _EXPIRY_FIT: dict[str, str] = {
     "1m": "1m",
@@ -142,6 +147,18 @@ def run_decision_engine_v2(
             cand.setdefault("filter_reasons", []).append(
                 f"ip_score_cap: capped at {_IP_SCORE_CAP:.0f} (raw score was >{_IP_SCORE_CAP:.0f})"
             )
+
+    # ── 3f. LR upper bound — reject overconfident level_rejection setups ──────
+    # test-17 data: WR drops sharply above 70% confidence (45%→43%→42%).
+    # High score = "textbook" setup that has already run; arrival is too late.
+    # Mark candidates above _LR_SCORE_MAX as filtered so they don't win best-pick.
+    for cand in candidates:
+        if cand["name"] == "level_rejection" and cand["score"] > _LR_SCORE_MAX:
+            cand.setdefault("filter_reasons", []).append(
+                f"lr_score_max: {cand['score']:.1f} > {_LR_SCORE_MAX:.0f} "
+                f"(overconfident level_rejection — empirically poor WR)"
+            )
+            cand["score"] = 0.0  # zero out so it never wins best-pick
 
     # ── 4. Apply global filters (now with expiry) ─────────────────────────────
     valid: list[dict] = []
