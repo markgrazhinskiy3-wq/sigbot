@@ -47,7 +47,7 @@ SIGNAL_CONFIDENCE_THRESHOLD: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", 
 
 OTC_PAIRS: list[dict] = [
     # Confirmed 92% payout (from live PocketOption data)
-    {"label": "EUR/USD OTC",  "symbol": "#EURUSD_otc",  "payout": 92},
+    # EUR/USD removed: T17=27% (15sig), T18=13% (15sig) — serial loser both tests
     {"label": "EUR/JPY OTC",  "symbol": "#EURJPY_otc",  "payout": 92},
     # GBP/JPY removed: consistently 25-33% WR across tests 11-15 (10 tests, structural weakness)
     {"label": "AUD/USD OTC",  "symbol": "#AUDUSD_otc",  "payout": 92},
@@ -66,7 +66,7 @@ OTC_PAIRS: list[dict] = [
     {"label": "GBP/USD OTC",  "symbol": "#GBPUSD_otc",  "payout": 82},
     {"label": "USD/JPY OTC",  "symbol": "#USDJPY_otc",  "payout": 82},
     {"label": "USD/CAD OTC",  "symbol": "#USDCAD_otc",  "payout": 82},
-    {"label": "USD/CHF OTC",  "symbol": "#USDCHF_otc",  "payout": 82},
+    # USD/CHF removed: T17=0% (4sig), T18=12% (8sig) — serial loser both tests
     {"label": "NZD/USD OTC",  "symbol": "#NZDUSD_otc",  "payout": 82},
     {"label": "EUR/GBP OTC",  "symbol": "#EURGBP_otc",  "payout": 82},
     {"label": "AUD/JPY OTC",  "symbol": "#AUDJPY_otc",  "payout": 82},

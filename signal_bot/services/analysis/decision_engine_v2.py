@@ -53,10 +53,11 @@ _STRATEGY_THRESHOLDS: dict[str, dict[str, float]] = {
 # IP score cap: data shows score>88 has same WR as 85-89 (late trend entries).
 _IP_SCORE_CAP = 88.0
 
-# LR upper bound: test-17 (200 signals) shows level_rejection WR collapses above 70:
-#   60-65%: 56.8%  65-70%: 45.3%  70-75%: 42.9%  75-100%: 41.7%
-# High score = overfit/exhausted setup arriving too late. Reject if score > 73.
-_LR_SCORE_MAX = 73.0
+# LR upper bound: tests 17+18 (400 signals) show WR inverts above 65:
+#   level_touch T18: [55-60]=77.8%  [60-65]=53%  [65-68]=42.5%  [68-73]=22.2%
+# Scoring is inverted: high score = textbook/exhausted setup (already moved).
+# Reject any level_rejection candidate scoring >= 65 — only [60,65) range is useful.
+_LR_SCORE_MAX = 65.0
 
 # ── Expiry → fit_for mapping ─────────────────────────────────────────────────
 _EXPIRY_FIT: dict[str, str] = {
