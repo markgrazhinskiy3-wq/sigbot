@@ -46,7 +46,7 @@ from bot.keyboards import (
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
     recommended_pairs_keyboard, lang_select_keyboard, accept_terms_keyboard,
 )
-from bot.i18n import get_lang, set_lang, t, has_accepted_terms, accept_terms, load_langs_from_db
+from bot.i18n import get_lang, set_lang, t, has_accepted_terms, accept_terms, load_langs_from_db, format_countdown
 from services.auto_signal_service import is_auto_enabled, set_auto_enabled
 
 logger = logging.getLogger(__name__)
@@ -1151,7 +1151,8 @@ async def cb_get_signal(callback: CallbackQuery) -> None:
 async def cb_refresh_pairs(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
-    await callback.answer("🔄 Обновляю список пар...")
+    lang = get_lang(callback.from_user.id)
+    await callback.answer(t("refresh_pairs_cb", lang))
     await _show_pairs_keyboard(callback, force_refresh=True)
 
 
@@ -1162,14 +1163,16 @@ async def cb_pair_selected(callback: CallbackQuery) -> None:
 
     symbol = callback.data.split(":", 1)[1]
     pair_label = _label_for_symbol(symbol)
+    user_id = callback.from_user.id
+    lang = get_lang(user_id)
 
     # Remember this pair for /debug (no-arg shortcut)
-    _last_pair[callback.from_user.id] = symbol
+    _last_pair[user_id] = symbol
 
     await callback.message.edit_text(
-        f"⏱ <b>{pair_label}</b>\n\nВыберите время экспирации сделки:",
+        t("select_expiry", lang, pair=pair_label),
         parse_mode="HTML",
-        reply_markup=expiration_keyboard(symbol),
+        reply_markup=expiration_keyboard(symbol, lang=lang),
     )
     await callback.answer()
 
@@ -1182,26 +1185,22 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     _, symbol, sec_str = callback.data.split(":", 2)
     expiration_sec = int(sec_str)
     pair_label = _label_for_symbol(symbol)
+    user_id = callback.from_user.id
+    lang = get_lang(user_id)
 
-    await callback.answer("⏳ Анализирую рынок...")
+    await callback.answer(t("analysing_market_cb", lang))
 
     if not is_data_ready():
-        remaining = data_ready_in_seconds()
-        mins = remaining // 60
-        secs = remaining % 60
-        time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+        time_str = format_countdown(data_ready_in_seconds(), lang)
         await callback.message.edit_text(
-            "📊 <b>Накапливаю данные для анализа...</b>\n\n"
-            f"Готовность через: <b>{time_str}</b>\n\n"
-            "Бот собирает историю свечей для точного анализа.\n"
-            "<i>Сигналы станут доступны автоматически.</i>",
+            t("warmup_msg", lang, time=time_str),
             parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_to_menu_keyboard(lang=lang),
         )
         return
 
     await callback.message.edit_text(
-        f"🔄 <b>Анализирую {pair_label}...</b>\n\nПодождите, собираю данные.",
+        t("analysing_pair", lang, pair=pair_label),
         parse_mode="HTML",
     )
 
@@ -1210,7 +1209,7 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
         text = format_signal_message(signal, is_admin=_is_admin(callback.from_user.id))
 
         kb = (
-            no_signal_keyboard(symbol, expiration_sec)
+            no_signal_keyboard(symbol, expiration_sec, lang=lang)
             if signal.direction == "NO_SIGNAL"
             else signal_result_keyboard(symbol, expiration_sec)
         )
@@ -1268,10 +1267,9 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.exception("Signal fetch error: %s", e)
         await callback.message.edit_text(
-            "❌ <b>Ошибка получения сигнала</b>\n\n"
-            "Не удалось подключиться к платформе. Попробуйте позже.",
+            t("signal_error", lang),
             parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_to_menu_keyboard(lang=lang),
         )
 
 
@@ -1310,35 +1308,28 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
-    await callback.answer("🔄 Сканирую рынок...")
+    lang = get_lang(callback.from_user.id)
+    await callback.answer(t("scan_cb", lang))
 
     try:
         if not is_warm_up_done():
             await callback.message.edit_text(
-                "⏳ <b>Бот загружается...</b>\n\n"
-                "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
-                "<i>Подождите немного и нажмите «Обновить».</i>",
+                t("bot_loading_refresh", lang),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
         if not is_data_ready():
-            remaining = data_ready_in_seconds()
-            mins = remaining // 60
-            secs = remaining % 60
-            time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+            time_str = format_countdown(data_ready_in_seconds(), lang)
             await callback.message.edit_text(
-                "📊 <b>Накапливаю данные для анализа...</b>\n\n"
-                f"Готовность через: <b>{time_str}</b>\n\n"
-                "Бот собирает историю свечей для точного анализа.\n"
-                "<i>Сигналы станут доступны автоматически.</i>",
+                t("warmup_msg", lang, time=time_str),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
 
         await callback.message.edit_text(
-            "🔄 <b>Сканирую рынок...</b>",
+            t("scan_inline", lang),
             parse_mode="HTML",
         )
 
@@ -1351,10 +1342,9 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
 
         if not results:
             await callback.message.edit_text(
-                "⚠️ <b>Подходящих пар не найдено</b>\n\n"
-                "<i>Нажмите «Обновить» через 1–2 минуты.</i>",
+                t("no_pairs_try_refresh", lang),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
 
@@ -1362,15 +1352,15 @@ async def cb_recommended_pairs(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             text,
             parse_mode="HTML",
-            reply_markup=recommended_pairs_keyboard(results),
+            reply_markup=recommended_pairs_keyboard(results, lang=lang),
         )
 
     except Exception as e:
         logger.exception("recommended_pairs error: %s", e)
         await callback.message.edit_text(
-            "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
+            t("scan_error", lang),
             parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_to_menu_keyboard(lang=lang),
         )
 
 
@@ -1381,12 +1371,14 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
     if not await _check_user_access(callback):
         return
 
-    await callback.answer("🔁 Готово")
+    user_id = callback.from_user.id
+    lang = get_lang(user_id)
+    await callback.answer(t("restart_done_cb", lang))
     try:
         await callback.message.edit_text(
-            "✅ <b>Готово.</b>\n\nМожно запрашивать новые сигналы.",
+            t("restart_done", lang),
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
         )
     except TelegramBadRequest:
         pass
@@ -1398,48 +1390,41 @@ async def cb_restart_bot(callback: CallbackQuery) -> None:
 async def cmd_signal(message: Message) -> None:
     user_id = message.from_user.id
     status  = await get_status(user_id)
+    lang    = get_lang(user_id)
     if status != "approved":
-        await message.answer("❌ У вас нет доступа к боту.")
+        await message.answer(t("no_access", lang))
         return
 
     cached_results, cache_age = get_scan_cache()
     if cached_results is not None:
-        age_str = f"{int(cache_age)}с"
+        age_str = t("scan_cache_age", lang, age=int(cache_age))
         text    = format_scan_output(cached_results, scan_age_sec=cache_age)
-        text   += f"\n\n<i>Последнее сканирование: {age_str} назад</i>"
+        text   += f"\n\n<i>{age_str}</i>"
         await message.answer(
             text, parse_mode="HTML",
-            reply_markup=recommended_pairs_keyboard(cached_results),
+            reply_markup=recommended_pairs_keyboard(cached_results, lang=lang),
         )
         return
 
     msg = await message.answer(
-        "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
+        t("scan_pairs_loading", lang),
         parse_mode="HTML",
     )
 
     try:
         if not is_warm_up_done():
             await msg.edit_text(
-                "⏳ <b>Бот загружается...</b>\n\n"
-                "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
-                "<i>Подождите немного и попробуйте ещё раз.</i>",
+                t("bot_loading_retry", lang),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
         if not is_data_ready():
-            remaining = data_ready_in_seconds()
-            mins = remaining // 60
-            secs = remaining % 60
-            time_str = f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+            time_str = format_countdown(data_ready_in_seconds(), lang)
             await msg.edit_text(
-                "📊 <b>Накапливаю данные для анализа...</b>\n\n"
-                f"Готовность через: <b>{time_str}</b>\n\n"
-                "Бот собирает историю свечей для точного анализа.\n"
-                "<i>Сигналы станут доступны автоматически.</i>",
+                t("warmup_msg", lang, time=time_str),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
 
@@ -1448,26 +1433,24 @@ async def cmd_signal(message: Message) -> None:
 
         if not results:
             await msg.edit_text(
-                "⚠️ <b>Подходящих пар не найдено</b>\n\n"
-                "Рынок сейчас в неопределённом состоянии.\n\n"
-                "<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+                t("no_pairs_try_retry", lang),
                 parse_mode="HTML",
-                reply_markup=recommended_pairs_keyboard([]),
+                reply_markup=recommended_pairs_keyboard([], lang=lang),
             )
             return
 
         text = format_scan_output(results)
         await msg.edit_text(
             text, parse_mode="HTML",
-            reply_markup=recommended_pairs_keyboard(results),
+            reply_markup=recommended_pairs_keyboard(results, lang=lang),
         )
 
     except Exception as e:
         logger.exception("cmd_signal error: %s", e)
         await msg.edit_text(
-            "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
+            t("scan_error", lang),
             parse_mode="HTML",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_to_menu_keyboard(lang=lang),
         )
 
 
@@ -1477,36 +1460,20 @@ async def cmd_signal(message: Message) -> None:
 async def cmd_help(message: Message) -> None:
     user_id = message.from_user.id
     status = await get_status(user_id)
+    lang   = get_lang(user_id)
 
     if status == "pending":
-        await message.answer(
-            "⏳ Ваша заявка на доступ ещё рассматривается.\n"
-            "Используйте /start чтобы проверить статус.",
-            parse_mode="HTML",
-        )
+        await message.answer(t("help_pending", lang), parse_mode="HTML")
         return
 
     if status == "denied":
-        await message.answer("⛔ Доступ к боту запрещён.")
+        await message.answer(t("denied_msg", lang))
         return
 
     await message.answer(
-        "ℹ️ <b>Как пользоваться ботом</b>\n\n"
-        "1. <b>/signal</b> — быстрый скан всех OTC-пар и список лучших сигналов прямо сейчас\n"
-        "2. <b>/start</b> — главное меню с полным выбором пары и экспирации\n"
-        "3. <b>/stats</b> — ваша личная статистика: WR, число сделок, результаты по стратегиям\n\n"
-        "<b>Как торговать по сигналу:</b>\n"
-        "• Выберите пару в Pocket Option\n"
-        "• Нажмите на неё в боте → выберите экспирацию\n"
-        "• Бот рассчитает направление (BUY / SELL) и силу сигнала\n"
-        "• Открывайте сделку сразу после получения — таймер уже идёт\n\n"
-        "<b>Сила сигнала:</b>\n"
-        "🟩🟩🟩🟩🟩 — сильная\n"
-        "🟩🟩🟩🟩⬜ — хорошая\n"
-        "🟩🟩🟩⬜⬜ — умеренная\n\n"
-        "<i>Сигналы основаны на Price Action, уровнях поддержки/сопротивления и индикаторах.</i>",
+        t("help_text", lang),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
     )
 
 

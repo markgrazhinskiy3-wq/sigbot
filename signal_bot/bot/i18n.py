@@ -30,6 +30,15 @@ def load_langs_from_db(langs: dict[int, str]) -> None:
     _user_lang.update(langs)
 
 
+def format_countdown(remaining: int, lang: str = "ru") -> str:
+    """Return a localised 'X min Y sec' countdown string."""
+    mins = remaining // 60
+    secs = remaining % 60
+    if lang == "en":
+        return f"{mins} min {secs} sec" if mins else f"{secs} sec"
+    return f"{mins} мин {secs} сек" if mins else f"{secs} сек"
+
+
 def t(key: str, lang: str = "ru", **kwargs) -> str:
     s = _STRINGS.get(lang, _STRINGS["ru"]).get(key)
     if s is None:
@@ -118,6 +127,64 @@ _STRINGS: dict[str, dict[str, str]] = {
             "и принимаете ответственность за свою торговлю."
         ),
         "btn_accept_terms": "✅ Принимаю условия",
+
+        # ── Market scanning ────────────────────────────────────────────────────
+        "analysing_market_cb":  "⏳ Анализирую рынок...",
+        "refresh_pairs_cb":     "🔄 Обновляю список пар...",
+        "scan_cb":              "🔄 Сканирую рынок...",
+        "scan_inline":          "🔄 <b>Сканирую рынок...</b>",
+        "scan_pairs_loading":   "📊 <b>Сканирую пары...</b>\n\nАнализирую рынок, подождите секунду.",
+        "analysing_pair":       "🔄 <b>Анализирую {pair}...</b>\n\nПодождите, собираю данные.",
+        "no_pairs_try_refresh": "⚠️ <b>Подходящих пар не найдено</b>\n\n<i>Нажмите «Обновить» через 1–2 минуты.</i>",
+        "no_pairs_try_retry":   "⚠️ <b>Подходящих пар не найдено</b>\n\nРынок сейчас в неопределённом состоянии.\n\n<i>Подождите 1–2 минуты и попробуйте снова.</i>",
+        "scan_error":           "❌ <b>Ошибка сканирования</b>\n\nПопробуйте позже.",
+        "signal_error":         "❌ <b>Ошибка получения сигнала</b>\n\nНе удалось подключиться к платформе. Попробуйте позже.",
+        "scan_cache_age":       "Последнее сканирование: {age}с назад",
+        "no_access":            "❌ У вас нет доступа к боту.",
+
+        # ── Warmup / bot loading ───────────────────────────────────────────────
+        "warmup_msg":            (
+            "📊 <b>Накапливаю данные для анализа...</b>\n\n"
+            "Готовность через: <b>{time}</b>\n\n"
+            "Бот собирает историю свечей для точного анализа.\n"
+            "<i>Сигналы станут доступны автоматически.</i>"
+        ),
+        "bot_loading_refresh": (
+            "⏳ <b>Бот загружается...</b>\n\n"
+            "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
+            "<i>Подождите немного и нажмите «Обновить».</i>"
+        ),
+        "bot_loading_retry": (
+            "⏳ <b>Бот загружается...</b>\n\n"
+            "Идёт начальный сбор данных по парам (~2–3 мин после запуска).\n\n"
+            "<i>Подождите немного и попробуйте ещё раз.</i>"
+        ),
+
+        # ── Expiry selection ───────────────────────────────────────────────────
+        "select_expiry": "⏱ <b>{pair}</b>\n\nВыберите время экспирации сделки:",
+
+        # ── Restart bot ────────────────────────────────────────────────────────
+        "restart_done_cb": "🔁 Готово",
+        "restart_done":    "✅ <b>Готово.</b>\n\nМожно запрашивать новые сигналы.",
+
+        # ── Help ───────────────────────────────────────────────────────────────
+        "help_pending": "⏳ Ваша заявка на доступ ещё рассматривается.\nИспользуйте /start чтобы проверить статус.",
+        "help_text": (
+            "ℹ️ <b>Как пользоваться ботом</b>\n\n"
+            "1. <b>/signal</b> — быстрый скан всех OTC-пар и список лучших сигналов прямо сейчас\n"
+            "2. <b>/start</b> — главное меню с полным выбором пары и экспирации\n"
+            "3. <b>/stats</b> — ваша личная статистика: WR, число сделок, результаты по стратегиям\n\n"
+            "<b>Как торговать по сигналу:</b>\n"
+            "• Выберите пару в Pocket Option\n"
+            "• Нажмите на неё в боте → выберите экспирацию\n"
+            "• Бот рассчитает направление (BUY / SELL) и силу сигнала\n"
+            "• Открывайте сделку сразу после получения — таймер уже идёт\n\n"
+            "<b>Сила сигнала:</b>\n"
+            "🟩🟩🟩🟩🟩 — сильная\n"
+            "🟩🟩🟩🟩⬜ — хорошая\n"
+            "🟩🟩🟩⬜⬜ — умеренная\n\n"
+            "<i>Сигналы основаны на Price Action, уровнях поддержки/сопротивления и индикаторах.</i>"
+        ),
     },
 
     "en": {
@@ -195,5 +262,63 @@ _STRINGS: dict[str, dict[str, str]] = {
             "and accept responsibility for your own trading."
         ),
         "btn_accept_terms": "✅ I accept the terms",
+
+        # ── Market scanning ────────────────────────────────────────────────────
+        "analysing_market_cb":  "⏳ Analysing market...",
+        "refresh_pairs_cb":     "🔄 Refreshing pair list...",
+        "scan_cb":              "🔄 Scanning market...",
+        "scan_inline":          "🔄 <b>Scanning market...</b>",
+        "scan_pairs_loading":   "📊 <b>Scanning pairs...</b>\n\nAnalysing the market, please wait a moment.",
+        "analysing_pair":       "🔄 <b>Analysing {pair}...</b>\n\nPlease wait, gathering data.",
+        "no_pairs_try_refresh": "⚠️ <b>No suitable pairs found</b>\n\n<i>Press «Refresh» in 1–2 minutes.</i>",
+        "no_pairs_try_retry":   "⚠️ <b>No suitable pairs found</b>\n\nMarket conditions are uncertain right now.\n\n<i>Wait 1–2 minutes and try again.</i>",
+        "scan_error":           "❌ <b>Scan error</b>\n\nPlease try again later.",
+        "signal_error":         "❌ <b>Signal error</b>\n\nFailed to connect to the platform. Please try again later.",
+        "scan_cache_age":       "Last scan: {age}s ago",
+        "no_access":            "❌ You do not have access to this bot.",
+
+        # ── Warmup / bot loading ───────────────────────────────────────────────
+        "warmup_msg": (
+            "📊 <b>Gathering analysis data...</b>\n\n"
+            "Ready in: <b>{time}</b>\n\n"
+            "The bot is collecting candle history for accurate analysis.\n"
+            "<i>Signals will be available automatically.</i>"
+        ),
+        "bot_loading_refresh": (
+            "⏳ <b>Bot is starting up...</b>\n\n"
+            "Initial data collection for pairs is in progress (~2–3 min after launch).\n\n"
+            "<i>Please wait a moment and press «Refresh».</i>"
+        ),
+        "bot_loading_retry": (
+            "⏳ <b>Bot is starting up...</b>\n\n"
+            "Initial data collection for pairs is in progress (~2–3 min after launch).\n\n"
+            "<i>Please wait a moment and try again.</i>"
+        ),
+
+        # ── Expiry selection ───────────────────────────────────────────────────
+        "select_expiry": "⏱ <b>{pair}</b>\n\nSelect trade expiry time:",
+
+        # ── Restart bot ────────────────────────────────────────────────────────
+        "restart_done_cb": "🔁 Done",
+        "restart_done":    "✅ <b>Done.</b>\n\nYou can now request new signals.",
+
+        # ── Help ───────────────────────────────────────────────────────────────
+        "help_pending": "⏳ Your access request is still under review.\nUse /start to check your status.",
+        "help_text": (
+            "ℹ️ <b>How to use the bot</b>\n\n"
+            "1. <b>/signal</b> — quick scan of all OTC pairs with the best signals right now\n"
+            "2. <b>/start</b> — main menu with full pair and expiry selection\n"
+            "3. <b>/stats</b> — your personal stats: win rate, trade count, results by strategy\n\n"
+            "<b>How to trade a signal:</b>\n"
+            "• Select the pair in Pocket Option\n"
+            "• Tap it in the bot → choose expiry\n"
+            "• The bot calculates direction (BUY / SELL) and signal strength\n"
+            "• Open the trade immediately after receiving it — the timer is already running\n\n"
+            "<b>Signal strength:</b>\n"
+            "🟩🟩🟩🟩🟩 — strong\n"
+            "🟩🟩🟩🟩⬜ — good\n"
+            "🟩🟩🟩⬜⬜ — moderate\n\n"
+            "<i>Signals are based on Price Action, support/resistance levels, and indicators.</i>"
+        ),
     },
 }
