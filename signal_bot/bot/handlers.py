@@ -280,29 +280,30 @@ async def cmd_start(message: Message) -> None:
     if is_new and status == "pending":
         await notify_admin_new_user(message.bot, user_id, username)
 
-    if status == "pending":
-        await message.answer(
-            t("pending_msg", get_lang(user_id)),
-            parse_mode="HTML",
-        )
-        return
-
-    if status == "denied":
-        await message.answer(t("denied_msg", get_lang(user_id)))
-        return
-
-    # Step 1: first-time user — no language chosen yet
+    # Step 1: ALWAYS ask for language first — even before showing pending/denied status.
     from bot.i18n import _user_lang
     if user_id not in _user_lang:
         await message.answer(
-            t("select_lang", "ru"),  # bilingual prompt shown before lang is chosen
+            "🌐 Выберите язык / Select language:",
             reply_markup=lang_select_keyboard(),
         )
         return
 
     lang = get_lang(user_id)
 
-    # Step 2: language chosen but risk disclaimer not yet accepted
+    # Step 2: check access status (in the user's chosen language)
+    if status == "pending":
+        await message.answer(
+            t("pending_msg", lang),
+            parse_mode="HTML",
+        )
+        return
+
+    if status == "denied":
+        await message.answer(t("denied_msg", lang))
+        return
+
+    # Step 3: language chosen but risk disclaimer not yet accepted
     if not has_accepted_terms(user_id):
         await message.answer(
             t("risk_warning", lang),
@@ -311,7 +312,7 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
-    # Step 3: fully onboarded — show main menu
+    # Step 4: fully onboarded — show main menu
     await message.answer(
         t("welcome", lang),
         parse_mode="HTML",
@@ -438,11 +439,12 @@ async def cmd_approve(message: Message) -> None:
             f"✅ Пользователь <code>{target_id}</code> одобрен.", parse_mode="HTML"
         )
         try:
+            user_lang = get_lang(target_id)
             await message.bot.send_message(
                 target_id,
-                "✅ <b>Доступ одобрен!</b>\n\nДобро пожаловать в Signal Bot.",
+                t("access_granted", user_lang),
                 parse_mode="HTML",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=main_menu_keyboard(lang=user_lang),
             )
         except Exception:
             pass
@@ -469,7 +471,9 @@ async def cmd_deny(message: Message) -> None:
             f"⛔ Пользователь <code>{target_id}</code> отклонён.", parse_mode="HTML"
         )
         try:
-            await message.bot.send_message(target_id, "⛔ Ваш запрос на доступ отклонён.")
+            await message.bot.send_message(
+                target_id, t("access_revoked", get_lang(target_id))
+            )
         except Exception:
             pass
     else:
