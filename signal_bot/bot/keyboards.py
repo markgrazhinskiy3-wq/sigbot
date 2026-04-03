@@ -81,10 +81,15 @@ def pairs_keyboard(pairs: list[dict] | None = None, lang: str = "ru") -> InlineK
 def expiration_keyboard(symbol: str, recommended_sec: int | None = None, lang: str = "ru") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for exp in config.EXPIRATIONS:
+        sec = exp["seconds"]
+        if sec >= 60:
+            label = _t("expiry_min", lang, n=sec // 60)
+        else:
+            label = _t("expiry_sec", lang, n=sec)
         builder.row(
             InlineKeyboardButton(
-                text=exp["label"],
-                callback_data=f"exp:{symbol}:{exp['seconds']}",
+                text=label,
+                callback_data=f"exp:{symbol}:{sec}",
             )
         )
     builder.row(

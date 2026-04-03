@@ -6,6 +6,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from services.candle_cache import get_candles_cached as get_candles, get_cached_symbols, refresh_pair_now
 from services.strategy_engine import calculate_signal, SignalResult
+from bot.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
@@ -79,22 +80,23 @@ def _conf_bar(confidence: int, total: int = 5) -> str:
     return "🟩" * filled + "⬜" * (total - filled)
 
 
-def _conf_label(confidence: int) -> str:
+def _conf_label(confidence: int, lang: str = "ru") -> str:
     if confidence >= 5:
-        return "сильная"
+        return _t("conf_strong", lang)
     if confidence >= 4:
-        return "хорошая"
-    return "умеренная"
+        return _t("conf_good", lang)
+    return _t("conf_moderate", lang)
 
 
-def _mode_label(mode: str) -> str:
-    return {
-        "TRENDING_UP":   "📈 Восходящий тренд",
-        "TRENDING_DOWN": "📉 Нисходящий тренд",
-        "RANGE":         "↔️ Боковой рынок",
-        "VOLATILE":      "🌪 Волатильный рынок",
-        "SQUEEZE":       "🗜 Сжатие (ожидание пробоя)",
-    }.get(mode, "")
+def _mode_label(mode: str, lang: str = "ru") -> str:
+    key = {
+        "TRENDING_UP":   "mode_trending_up",
+        "TRENDING_DOWN": "mode_trending_down",
+        "RANGE":         "mode_range",
+        "VOLATILE":      "mode_volatile",
+        "SQUEEZE":       "mode_squeeze",
+    }.get(mode)
+    return _t(key, lang) if key else ""
 
 
 def _format_nosignal_debug(d: dict) -> list[str]:
@@ -145,71 +147,67 @@ def _format_nosignal_debug(d: dict) -> list[str]:
     return lines
 
 
-def format_signal_message(signal: SignalResponse, *, is_admin: bool = False) -> str:
+def format_signal_message(signal: SignalResponse, *, is_admin: bool = False, lang: str = "ru") -> str:
     if signal.direction == "NO_SIGNAL":
         d        = signal.details if isinstance(signal.details, dict) else {}
         mode     = d.get("market_mode", "")
-        mode_lbl = _mode_label(mode) or d.get("regime_label", "")
+        mode_lbl = _mode_label(mode, lang) or d.get("regime_label", "")
+
+        header = _t("no_signal_header", lang)
+        if mode_lbl:
+            header += f" — {mode_lbl}"
 
         lines = [
             f"🔍 <b>{html.escape(signal.pair)}</b>",
             "",
-            f"⏳ <b>Нет точки входа</b>" + (f" — {mode_lbl}" if mode_lbl else ""),
+            header,
             "",
         ]
 
         if is_admin:
             debug_lines = _format_nosignal_debug(d)
-            lines.append("<b>Причина:</b>")
+            lines.append(_t("no_signal_reason", lang))
             lines.extend(debug_lines)
         else:
-            lines.append("Чёткого сигнала пока нет — рынок неоднозначен.")
+            lines.append(_t("no_signal_ambiguous", lang))
 
         lines.append("")
-        lines.append("Нажмите <b>«Включить мониторинг»</b> или <b>«Попробовать снова»</b>.")
+        lines.append(_t("no_signal_action", lang))
         return "\n".join(lines)
 
     if signal.direction == "BUY":
         arrow     = "⬆️"
-        dir_label = "BUY ⬆️ (ВВЕРХ)"
+        dir_label = _t("signal_dir_buy", lang)
     else:
         arrow     = "⬇️"
-        dir_label = "SELL ⬇️ (ВНИЗ)"
+        dir_label = _t("signal_dir_sell", lang)
 
     bar   = _conf_bar(signal.confidence)
-    label = _conf_label(signal.confidence)
+    label = _conf_label(signal.confidence, lang)
 
     d = signal.details if isinstance(signal.details, dict) else {}
-    mode     = d.get("market_mode", "")
-    mode_lbl = _mode_label(mode)
-    strategy = d.get("primary_strategy", "")
-    # Always show the user-selected expiration, not the engine's hint
-    exp_sec  = signal.expiration_sec or 60
-    expiry   = f"{exp_sec // 60} мин" if exp_sec >= 60 else f"{exp_sec} сек"
-    explanation_lines = _build_explanation(signal.direction, d)
+    explanation_lines = _build_explanation(signal.direction, d, lang)
 
     lines = [
         f"📊 <b>{html.escape(signal.pair)}</b>",
         "",
-        f" {arrow} Сигнал: <b>{dir_label}</b>",
-        f"💪 Уверенность: {bar} {signal.confidence}/5 ({label})",
+        _t("signal_label", lang, arrow=arrow, dir=dir_label),
+        _t("signal_confidence", lang, bar=bar, conf=signal.confidence, label=label),
         "",
     ]
 
     if explanation_lines:
-        lines.append("<b>Почему:</b>")
+        lines.append(_t("signal_why_header", lang))
         for item in explanation_lines:
             lines.append(f"• {item}")
         lines.append("")
 
-    lines.append("<i>Откройте сделку вручную на Pocket Option.</i>")
+    lines.append(_t("signal_open_trade", lang))
     return "\n".join(lines)
 
 
-def _build_explanation(direction: str, details: dict) -> list[str]:
-    """
-    Build 2-4 bullet points explaining the signal in simple, plain Russian.
-    """
+def _build_explanation(direction: str, details: dict, lang: str = "ru") -> list[str]:
+    """Build 2-4 bullet points explaining the signal in the user's language."""
     is_buy   = direction == "BUY"
     strategy = details.get("primary_strategy") or ""
     mode     = details.get("market_mode", "")
@@ -218,70 +216,43 @@ def _build_explanation(direction: str, details: dict) -> list[str]:
 
     items: list[str] = []
 
-    # 1. Strategy-specific main reason (простой язык, без терминов)
+    # 1. Strategy-specific main reason
     if strategy == "ema_bounce":
-        if is_buy:
-            items.append("Цена кратко откатилась и снова пошла вверх — тренд продолжается.")
-        else:
-            items.append("Цена кратко подросла и снова пошла вниз — тренд продолжается.")
-
-    # ── legacy / removed strategies (kept for historical outcome messages) ────
-    elif strategy == "level_rejection":
-        if is_buy:
-            items.append("Цена опустилась к уровню поддержки, показала отбой (длинный хвост) и подтвердила разворот вверх.")
-        else:
-            items.append("Цена поднялась к уровню сопротивления, показала отбой (длинный хвост) и подтвердила разворот вниз.")
-
+        items.append(_t("exp_ema_bounce_buy" if is_buy else "exp_ema_bounce_sell", lang))
+    elif strategy in ("level_rejection", "level_touch"):
+        items.append(_t("exp_level_rejection_buy" if is_buy else "exp_level_rejection_sell", lang))
     elif strategy == "false_breakout":
-        if is_buy:
-            items.append("Цена кратко пробила поддержку, но быстро вернулась выше — ловушка для продавцов, ожидаем рост.")
-        else:
-            items.append("Цена кратко пробила сопротивление, но быстро вернулась ниже — ловушка для покупателей, ожидаем падение.")
-
-    elif strategy == "compression_breakout":
-        if is_buy:
-            items.append("Рынок сжался в узком диапазоне, затем резко вырвался вверх — чистый пробой с momentum.")
-        else:
-            items.append("Рынок сжался в узком диапазоне, затем резко вырвался вниз — чистый пробой с momentum.")
-
+        items.append(_t("exp_false_breakout_buy" if is_buy else "exp_false_breakout_sell", lang))
+    elif strategy in ("compression_breakout", "level_breakout"):
+        items.append(_t("exp_compression_buy" if is_buy else "exp_compression_sell", lang))
     elif strategy == "impulse_pullback":
-        if is_buy:
-            items.append("Был сильный рост (импульс), затем небольшой откат — продолжаем движение вверх.")
-        else:
-            items.append("Было сильное падение (импульс), затем небольшой откат — продолжаем движение вниз.")
-
+        items.append(_t("exp_impulse_pullback_buy" if is_buy else "exp_impulse_pullback_sell", lang))
     else:
-        if is_buy:
-            items.append("Большинство признаков указывают на движение вверх.")
-        else:
-            items.append("Большинство признаков указывают на движение вниз.")
+        items.append(_t("exp_default_buy" if is_buy else "exp_default_sell", lang))
 
-    # 2. Market mode context (простой язык)
+    # 2. Market mode context
     if mode == "TRENDING_UP" and is_buy:
-        items.append("Рынок сейчас растёт — входим по тренду.")
+        items.append(_t("exp_mode_trending_up_buy", lang))
     elif mode == "TRENDING_DOWN" and not is_buy:
-        items.append("Рынок сейчас падает — входим по тренду.")
+        items.append(_t("exp_mode_trending_down_sell", lang))
     elif mode == "RANGE":
-        if is_buy:
-            items.append("Цена у нижней границы коридора — обычно отсюда растёт.")
-        else:
-            items.append("Цена у верхней границы коридора — обычно отсюда падает.")
+        items.append(_t("exp_mode_range_buy" if is_buy else "exp_mode_range_sell", lang))
     elif mode == "VOLATILE":
-        items.append("Рынок сейчас активный — быстрый вход, короткая сделка.")
+        items.append(_t("exp_mode_volatile", lang))
     elif mode == "SQUEEZE":
-        items.append("Рынок только что «сжался» и готовится к резкому движению — мы в начале него.")
+        items.append(_t("exp_mode_squeeze", lang))
 
-    # 3. Indicator confirmation (простой язык, без «RSI»)
+    # 3. Indicator confirmation
     ind = debug.get("indicators", {})
     rsi_val = ind.get("rsi", 50)
     if is_buy and rsi_val < 35:
-        items.append("Индикаторы подтверждают: цена слишком упала и готова расти.")
+        items.append(_t("exp_ind_buy", lang))
     elif not is_buy and rsi_val > 65:
-        items.append("Индикаторы подтверждают: цена слишком выросла и готова падать.")
+        items.append(_t("exp_ind_sell", lang))
 
     # 4. Quality note
     if quality in ("strong", "good"):
-        items.append("Сразу несколько признаков указывают в одну сторону — сигнал надёжный.")
+        items.append(_t("exp_quality_strong", lang))
 
     return items[:4]
 

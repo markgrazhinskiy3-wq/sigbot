@@ -243,7 +243,7 @@ async def _fire_pre_alert_then_signal(
         try:
             lang   = get_lang(user_id)
             header = t("auto_signal_header", lang)
-            body   = format_signal_message(signal, is_admin=False)
+            body   = format_signal_message(signal, is_admin=False, lang=lang)
             text   = f"{header}\n\n{body}"
             await bot.send_message(
                 user_id,

@@ -128,6 +128,57 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "btn_accept_terms": "✅ Принимаю условия",
 
+        # ── Signal message ─────────────────────────────────────────────────────
+        "signal_dir_buy":       "BUY ⬆️ (ВВЕРХ)",
+        "signal_dir_sell":      "SELL ⬇️ (ВНИЗ)",
+        "signal_label":         " {arrow} Сигнал: <b>{dir}</b>",
+        "signal_confidence":    "💪 Уверенность: {bar} {conf}/5 ({label})",
+        "signal_why_header":    "<b>Почему:</b>",
+        "signal_open_trade":    "<i>Откройте сделку вручную на Pocket Option.</i>",
+        "conf_strong":          "сильная",
+        "conf_good":            "хорошая",
+        "conf_moderate":        "умеренная",
+
+        # ── NO_SIGNAL message ──────────────────────────────────────────────────
+        "no_signal_header":     "⏳ <b>Нет точки входа</b>",
+        "no_signal_ambiguous":  "Чёткого сигнала пока нет — рынок неоднозначен.",
+        "no_signal_action":     "Нажмите <b>«Включить мониторинг»</b> или <b>«Попробовать снова»</b>.",
+        "no_signal_reason":     "<b>Причина:</b>",
+
+        # ── Market mode labels ─────────────────────────────────────────────────
+        "mode_trending_up":   "📈 Восходящий тренд",
+        "mode_trending_down": "📉 Нисходящий тренд",
+        "mode_range":         "↔️ Боковой рынок",
+        "mode_volatile":      "🌪 Волатильный рынок",
+        "mode_squeeze":       "🗜 Сжатие (ожидание пробоя)",
+
+        # ── Signal explanation bullets ─────────────────────────────────────────
+        "exp_ema_bounce_buy":          "Цена кратко откатилась и снова пошла вверх — тренд продолжается.",
+        "exp_ema_bounce_sell":         "Цена кратко подросла и снова пошла вниз — тренд продолжается.",
+        "exp_level_rejection_buy":     "Цена опустилась к уровню поддержки, показала отбой и подтвердила разворот вверх.",
+        "exp_level_rejection_sell":    "Цена поднялась к уровню сопротивления, показала отбой и подтвердила разворот вниз.",
+        "exp_false_breakout_buy":      "Цена кратко пробила поддержку, но быстро вернулась выше — ловушка для продавцов, ожидаем рост.",
+        "exp_false_breakout_sell":     "Цена кратко пробила сопротивление, но быстро вернулась ниже — ловушка для покупателей, ожидаем падение.",
+        "exp_compression_buy":         "Рынок сжался в узком диапазоне, затем резко вырвался вверх — чистый пробой с momentum.",
+        "exp_compression_sell":        "Рынок сжался в узком диапазоне, затем резко вырвался вниз — чистый пробой с momentum.",
+        "exp_impulse_pullback_buy":    "Был сильный рост (импульс), затем небольшой откат — продолжаем движение вверх.",
+        "exp_impulse_pullback_sell":   "Было сильное падение (импульс), затем небольшой откат — продолжаем движение вниз.",
+        "exp_default_buy":             "Большинство признаков указывают на движение вверх.",
+        "exp_default_sell":            "Большинство признаков указывают на движение вниз.",
+        "exp_mode_trending_up_buy":    "Рынок сейчас растёт — входим по тренду.",
+        "exp_mode_trending_down_sell": "Рынок сейчас падает — входим по тренду.",
+        "exp_mode_range_buy":          "Цена у нижней границы коридора — обычно отсюда растёт.",
+        "exp_mode_range_sell":         "Цена у верхней границы коридора — обычно отсюда падает.",
+        "exp_mode_volatile":           "Рынок сейчас активный — быстрый вход, короткая сделка.",
+        "exp_mode_squeeze":            "Рынок только что «сжался» и готовится к резкому движению — мы в начале него.",
+        "exp_ind_buy":                 "Индикаторы подтверждают: цена слишком упала и готова расти.",
+        "exp_ind_sell":                "Индикаторы подтверждают: цена слишком выросла и готова падать.",
+        "exp_quality_strong":          "Сразу несколько признаков указывают в одну сторону — сигнал надёжный.",
+
+        # ── Expiry keyboard ────────────────────────────────────────────────────
+        "expiry_min": "{n} мин",
+        "expiry_sec": "{n} сек",
+
         # ── Market scanning ────────────────────────────────────────────────────
         "analysing_market_cb":  "⏳ Анализирую рынок...",
         "refresh_pairs_cb":     "🔄 Обновляю список пар...",
@@ -272,6 +323,57 @@ _STRINGS: dict[str, dict[str, str]] = {
             "and accept responsibility for your own trading."
         ),
         "btn_accept_terms": "✅ I accept the terms",
+
+        # ── Signal message ─────────────────────────────────────────────────────
+        "signal_dir_buy":       "BUY ⬆️",
+        "signal_dir_sell":      "SELL ⬇️",
+        "signal_label":         " {arrow} Signal: <b>{dir}</b>",
+        "signal_confidence":    "💪 Confidence: {bar} {conf}/5 ({label})",
+        "signal_why_header":    "<b>Why:</b>",
+        "signal_open_trade":    "<i>Open the trade manually in Pocket Option.</i>",
+        "conf_strong":          "strong",
+        "conf_good":            "good",
+        "conf_moderate":        "moderate",
+
+        # ── NO_SIGNAL message ──────────────────────────────────────────────────
+        "no_signal_header":     "⏳ <b>No entry point</b>",
+        "no_signal_ambiguous":  "No clear signal yet — market is ambiguous.",
+        "no_signal_action":     "Press <b>«Start monitoring»</b> or <b>«Try again»</b>.",
+        "no_signal_reason":     "<b>Reason:</b>",
+
+        # ── Market mode labels ─────────────────────────────────────────────────
+        "mode_trending_up":   "📈 Uptrend",
+        "mode_trending_down": "📉 Downtrend",
+        "mode_range":         "↔️ Sideways market",
+        "mode_volatile":      "🌪 Volatile market",
+        "mode_squeeze":       "🗜 Squeeze (awaiting breakout)",
+
+        # ── Signal explanation bullets ─────────────────────────────────────────
+        "exp_ema_bounce_buy":          "Price briefly pulled back and resumed upward — trend continues.",
+        "exp_ema_bounce_sell":         "Price briefly bounced up and resumed downward — trend continues.",
+        "exp_level_rejection_buy":     "Price dropped to support, showed a rejection and confirmed a reversal upward.",
+        "exp_level_rejection_sell":    "Price rose to resistance, showed a rejection and confirmed a reversal downward.",
+        "exp_false_breakout_buy":      "Price briefly broke support but quickly returned above — bull trap, expecting a rise.",
+        "exp_false_breakout_sell":     "Price briefly broke resistance but quickly returned below — bear trap, expecting a drop.",
+        "exp_compression_buy":         "Market compressed in a narrow range then broke sharply upward — clean breakout with momentum.",
+        "exp_compression_sell":        "Market compressed in a narrow range then broke sharply downward — clean breakout with momentum.",
+        "exp_impulse_pullback_buy":    "Strong rally (impulse) followed by a small pullback — continuing upward.",
+        "exp_impulse_pullback_sell":   "Strong drop (impulse) followed by a small pullback — continuing downward.",
+        "exp_default_buy":             "Most indicators point upward.",
+        "exp_default_sell":            "Most indicators point downward.",
+        "exp_mode_trending_up_buy":    "Market is trending up — trading with the trend.",
+        "exp_mode_trending_down_sell": "Market is trending down — trading with the trend.",
+        "exp_mode_range_buy":          "Price at lower range boundary — typically bounces up from here.",
+        "exp_mode_range_sell":         "Price at upper range boundary — typically drops from here.",
+        "exp_mode_volatile":           "Market is active — fast entry, short trade.",
+        "exp_mode_squeeze":            "Market just squeezed and is preparing for a sharp move — we're at the start.",
+        "exp_ind_buy":                 "Indicators confirm: price dropped too much and is ready to rise.",
+        "exp_ind_sell":                "Indicators confirm: price rose too much and is ready to fall.",
+        "exp_quality_strong":          "Multiple indicators align in one direction — signal is reliable.",
+
+        # ── Expiry keyboard ────────────────────────────────────────────────────
+        "expiry_min": "{n} min",
+        "expiry_sec": "{n} sec",
 
         # ── Market scanning ────────────────────────────────────────────────────
         "analysing_market_cb":  "⏳ Analysing market...",

@@ -1206,12 +1206,12 @@ async def cb_expiration_selected(callback: CallbackQuery) -> None:
 
     try:
         signal = await get_signal(symbol, pair_label, expiration_sec)
-        text = format_signal_message(signal, is_admin=_is_admin(callback.from_user.id))
+        text = format_signal_message(signal, is_admin=_is_admin(callback.from_user.id), lang=lang)
 
         kb = (
             no_signal_keyboard(symbol, expiration_sec, lang=lang)
             if signal.direction == "NO_SIGNAL"
-            else signal_result_keyboard(symbol, expiration_sec)
+            else signal_result_keyboard(symbol, expiration_sec, lang=lang)
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
