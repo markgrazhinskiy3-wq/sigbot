@@ -16,6 +16,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from db.database import resolve_outcome
 from bot.keyboards import after_result_keyboard
+from bot.i18n import t, get_lang
 from services import analytics_logger
 
 logger = logging.getLogger(__name__)
@@ -31,56 +32,58 @@ def _pip_multiplier(price: float) -> int:
     return 1_000 if price > 20 else 100_000
 
 
-def _format_points(entry: float, close: float, direction: str) -> str:
-    """
-    Return a signed points string relative to trade direction, e.g. '+41 пункт' or '-12 пунктов'.
-    Positive = price moved in the right direction for the trade.
-    """
+def _format_points(entry: float, close: float, direction: str, lang: str = "ru") -> str:
+    """Return a signed points string relative to trade direction."""
     mult = _pip_multiplier(entry)
     raw = round((close - entry) * mult)
     directional = raw if direction == "BUY" else -raw
     sign = "+" if directional >= 0 else ""
     n = abs(directional)
-    if n % 10 == 1 and n % 100 != 11:
-        unit = "пункт"
-    elif 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
-        unit = "пункта"
+
+    if lang == "ru":
+        if n % 10 == 1 and n % 100 != 11:
+            unit = t("outcome_pts_one", lang)
+        elif 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+            unit = t("outcome_pts_few", lang)
+        else:
+            unit = t("outcome_pts_many", lang)
     else:
-        unit = "пунктов"
+        unit = t("outcome_pts_many", lang)
+
     return f"{sign}{directional} {unit}"
 
 
-_STRATEGY_LABELS = {
-    # active strategies
-    "ema_bounce":     "Отскок от EMA",
-    "level_breakout": "Пробой уровня",
-    # legacy
-    "level_bounce":  "Отскок от уровня",
-    "rsi_reversal":  "Разворот RSI",
-    "impulse":       "Импульс по тренду",
-    "bounce":        "Отскок от уровня",
-    "breakout":      "Ложный пробой",
-}
+def _strategy_label(strategy: str, lang: str = "ru") -> str:
+    """Return a localised strategy name for display."""
+    key = {
+        "ema_bounce":     "strategy_ema_bounce",
+        "level_breakout": "strategy_level_breakout",
+        "level_bounce":   "strategy_level_bounce",
+        "rsi_reversal":   "strategy_rsi_reversal",
+        "impulse":        "strategy_impulse",
+        "bounce":         "strategy_bounce",
+        "breakout":       "strategy_breakout",
+    }.get(strategy)
+    return t(key, lang) if key else strategy or "—"
 
 
-def _build_explanation(outcome: str, direction: str, strategy: str, pct: float) -> str:
+def _build_explanation(outcome: str, direction: str, strategy: str, pct: float, lang: str = "ru") -> str:
     """Return a short plain-text explanation of why the trade won or lost."""
     if outcome == "win":
         if pct >= 0.05:
-            return "Цена уверенно пошла в нужную сторону — сигнал отработал чисто."
+            return t("outcome_exp_win_strong", lang)
         else:
-            return "Цена едва сдвинулась в нужную сторону — победа по минимуму."
+            return t("outcome_exp_win_marginal", lang)
 
     # outcome == "loss" — explain by strategy
-    strategy_reasons = {
-        "ema_bounce":     "Цена не удержалась у скользящей средней — рынок продолжил движение против сигнала.",
-        "level_bounce":   "Уровень не удержал цену — давление оказалось сильнее.",
-        "level_breakout": "Пробой не получил продолжения — возможно это был ложный пробой.",
-        "rsi_reversal":   "Разворот не состоялся — импульс продолжился в старом направлении.",
+    loss_keys = {
+        "ema_bounce":     "outcome_exp_loss_ema",
+        "level_bounce":   "outcome_exp_loss_level",
+        "level_breakout": "outcome_exp_loss_breakout",
+        "rsi_reversal":   "outcome_exp_loss_rsi",
     }
-    reason = strategy_reasons.get(strategy, "Цена пошла против сигнала.")
-    suffix = " На короткой экспирации даже точный прогноз иногда не срабатывает — одна свеча может всё изменить."
-    return reason + suffix
+    reason_key = loss_keys.get(strategy, "outcome_exp_loss_default")
+    return t(reason_key, lang) + t("outcome_exp_loss_suffix", lang)
 
 
 async def track_outcome(
@@ -100,6 +103,8 @@ async def track_outcome(
     """
     try:
         await asyncio.sleep(expiration_sec + 2)
+
+        lang = get_lang(chat_id)
 
         # Try WS first (fast, no browser), fall back to cache
         candles = []
@@ -130,7 +135,6 @@ async def track_outcome(
 
         pct = abs((result_price - signal_price) / signal_price * 100)
 
-        # signed pnl: positive = direction correct
         _signed_pnl = (
             (result_price - signal_price) / signal_price * 100 if direction == "BUY"
             else (signal_price - result_price) / signal_price * 100
@@ -143,28 +147,27 @@ async def track_outcome(
         ))
 
         if outcome == "win":
-            icon   = "✅"
-            header = "Сделка закрылась в плюс!"
-            arrow  = "⬆️" if direction == "BUY" else "⬇️"
+            icon  = "✅"
+            arrow = "⬆️" if direction == "BUY" else "⬇️"
         else:
-            icon   = "❌"
-            header = "Сделка закрылась в минус."
-            arrow  = "⬇️" if direction == "BUY" else "⬆️"
+            icon  = "❌"
+            arrow = "⬇️" if direction == "BUY" else "⬆️"
 
-        strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
-        exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
-        explanation = _build_explanation(outcome, direction, strategy or "", pct)
-        points_str = _format_points(signal_price, result_price, direction)
+        header        = t("outcome_win_header" if outcome == "win" else "outcome_loss_header", lang)
+        strat_label   = _strategy_label(strategy or "", lang)
+        exp_label     = t("expiry_min", lang, n=expiration_sec // 60) if expiration_sec >= 60 else t("expiry_sec", lang, n=expiration_sec)
+        explanation   = _build_explanation(outcome, direction, strategy or "", pct, lang)
+        points_str    = _format_points(signal_price, result_price, direction, lang)
 
         text = (
             f"{icon} <b>{header}</b>\n"
             f"\n"
             f"📊 <b>{pair_label}</b> · {direction} · {exp_label}\n"
-            f"💡 Стратегия: {strategy_label}\n"
+            f"{t('outcome_strategy', lang, label=strat_label)}\n"
             f"\n"
-            f"Цена входа:  <code>{signal_price:.5g}</code>\n"
-            f"Цена выхода: <code>{result_price:.5g}</code> {arrow}\n"
-            f"Разница:     <b>{points_str}</b>\n"
+            f"{t('outcome_entry', lang, price=f'{signal_price:.5g}')}\n"
+            f"{t('outcome_exit', lang, price=f'{result_price:.5g}', arrow=arrow)}\n"
+            f"{t('outcome_diff', lang, points=points_str)}\n"
             f"\n"
             f"<i>{explanation}</i>\n"
         )
@@ -173,7 +176,7 @@ async def track_outcome(
             chat_id,
             text,
             parse_mode="HTML",
-            reply_markup=after_result_keyboard(symbol),
+            reply_markup=after_result_keyboard(symbol, lang=lang),
         )
         logger.info(
             "Outcome tracked: %s | %s %s | entry=%.6f result=%.6f | %s",
@@ -216,27 +219,27 @@ async def _recover_one(
         if delay_sec > 0:
             await asyncio.sleep(delay_sec)
 
-        strategy_label = _STRATEGY_LABELS.get(strategy or "", strategy or "—")
-        exp_label = f"{expiration_sec // 60} мин" if expiration_sec >= 60 else f"{expiration_sec} сек"
+        lang          = get_lang(user_id)
+        strat_label   = _strategy_label(strategy or "", lang)
+        exp_label     = t("expiry_min", lang, n=expiration_sec // 60) if expiration_sec >= 60 else t("expiry_sec", lang, n=expiration_sec)
 
         # ── Trade expired long before bot restarted: result unknowable ─────────
         if stale_sec > _STALE_THRESHOLD:
             await resolve_outcome(outcome_id, 0.0, "error")
             text = (
-                f"⚠️ <b>Результат неизвестен — {pair_label}</b>\n"
+                f"{t('outcome_stale_header', lang, pair=pair_label)}\n"
                 f"\n"
                 f"📊 <b>{pair_label}</b> · {direction} · {exp_label}\n"
-                f"💡 Стратегия: {strategy_label}\n"
+                f"{t('outcome_strategy', lang, label=strat_label)}\n"
                 f"\n"
-                f"Бот был перезапущен через ~{int(stale_sec)}с после закрытия сделки.\n"
-                f"Текущая цена уже не отражает момент закрытия.\n"
+                f"{t('outcome_stale_body', lang, n=int(stale_sec))}\n"
                 f"\n"
-                f"<i>Проверьте итог сделки в истории Pocket Option.</i>"
+                f"{t('outcome_stale_hint', lang)}"
             )
             await bot.send_message(
                 user_id, text,
                 parse_mode="HTML",
-                reply_markup=after_result_keyboard(symbol),
+                reply_markup=after_result_keyboard(symbol, lang=lang),
             )
             logger.info(
                 "recover_one: stale=%ds → unknown id=%d (%s %s)",
@@ -284,31 +287,36 @@ async def _recover_one(
             result=outcome,
             pnl_pct=round(_signed_pnl, 5),
         ))
-        icon   = "✅" if outcome == "win" else "❌"
-        header = "Сделка закрылась в плюс!" if outcome == "win" else "Сделка закрылась в минус."
-        arrow  = ("⬆️" if direction == "BUY" else "⬇️") if outcome == "win" else ("⬇️" if direction == "BUY" else "⬆️")
 
-        explanation  = _build_explanation(outcome, direction, strategy or "", pct)
-        points_str   = _format_points(signal_price, result_price, direction)
+        if outcome == "win":
+            icon  = "✅"
+            arrow = "⬆️" if direction == "BUY" else "⬇️"
+        else:
+            icon  = "❌"
+            arrow = "⬇️" if direction == "BUY" else "⬆️"
+
+        header      = t("outcome_win_header" if outcome == "win" else "outcome_loss_header", lang)
+        explanation = _build_explanation(outcome, direction, strategy or "", pct, lang)
+        points_str  = _format_points(signal_price, result_price, direction, lang)
 
         text = (
             f"{icon} <b>{header}</b>\n"
             f"\n"
             f"📊 <b>{pair_label}</b> · {direction} · {exp_label}\n"
-            f"💡 Стратегия: {strategy_label}\n"
+            f"{t('outcome_strategy', lang, label=strat_label)}\n"
             f"\n"
-            f"Цена входа:  <code>{signal_price:.5g}</code>\n"
-            f"Цена выхода: <code>{result_price:.5g}</code> {arrow}\n"
-            f"Разница:     <b>{points_str}</b>\n"
+            f"{t('outcome_entry', lang, price=f'{signal_price:.5g}')}\n"
+            f"{t('outcome_exit', lang, price=f'{result_price:.5g}', arrow=arrow)}\n"
+            f"{t('outcome_diff', lang, points=points_str)}\n"
             f"\n"
             f"<i>{explanation}</i>\n"
-            f"<i>⚠️ Результат восстановлен после перезапуска бота.</i>"
+            f"<i>{t('outcome_recovered', lang)}</i>"
         )
 
         await bot.send_message(
             user_id, text,
             parse_mode="HTML",
-            reply_markup=after_result_keyboard(symbol),
+            reply_markup=after_result_keyboard(symbol, lang=lang),
         )
         logger.info(
             "recover_one: outcome=%s id=%d (%s %s)", outcome, outcome_id, direction, pair_label
@@ -343,9 +351,7 @@ async def recover_pending_outcomes(bot: Bot) -> None:
                 created_at = datetime.fromisoformat(row["created_at"]).replace(tzinfo=timezone.utc)
                 now        = datetime.now(timezone.utc)
                 age_sec    = (now - created_at).total_seconds()
-                # How many seconds left until expiry (may be negative = already expired)
                 delay_sec  = max(0.0, row["expiration_sec"] - age_sec + 2)
-                # How long ago did the trade expire? (0 if not yet expired)
                 stale_sec  = max(0.0, age_sec - row["expiration_sec"])
             except Exception:
                 delay_sec = 0.0
