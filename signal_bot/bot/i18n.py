@@ -169,6 +169,16 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # ── Help ───────────────────────────────────────────────────────────────
         "help_pending": "⏳ Ваша заявка на доступ ещё рассматривается.\nИспользуйте /start чтобы проверить статус.",
+        # ── /stats ─────────────────────────────────────────────────────────────
+        "stats_title":     "📊 <b>Ваша статистика</b>",
+        "stats_empty":     "📊 <b>Ваша статистика</b>\n\nПока нет завершённых сигналов.\nЗапросите первый сигнал — результат появится здесь автоматически.",
+        "stats_total":     "Всего сигналов:  <b>{n}</b>",
+        "stats_wins":      "✅ Прибыльных:   <b>{n}</b>",
+        "stats_losses":    "❌ Убыточных:    <b>{n}</b>",
+        "stats_pending":   "⏳ В процессе:   <b>{n}</b>",
+        "stats_winrate":   "🎯 Точность:     <b>{wr}</b>",
+        "stats_top_pairs": "<b>Лучшие пары:</b>",
+
         "help_text": (
             "ℹ️ <b>Как пользоваться ботом</b>\n\n"
             "1. <b>/signal</b> — быстрый скан всех OTC-пар и список лучших сигналов прямо сейчас\n"
@@ -301,6 +311,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         # ── Restart bot ────────────────────────────────────────────────────────
         "restart_done_cb": "🔁 Done",
         "restart_done":    "✅ <b>Done.</b>\n\nYou can now request new signals.",
+
+        # ── /stats ─────────────────────────────────────────────────────────────
+        "stats_title":     "📊 <b>Your statistics</b>",
+        "stats_empty":     "📊 <b>Your statistics</b>\n\nNo completed signals yet.\nRequest your first signal — the result will appear here automatically.",
+        "stats_total":     "Total signals:  <b>{n}</b>",
+        "stats_wins":      "✅ Profitable:  <b>{n}</b>",
+        "stats_losses":    "❌ Losing:      <b>{n}</b>",
+        "stats_pending":   "⏳ In progress: <b>{n}</b>",
+        "stats_winrate":   "🎯 Accuracy:    <b>{wr}</b>",
+        "stats_top_pairs": "<b>Top pairs:</b>",
 
         # ── Help ───────────────────────────────────────────────────────────────
         "help_pending": "⏳ Your access request is still under review.\nUse /start to check your status.",

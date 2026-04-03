@@ -2066,8 +2066,9 @@ async def cmd_admins(message: Message) -> None:
 async def cmd_stats(message: Message) -> None:
     user_id = message.from_user.id
     status = await get_status(user_id)
+    lang   = get_lang(user_id)
     if status != "approved":
-        await message.answer("❌ У вас нет доступа к боту.")
+        await message.answer(t("no_access", lang))
         return
 
     stats    = await get_user_stats(user_id)
@@ -2080,27 +2081,22 @@ async def cmd_stats(message: Message) -> None:
     winrate = stats["winrate"]
 
     if total == 0:
-        await message.answer(
-            "📊 <b>Ваша статистика</b>\n\n"
-            "Пока нет завершённых сигналов.\n"
-            "Запросите первый сигнал — результат появится здесь автоматически.",
-            parse_mode="HTML",
-        )
+        await message.answer(t("stats_empty", lang), parse_mode="HTML")
         return
 
     wr_str = f"{winrate}%" if winrate is not None else "—"
 
     lines = [
-        "📊 <b>Ваша статистика</b>\n",
-        f"Всего сигналов:  <b>{total}</b>",
-        f"✅ Прибыльных:   <b>{wins}</b>",
-        f"❌ Убыточных:    <b>{losses}</b>",
-        f"⏳ В процессе:   <b>{pending}</b>",
-        f"🎯 Точность:     <b>{wr_str}</b>",
+        t("stats_title", lang) + "\n",
+        t("stats_total",   lang, n=total),
+        t("stats_wins",    lang, n=wins),
+        t("stats_losses",  lang, n=losses),
+        t("stats_pending", lang, n=pending),
+        t("stats_winrate", lang, wr=wr_str),
     ]
 
     if by_pair:
-        lines.append("\n<b>Лучшие пары:</b>")
+        lines.append("\n" + t("stats_top_pairs", lang))
         for p in by_pair:
             wr = f"{p['winrate']}%" if p["winrate"] is not None else "—"
             lines.append(f"  {p['pair_label']}: {p['wins']}W / {p['losses']}L  ({wr})")
