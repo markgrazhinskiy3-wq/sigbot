@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # IP gets stricter threshold; LR and FB get lower thresholds to increase signal flow.
 _STRATEGY_THRESHOLDS: dict[str, dict[str, float]] = {
     "impulse_pullback":     {"1m": 76.0, "2m": 73.0},
-    "level_rejection":      {"1m": 68.0, "2m": 65.0},
+    "level_rejection":      {"1m": 60.0, "2m": 57.0},  # lowered: only [60,65) is useful (see _LR_SCORE_MAX)
     "false_breakout":       {"1m": 68.0, "2m": 65.0},
     "compression_breakout": {"1m": 68.0, "2m": 65.0},
 }
