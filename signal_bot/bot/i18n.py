@@ -25,6 +25,11 @@ def set_lang(user_id: int, lang: str) -> None:
     _user_lang[user_id] = lang
 
 
+def load_langs_from_db(langs: dict[int, str]) -> None:
+    """Populate in-memory cache from DB on startup. Call once after DB init."""
+    _user_lang.update(langs)
+
+
 def t(key: str, lang: str = "ru", **kwargs) -> str:
     s = _STRINGS.get(lang, _STRINGS["ru"]).get(key)
     if s is None:

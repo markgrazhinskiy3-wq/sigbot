@@ -31,8 +31,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 
 import config
-from db.database import init_db
+from db.database import init_db, load_all_user_langs
 from bot.handlers import router, load_admin_cache
+from bot.i18n import load_langs_from_db
 from services.pocket_browser import close_browser, init_monitor_ws_auth
 from services.candle_cache import start_refresher
 from services.strategy_adaptation import initialize as init_strategy_adaptation
@@ -114,6 +115,11 @@ async def main() -> None:
 
     logger.info("Loading admin cache...")
     await load_admin_cache()
+
+    logger.info("Loading user language preferences...")
+    _langs = await load_all_user_langs()
+    load_langs_from_db(_langs)
+    logger.info("Loaded language preferences for %d user(s)", len(_langs))
 
     logger.info("Initializing strategy adaptation module...")
     await init_strategy_adaptation()

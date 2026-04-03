@@ -103,6 +103,15 @@ async def init_db() -> None:
         except Exception:
             pass  # column already exists
 
+        try:
+            await db.execute(
+                "ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT 'ru'"
+            )
+            await db.commit()
+            logger.info("Migration applied: users.lang column added")
+        except Exception:
+            pass  # column already exists
+
     logger.info("Database initialized at %s", DB_PATH)
 
     # Analytics tables (separate module — init after core tables)
@@ -111,6 +120,27 @@ async def init_db() -> None:
         await init_analytics()
     except Exception as _ae:
         logger.warning("Analytics init failed (non-critical): %s", _ae)
+
+
+async def set_user_lang(user_id: int, lang: str) -> None:
+    """Persist language preference for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET lang = ? WHERE user_id = ?",
+            (lang, user_id),
+        )
+        await db.commit()
+
+
+async def load_all_user_langs() -> dict[int, str]:
+    """Load lang preference for all users (for startup warm-up)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            async with db.execute("SELECT user_id, lang FROM users") as cursor:
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows if row[1]}
+        except Exception:
+            return {}
 
 
 async def get_auto_signals(user_id: int) -> bool:

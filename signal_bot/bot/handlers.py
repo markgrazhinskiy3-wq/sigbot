@@ -46,7 +46,7 @@ from bot.keyboards import (
     back_to_menu_keyboard, no_signal_keyboard, signal_result_keyboard,
     recommended_pairs_keyboard, lang_select_keyboard, accept_terms_keyboard,
 )
-from bot.i18n import get_lang, set_lang, t, has_accepted_terms, accept_terms
+from bot.i18n import get_lang, set_lang, t, has_accepted_terms, accept_terms, load_langs_from_db
 from services.auto_signal_service import is_auto_enabled, set_auto_enabled
 
 logger = logging.getLogger(__name__)
@@ -326,6 +326,13 @@ async def cb_set_lang(callback: CallbackQuery) -> None:
     lang = callback.data.split(":")[1]  # "ru" or "en"
     user_id = callback.from_user.id
     set_lang(user_id, lang)
+
+    # Persist to DB so language survives bot restarts
+    try:
+        from db.database import set_user_lang
+        await set_user_lang(user_id, lang)
+    except Exception:
+        pass  # non-critical — memory cache is already set
 
     # Check access first
     status = await check_access(user_id)
