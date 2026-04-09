@@ -6,9 +6,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config
 
 
-def _t(key: str, lang: str) -> str:
+def _t(key: str, lang: str, **kwargs) -> str:
     from bot.i18n import t
-    return t(key, lang)
+    return t(key, lang, **kwargs)
 
 
 def accept_terms_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
