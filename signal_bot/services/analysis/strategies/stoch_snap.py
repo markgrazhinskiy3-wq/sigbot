@@ -12,6 +12,7 @@ Expiry: 1 minute
 Best in: RANGE, SQUEEZE, VOLATILE
 """
 from __future__ import annotations
+# pair_profile imported lazily to avoid circular imports
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ def stoch_snap_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
@@ -68,8 +70,15 @@ def stoch_snap_strategy(
     k_rising  = k_now > k_prev
     k_falling = k_now < k_prev
 
-    buy_met, buy_parts, buy_conds = _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind)
-    sell_met, sell_parts, sell_conds = _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind)
+    stoch_os     = pair_params.stoch_os     if pair_params else 20.0
+    stoch_ob     = pair_params.stoch_ob     if pair_params else 80.0
+    stoch_rsi_os = pair_params.stoch_rsi_os if pair_params else 40.0
+    stoch_rsi_ob = pair_params.stoch_rsi_ob if pair_params else 60.0
+
+    buy_met, buy_parts, buy_conds = _check_buy(
+        k_now, d_now, k_prev, cross_up, k_rising, ind, stoch_os, stoch_rsi_os)
+    sell_met, sell_parts, sell_conds = _check_sell(
+        k_now, d_now, k_prev, cross_dn, k_falling, ind, stoch_ob, stoch_rsi_ob)
 
     buy_wins  = buy_met > sell_met or (buy_met == sell_met and ctx_trend_down)
     sell_wins = sell_met > buy_met or (sell_met == buy_met and ctx_trend_up)
@@ -145,22 +154,23 @@ def stoch_snap_strategy(
     )
 
 
-def _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind):
+def _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind,
+               stoch_os=20.0, stoch_rsi_os=40.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
 
-    # C1: %K is below 20 (oversold zone)
-    c1 = k_now < 20
+    # C1: %K is below stoch_os (oversold zone)
+    c1 = k_now < stoch_os
     conds["stoch_k_oversold"] = c1
     if c1:
-        met += 1; parts.append(f"Stoch K={k_now:.1f} в зоне перепроданности (<20)")
+        met += 1; parts.append(f"Stoch K={k_now:.1f} в зоне перепроданности (<{stoch_os:.0f})")
 
-    # C2: %D is below 20 (confirming oversold)
-    c2 = d_now < 20
+    # C2: %D is below stoch_os (confirming oversold)
+    c2 = d_now < stoch_os
     conds["stoch_d_oversold"] = c2
     if c2:
-        met += 1; parts.append(f"Stoch D={d_now:.1f} в зоне перепроданности (<20)")
+        met += 1; parts.append(f"Stoch D={d_now:.1f} в зоне перепроданности (<{stoch_os:.0f})")
 
     # C3: %K crossed %D upward (K was below D, now above D)
     c3 = cross_up or (k_rising and k_now > d_now and k_prev <= d_now * 1.05)
@@ -168,31 +178,32 @@ def _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind):
     if c3:
         met += 1; parts.append(f"K пересёк D снизу вверх ({k_prev:.1f}→{k_now:.1f} vs D={d_now:.1f})")
 
-    # C4: RSI confirms oversold (below 40 for extra confirmation)
-    c4 = ind.rsi < 40
+    # C4: RSI confirms oversold — pair-adapted threshold
+    c4 = ind.rsi < stoch_rsi_os
     conds["rsi_confirms_oversold"] = c4
     if c4:
-        met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перепроданность (<40)")
+        met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перепроданность (<{stoch_rsi_os:.0f})")
 
     return met, parts, conds
 
 
-def _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind):
+def _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind,
+                stoch_ob=80.0, stoch_rsi_ob=60.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
 
-    # C1: %K is above 80 (overbought zone)
-    c1 = k_now > 80
+    # C1: %K is above stoch_ob (overbought zone)
+    c1 = k_now > stoch_ob
     conds["stoch_k_overbought"] = c1
     if c1:
-        met += 1; parts.append(f"Stoch K={k_now:.1f} в зоне перекупленности (>80)")
+        met += 1; parts.append(f"Stoch K={k_now:.1f} в зоне перекупленности (>{stoch_ob:.0f})")
 
-    # C2: %D is above 80
-    c2 = d_now > 80
+    # C2: %D is above stoch_ob
+    c2 = d_now > stoch_ob
     conds["stoch_d_overbought"] = c2
     if c2:
-        met += 1; parts.append(f"Stoch D={d_now:.1f} в зоне перекупленности (>80)")
+        met += 1; parts.append(f"Stoch D={d_now:.1f} в зоне перекупленности (>{stoch_ob:.0f})")
 
     # C3: %K crossed %D downward
     c3 = cross_dn or (k_falling and k_now < d_now and k_prev >= d_now * 0.95)
@@ -200,11 +211,11 @@ def _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind):
     if c3:
         met += 1; parts.append(f"K пересёк D сверху вниз ({k_prev:.1f}→{k_now:.1f} vs D={d_now:.1f})")
 
-    # C4: RSI confirms overbought (above 60)
-    c4 = ind.rsi > 60
+    # C4: RSI confirms overbought — pair-adapted threshold
+    c4 = ind.rsi > stoch_rsi_ob
     conds["rsi_confirms_overbought"] = c4
     if c4:
-        met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перекупленность (>60)")
+        met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перекупленность (>{stoch_rsi_ob:.0f})")
 
     return met, parts, conds
 

@@ -53,7 +53,7 @@ OTC_PAIRS: list[dict] = [
     {"label": "AUD/USD OTC",  "symbol": "#AUDUSD_otc",  "payout": 92},
     {"label": "AUD/CAD OTC",  "symbol": "#AUDCAD_otc",  "payout": 92},
     {"label": "AUD/NZD OTC",  "symbol": "#AUDNZD_otc",  "payout": 92},
-    {"label": "CAD/CHF OTC",  "symbol": "#CADCHF_otc",  "payout": 92},
+    # CAD/CHF OTC removed: Category D — very low volatility, unreliable algorithm
     # Additional pairs confirmed on PocketOption (92%)
     {"label": "AED/CNY OTC",  "symbol": "#AEDCNY_otc",  "payout": 92},
     {"label": "BHD/CNY OTC",  "symbol": "#BHDCNY_otc",  "payout": 92},
@@ -68,7 +68,7 @@ OTC_PAIRS: list[dict] = [
     {"label": "USD/CAD OTC",  "symbol": "#USDCAD_otc",  "payout": 82},
     # USD/CHF removed: T17=0% (4sig), T18=12% (8sig) — serial loser both tests
     {"label": "NZD/USD OTC",  "symbol": "#NZDUSD_otc",  "payout": 82},
-    {"label": "EUR/GBP OTC",  "symbol": "#EURGBP_otc",  "payout": 82},
+    # EUR/GBP OTC removed: Category D — range too narrow for 1-2 min expiry
     {"label": "AUD/JPY OTC",  "symbol": "#AUDJPY_otc",  "payout": 82},
     {"label": "AUD/CHF OTC",  "symbol": "#AUDCHF_otc",  "payout": 82},
     {"label": "NZD/JPY OTC",  "symbol": "#NZDJPY_otc",  "payout": 82},

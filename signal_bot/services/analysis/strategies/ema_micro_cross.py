@@ -12,6 +12,10 @@ Expiry: 1 minute
 Best in: TRENDING_UP, TRENDING_DOWN, RANGE with direction bias
 """
 from __future__ import annotations
+try:
+    from ..pair_profile import PairParams
+except ImportError:
+    PairParams = None  # type: ignore[misc,assignment]
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -41,12 +45,17 @@ def ema_micro_cross_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
     high  = df["high"].values
     low   = df["low"].values
     n     = len(df)
+
+    # Pair-adapted EMA spans (volatile pairs use 5/13 instead of 3/8)
+    fast_span = pair_params.ema_fast_span if pair_params else 3
+    slow_span = pair_params.ema_slow_span if pair_params else 8
 
     if n < 12:
         return _none("Мало данных", {"early_reject": "n<12"})
@@ -56,9 +65,9 @@ def ema_micro_cross_strategy(
 
     close_s = pd.Series(close)
 
-    # Compute EMA(3) and EMA(8) inline
-    ema3_s = close_s.ewm(span=3, adjust=False).mean()
-    ema8_s = close_s.ewm(span=8, adjust=False).mean()
+    # Compute EMA(fast) and EMA(slow) inline — pair-adapted spans
+    ema3_s = close_s.ewm(span=fast_span, adjust=False).mean()
+    ema8_s = close_s.ewm(span=slow_span, adjust=False).mean()
 
     ema3_now  = float(ema3_s.iloc[-1])
     ema8_now  = float(ema8_s.iloc[-1])

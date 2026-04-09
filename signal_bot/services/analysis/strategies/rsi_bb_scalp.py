@@ -16,6 +16,10 @@ import pandas as pd
 from dataclasses import dataclass
 from ..indicators import Indicators
 from ..levels import LevelSet
+try:
+    from ..pair_profile import PairParams
+except ImportError:
+    PairParams = None  # type: ignore[misc,assignment]
 
 
 @dataclass
@@ -40,12 +44,18 @@ def rsi_bb_scalp_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
     high  = df["high"].values
     low   = df["low"].values
     n     = len(df)
+
+    # Resolve pair-specific parameters
+    rsi_os  = pair_params.rsi_oversold  if pair_params else 30.0
+    rsi_ob  = pair_params.rsi_overbought if pair_params else 70.0
+    bb_std  = pair_params.bb_std        if pair_params else 2.0
 
     if n < 20:
         return _none("Мало данных", {"early_reject": "n<20"})
@@ -54,13 +64,13 @@ def rsi_bb_scalp_strategy(
     if ind.atr_ratio < 0.3:
         return _none("ATR мёртвый", {"early_reject": f"atr_ratio={ind.atr_ratio:.3f}<0.3"})
 
-    # Compute BB(20, 2.0) inline — more accurate than BB(15) from indicators
+    # Compute BB(20, bb_std) inline — pair-adapted deviation
     bb_p  = min(20, n)
     close_s = pd.Series(close)
     bb_mid_s = close_s.rolling(bb_p).mean()
     bb_std_s = close_s.rolling(bb_p).std()
-    bb_upper = float((bb_mid_s + 2.0 * bb_std_s).iloc[-1])
-    bb_lower = float((bb_mid_s - 2.0 * bb_std_s).iloc[-1])
+    bb_upper = float((bb_mid_s + bb_std * bb_std_s).iloc[-1])
+    bb_lower = float((bb_mid_s - bb_std * bb_std_s).iloc[-1])
     bb_mid   = float(bb_mid_s.iloc[-1])
 
     # BB bandwidth — detect if bands are exploding (high volatility, skip)
@@ -76,11 +86,11 @@ def rsi_bb_scalp_strategy(
 
     buy_met, buy_parts, buy_conds = _check_buy(
         close, open_, high, low, n, price, avg_body, ind,
-        bb_lower, bb_mid, bb_upper, bb_expanding,
+        bb_lower, bb_mid, bb_upper, bb_expanding, rsi_os,
     )
     sell_met, sell_parts, sell_conds = _check_sell(
         close, open_, high, low, n, price, avg_body, ind,
-        bb_lower, bb_mid, bb_upper, bb_expanding,
+        bb_lower, bb_mid, bb_upper, bb_expanding, rsi_ob,
     )
 
     # Pick direction — mean-reversion works against trends; prefer the one more confirmed
@@ -162,7 +172,7 @@ def rsi_bb_scalp_strategy(
 
 
 def _check_buy(close, open_, high, low, n, price, avg_body, ind,
-               bb_lower, bb_mid, bb_upper, bb_expanding):
+               bb_lower, bb_mid, bb_upper, bb_expanding, rsi_os=30.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -173,11 +183,11 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind,
     if c1:
         met += 1; parts.append(f"Цена у нижней BB ({bb_lower:.6f})")
 
-    # C2: RSI < 30 (oversold)
-    c2 = ind.rsi < 30
+    # C2: RSI < rsi_os (oversold) — pair-adapted threshold
+    c2 = ind.rsi < rsi_os
     conds["rsi_oversold"] = c2
     if c2:
-        met += 1; parts.append(f"RSI перепроданность ({ind.rsi:.1f}<30)")
+        met += 1; parts.append(f"RSI перепроданность ({ind.rsi:.1f}<{rsi_os:.0f})")
 
     # C3: Current candle is bullish (close > open) — confirmation candle
     c3 = close[-1] > open_[-1]
@@ -209,7 +219,7 @@ def _check_buy(close, open_, high, low, n, price, avg_body, ind,
 
 
 def _check_sell(close, open_, high, low, n, price, avg_body, ind,
-                bb_lower, bb_mid, bb_upper, bb_expanding):
+                bb_lower, bb_mid, bb_upper, bb_expanding, rsi_ob=70.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -220,11 +230,11 @@ def _check_sell(close, open_, high, low, n, price, avg_body, ind,
     if c1:
         met += 1; parts.append(f"Цена у верхней BB ({bb_upper:.6f})")
 
-    # C2: RSI > 70 (overbought)
-    c2 = ind.rsi > 70
+    # C2: RSI > rsi_ob (overbought) — pair-adapted threshold
+    c2 = ind.rsi > rsi_ob
     conds["rsi_overbought"] = c2
     if c2:
-        met += 1; parts.append(f"RSI перекупленность ({ind.rsi:.1f}>70)")
+        met += 1; parts.append(f"RSI перекупленность ({ind.rsi:.1f}>{rsi_ob:.0f})")
 
     # C3: Current candle is bearish — confirmation candle
     c3 = close[-1] < open_[-1]

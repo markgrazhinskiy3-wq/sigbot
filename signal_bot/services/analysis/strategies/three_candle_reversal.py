@@ -13,6 +13,10 @@ Expiry: 1 minute
 Best in: RANGE, SQUEEZE, VOLATILE
 """
 from __future__ import annotations
+try:
+    from ..pair_profile import PairParams
+except ImportError:
+    PairParams = None  # type: ignore[misc,assignment]
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -42,6 +46,7 @@ def three_candle_reversal_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
@@ -65,8 +70,9 @@ def three_candle_reversal_strategy(
     if n < 4:
         return _none("Мало данных для паттерна", {"early_reject": "n<4"})
 
-    buy_met, buy_parts, buy_conds = _check_buy(close, open_, high, low, n, avg_body)
-    sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, avg_body)
+    allow_4 = pair_params.allow_4_candles if pair_params else False
+    buy_met, buy_parts, buy_conds = _check_buy(close, open_, high, low, n, avg_body, allow_4)
+    sell_met, sell_parts, sell_conds = _check_sell(close, open_, high, low, n, avg_body, allow_4)
 
     direction = "NONE"
     conditions_met = 0
@@ -133,8 +139,8 @@ def three_candle_reversal_strategy(
     )
 
 
-def _check_buy(close, open_, high, low, n, avg_body):
-    """3 consecutive bearish candles each closing lower → expect bullish reversal."""
+def _check_buy(close, open_, high, low, n, avg_body, allow_4_candles=False):
+    """3 (or 4 for volatile pairs) consecutive bearish candles → expect bullish reversal."""
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -148,13 +154,17 @@ def _check_buy(close, open_, high, low, n, avg_body):
     o3 = open_[-2]
 
     # C1: All three candles are bearish (close < open)
+    # For volatile pairs (allow_4_candles): also accept a 4-candle pattern
     bearish_1 = c1 < o1
     bearish_2 = c2 < o2
     bearish_3 = c3 < o3
     cond1 = bearish_1 and bearish_2 and bearish_3
+    if not cond1 and allow_4_candles and n >= 5:
+        # Check 4 consecutive bearish: -5, -4, -3, -2
+        cond1 = (close[-5] < open_[-5] and bearish_1 and bearish_2 and bearish_3)
     conds["three_bearish"] = cond1
     if cond1:
-        met += 1; parts.append("3 медвежьих свечи подряд")
+        met += 1; parts.append("3+ медвежьих свечи подряд")
 
     # C2: Descending closes (each close lower than previous)
     cond2 = c2 < c1 and c3 < c2
@@ -202,8 +212,8 @@ def _check_buy(close, open_, high, low, n, avg_body):
     return met, parts, conds
 
 
-def _check_sell(close, open_, high, low, n, avg_body):
-    """3 consecutive bullish candles each closing higher → expect bearish reversal."""
+def _check_sell(close, open_, high, low, n, avg_body, allow_4_candles=False):
+    """3 (or 4 for volatile pairs) consecutive bullish candles → expect bearish reversal."""
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -216,10 +226,15 @@ def _check_sell(close, open_, high, low, n, avg_body):
     o3 = open_[-2]
 
     # C1: All three candles are bullish
-    cond1 = (c1 > o1) and (c2 > o2) and (c3 > o3)
+    bullish_1 = c1 > o1
+    bullish_2 = c2 > o2
+    bullish_3 = c3 > o3
+    cond1 = bullish_1 and bullish_2 and bullish_3
+    if not cond1 and allow_4_candles and n >= 5:
+        cond1 = (close[-5] > open_[-5] and bullish_1 and bullish_2 and bullish_3)
     conds["three_bullish"] = cond1
     if cond1:
-        met += 1; parts.append("3 бычьих свечи подряд")
+        met += 1; parts.append("3+ бычьих свечи подряд")
 
     # C2: Ascending closes
     cond2 = c2 > c1 and c3 > c2
