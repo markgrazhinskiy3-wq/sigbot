@@ -1,0 +1,726 @@
+ ЧАСТЬ 2: Продолжение — Стратегии №3-8
+СТРАТЕГИЯ №3: «Stochastic OTC Snap»
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 15 секунд
+ЭКСПИРАЦИЯ: 60 секунд
+ИНДИКАТОРЫ: Stochastic(5, 3, 3)
+НЕОБХОДИМО СВЕЧЕЙ: минимум 20
+python
+
+def strategy_3_stochastic(candles):
+    """
+    Стратегия: Stochastic OTC Snap
+    Вход на пересечении %K и %D в зонах перекупленности/перепроданности
+    
+    Возвращает: 'CALL', 'PUT' или None
+    """
+    
+    if len(candles) < 20:
+        return None
+    
+    # ─────────────────────────────────
+    # РАСЧЁТ ИНДИКАТОРА
+    # ─────────────────────────────────
+    
+    stoch = calculate_stochastic(candles, k_period=5, d_period=3, smooth=3)
+    
+    if stoch is None:
+        return None
+    
+    k = stoch['k']
+    d = stoch['d']
+    prev_k = stoch['prev_k']
+    prev_d = stoch['prev_d']
+    
+    # ─────────────────────────────────
+    # ОПРЕДЕЛЯЕМ ПЕРЕСЕЧЕНИЕ
+    # ─────────────────────────────────
+    
+    # %K пересекла %D снизу вверх
+    cross_up = (prev_k <= prev_d) and (k > d)
+    
+    # %K пересекла %D сверху вниз
+    cross_down = (prev_k >= prev_d) and (k < d)
+    
+    # ─────────────────────────────────
+    # ЗОНЫ
+    # ─────────────────────────────────
+    
+    # Обе линии в зоне перепроданности
+    both_oversold = (k < 20) and (d < 20)
+    
+    # Обе линии в зоне перекупленности
+    both_overbought = (k > 80) and (d > 80)
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: УГОЛ ПЕРЕСЕЧЕНИЯ
+    # Чем больше разница между K и D после пересечения,
+    # тем сильнее сигнал
+    # ─────────────────────────────────
+    
+    cross_angle = abs(k - d)
+    strong_cross = cross_angle > 2.0  # минимальный разрыв после пересечения
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: НЕ СЛИШКОМ ДОЛГО В ЗОНЕ
+    # Если стохастик больше 10 свечей в экстремальной зоне — 
+    # это сильный тренд, не входим против
+    # ─────────────────────────────────
+    
+    # Для этого нужен расчёт стохастика за несколько периодов назад
+    # Упрощённый вариант: проверяем только текущий и предыдущий
+    
+    # ─────────────────────────────────
+    # СИГНАЛ CALL
+    # ─────────────────────────────────
+    
+    call_conditions = [
+        cross_up,           # %K пересекла %D снизу вверх
+        both_oversold,      # обе линии ниже 20
+        strong_cross        # угол пересечения достаточный
+    ]
+    
+    if all(call_conditions):
+        return 'CALL'
+    
+    # ─────────────────────────────────
+    # СИГНАЛ PUT
+    # ─────────────────────────────────
+    
+    put_conditions = [
+        cross_down,          # %K пересекла %D сверху вниз
+        both_overbought,     # обе линии выше 80
+        strong_cross         # угол пересечения достаточный
+    ]
+    
+    if all(put_conditions):
+        return 'PUT'
+    
+    return None
+Параметры для разных пар
+python
+
+STRATEGY_3_PARAMS = {
+    'EURUSD_otc': {
+        'k_period': 5,
+        'd_period': 3,
+        'smooth': 3,
+        'overbought': 80,
+        'oversold': 20,
+        'min_cross_angle': 2.0
+    },
+    'GBPUSD_otc': {
+        'k_period': 7,
+        'd_period': 3,
+        'smooth': 3,
+        'overbought': 85,
+        'oversold': 15,
+        'min_cross_angle': 3.0
+    },
+    'USDCHF_otc': {
+        'k_period': 4,
+        'd_period': 3,
+        'smooth': 3,
+        'overbought': 75,
+        'oversold': 25,
+        'min_cross_angle': 1.5
+    },
+    'Bitcoin_otc': {
+        'k_period': 7,
+        'd_period': 3,
+        'smooth': 3,
+        'overbought': 85,
+        'oversold': 15,
+        'min_cross_angle': 3.0
+    }
+}
+Универсальная версия
+python
+
+def strategy_3_universal(candles, params):
+    """
+    Универсальная версия стратегии №3
+    """
+    
+    min_candles = params['k_period'] + params['d_period'] + params['smooth'] + 5
+    if len(candles) < min_candles:
+        return None
+    
+    stoch = calculate_stochastic(
+        candles,
+        k_period=params['k_period'],
+        d_period=params['d_period'],
+        smooth=params['smooth']
+    )
+    
+    if stoch is None:
+        return None
+    
+    k = stoch['k']
+    d = stoch['d']
+    prev_k = stoch['prev_k']
+    prev_d = stoch['prev_d']
+    
+    cross_up = (prev_k <= prev_d) and (k > d)
+    cross_down = (prev_k >= prev_d) and (k < d)
+    cross_angle = abs(k - d)
+    strong_cross = cross_angle > params['min_cross_angle']
+    
+    # CALL
+    if (cross_up and 
+        k < params['oversold'] and 
+        d < params['oversold'] and 
+        strong_cross):
+        return 'CALL'
+    
+    # PUT
+    if (cross_down and 
+        k > params['overbought'] and 
+        d > params['overbought'] and 
+        strong_cross):
+        return 'PUT'
+    
+    return None
+СТРАТЕГИЯ №4: «EMA Micro-Cross»
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 15 секунд
+ЭКСПИРАЦИЯ: 60 секунд
+ИНДИКАТОРЫ: EMA(3), EMA(8), RSI(10)
+НЕОБХОДИМО СВЕЧЕЙ: минимум 20
+python
+
+def strategy_4_ema_cross(candles):
+    """
+    Стратегия: EMA Micro-Cross
+    Вход на пересечении быстрой и медленной EMA 
+    с подтверждением RSI
+    
+    Возвращает: 'CALL', 'PUT' или None
+    """
+    
+    if len(candles) < 20:
+        return None
+    
+    # ─────────────────────────────────
+    # РАСЧЁТ ИНДИКАТОРОВ
+    # ─────────────────────────────────
+    
+    ema_fast_series = calculate_ema_series(candles, period=3)
+    ema_slow_series = calculate_ema_series(candles, period=8)
+    rsi = calculate_rsi_smooth(candles, period=10)
+    
+    if ema_fast_series is None or ema_slow_series is None or rsi is None:
+        return None
+    
+    # ─────────────────────────────────
+    # ТЕКУЩИЕ И ПРЕДЫДУЩИЕ ЗНАЧЕНИЯ EMA
+    # ─────────────────────────────────
+    
+    ema_fast_current = ema_fast_series[-1]
+    ema_fast_prev = ema_fast_series[-2]
+    ema_slow_current = ema_slow_series[-1]
+    ema_slow_prev = ema_slow_series[-2]
+    
+    if any(v is None for v in [ema_fast_current, ema_fast_prev, 
+                                ema_slow_current, ema_slow_prev]):
+        return None
+    
+    # ─────────────────────────────────
+    # ОПРЕДЕЛЯЕМ ПЕРЕСЕЧЕНИЕ
+    # ─────────────────────────────────
+    
+    # Быстрая EMA пересекла медленную снизу вверх
+    cross_up = (ema_fast_prev <= ema_slow_prev) and (ema_fast_current > ema_slow_current)
+    
+    # Быстрая EMA пересекла медленную сверху вниз
+    cross_down = (ema_fast_prev >= ema_slow_prev) and (ema_fast_current < ema_slow_current)
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: СВЕЧА ПЕРЕСЕЧЕНИЯ ЗНАЧИМАЯ
+    # ─────────────────────────────────
+    
+    current = candles[-1]
+    body = abs(current['close'] - current['open'])
+    full_range = current['high'] - current['low']
+    
+    significant_candle = body > (full_range * 0.3) if full_range > 0 else False
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: НЕ БЫЛО ПЕРЕСЕЧЕНИЯ НЕДАВНО
+    # Проверяем, что за последние 4 свечи не было 
+    # обратного пересечения (защита от "пилы")
+    # ─────────────────────────────────
+    
+    no_recent_cross = True
+    if len(ema_fast_series) >= 6 and len(ema_slow_series) >= 6:
+        for i in range(-5, -2):
+            f_curr = ema_fast_series[i]
+            f_prev = ema_fast_series[i - 1]
+            s_curr = ema_slow_series[i]
+            s_prev = ema_slow_series[i - 1]
+            
+            if any(v is None for v in [f_curr, f_prev, s_curr, s_prev]):
+                continue
+            
+            had_cross = ((f_prev <= s_prev) and (f_curr > s_curr)) or \
+                        ((f_prev >= s_prev) and (f_curr < s_curr))
+            
+            if had_cross:
+                no_recent_cross = False
+                break
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: RSI НЕ В НЕЙТРАЛЬНОЙ ЗОНЕ
+    # ─────────────────────────────────
+    
+    rsi_confirms_up = rsi > 50
+    rsi_confirms_down = rsi < 50
+    rsi_not_neutral = abs(rsi - 50) > 3  # RSI не в зоне 47-53
+    
+    # ─────────────────────────────────
+    # СИГНАЛ CALL
+    # ─────────────────────────────────
+    
+    call_conditions = [
+        cross_up,              # EMA пересечение снизу вверх
+        rsi_confirms_up,       # RSI > 50
+        rsi_not_neutral,       # RSI не в мёртвой зоне
+        significant_candle,    # свеча значимая
+        no_recent_cross        # не было пересечений недавно
+    ]
+    
+    if all(call_conditions):
+        return 'CALL'
+    
+    # ─────────────────────────────────
+    # СИГНАЛ PUT
+    # ─────────────────────────────────
+    
+    put_conditions = [
+        cross_down,            # EMA пересечение сверху вниз
+        rsi_confirms_down,     # RSI < 50
+        rsi_not_neutral,       # RSI не в мёртвой зоне
+        significant_candle,    # свеча значимая
+        no_recent_cross        # не было пересечений недавно
+    ]
+    
+    if all(put_conditions):
+        return 'PUT'
+    
+    return None
+Параметры для разных пар
+python
+
+STRATEGY_4_PARAMS = {
+    'EURUSD_otc': {
+        'ema_fast': 3,
+        'ema_slow': 8,
+        'rsi_period': 10,
+        'rsi_neutral_zone': 3,     # ±3 от 50
+        'body_min_ratio': 0.3,
+        'lookback_no_cross': 4     # свечей назад для проверки
+    },
+    'GBPUSD_otc': {
+        'ema_fast': 3,
+        'ema_slow': 8,
+        'rsi_period': 10,
+        'rsi_neutral_zone': 5,
+        'body_min_ratio': 0.3,
+        'lookback_no_cross': 5
+    },
+    'Bitcoin_otc': {
+        'ema_fast': 5,
+        'ema_slow': 13,
+        'rsi_period': 10,
+        'rsi_neutral_zone': 5,
+        'body_min_ratio': 0.25,
+        'lookback_no_cross': 5
+    },
+    'USDCHF_otc': {
+        'ema_fast': 3,
+        'ema_slow': 8,
+        'rsi_period': 10,
+        'rsi_neutral_zone': 3,
+        'body_min_ratio': 0.3,
+        'lookback_no_cross': 4
+    }
+}
+Универсальная версия
+python
+
+def strategy_4_universal(candles, params):
+    """
+    Универсальная версия стратегии №4
+    """
+    
+    min_candles = params['ema_slow'] + params['lookback_no_cross'] + 5
+    if len(candles) < min_candles:
+        return None
+    
+    ema_fast = calculate_ema_series(candles, period=params['ema_fast'])
+    ema_slow = calculate_ema_series(candles, period=params['ema_slow'])
+    rsi = calculate_rsi_smooth(candles, period=params['rsi_period'])
+    
+    if ema_fast is None or ema_slow is None or rsi is None:
+        return None
+    
+    ef_c = ema_fast[-1]
+    ef_p = ema_fast[-2]
+    es_c = ema_slow[-1]
+    es_p = ema_slow[-2]
+    
+    if any(v is None for v in [ef_c, ef_p, es_c, es_p]):
+        return None
+    
+    cross_up = (ef_p <= es_p) and (ef_c > es_c)
+    cross_down = (ef_p >= es_p) and (ef_c < es_c)
+    
+    # Проверка недавних пересечений
+    lookback = params['lookback_no_cross']
+    no_recent = True
+    for i in range(-lookback - 1, -2):
+        if (len(ema_fast) + i - 1 >= 0 and 
+            ema_fast[i] is not None and ema_fast[i-1] is not None and
+            ema_slow[i] is not None and ema_slow[i-1] is not None):
+            
+            was_cross = ((ema_fast[i-1] <= ema_slow[i-1]) and (ema_fast[i] > ema_slow[i])) or \
+                        ((ema_fast[i-1] >= ema_slow[i-1]) and (ema_fast[i] < ema_slow[i]))
+            if was_cross:
+                no_recent = False
+                break
+    
+    current = candles[-1]
+    body = abs(current['close'] - current['open'])
+    full_range = current['high'] - current['low']
+    sig = body > (full_range * params['body_min_ratio']) if full_range > 0 else False
+    
+    nz = params['rsi_neutral_zone']
+    rsi_not_neutral = abs(rsi - 50) > nz
+    
+    if cross_up and rsi > 50 and rsi_not_neutral and sig and no_recent:
+        return 'CALL'
+    
+    if cross_down and rsi < 50 and rsi_not_neutral and sig and no_recent:
+        return 'PUT'
+    
+    return None
+⏱️⏱️ СТРАТЕГИИ НА 2 МИНУТЫ
+СТРАТЕГИЯ №5: «OTC Trend Confirmation» (RSI + MACD)
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 30 секунд
+ЭКСПИРАЦИЯ: 120 секунд
+ИНДИКАТОРЫ: MACD(12, 26, 9), RSI(14)
+НЕОБХОДИМО СВЕЧЕЙ: минимум 50
+python
+
+def strategy_5_macd_rsi(candles):
+    """
+    Стратегия: OTC Trend Confirmation
+    Вход при пересечении гистограммы MACD через ноль
+    с подтверждением RSI
+    
+    Возвращает: 'CALL', 'PUT' или None
+    """
+    
+    if len(candles) < 50:
+        return None
+    
+    # ─────────────────────────────────
+    # РАСЧЁТ ИНДИКАТОРОВ
+    # ─────────────────────────────────
+    
+    macd = calculate_macd(candles, fast=12, slow=26, signal=9)
+    rsi = calculate_rsi_smooth(candles, period=14)
+    
+    if macd is None or rsi is None:
+        return None
+    
+    # ─────────────────────────────────
+    # ЗНАЧЕНИЯ MACD
+    # ─────────────────────────────────
+    
+    histogram = macd['histogram']
+    prev_histogram = macd['prev_histogram']
+    macd_line = macd['macd_line']
+    signal_line = macd['signal_line']
+    
+    # ─────────────────────────────────
+    # УСЛОВИЯ ПЕРЕСЕЧЕНИЯ ГИСТОГРАММЫ ЧЕРЕЗ НОЛЬ
+    # ─────────────────────────────────
+    
+    # Гистограмма перешла из минуса в плюс
+    histogram_cross_up = (prev_histogram < 0) and (histogram > 0)
+    
+    # Гистограмма перешла из плюса в минус
+    histogram_cross_down = (prev_histogram > 0) and (histogram < 0)
+    
+    # ─────────────────────────────────
+    # ПОДТВЕРЖДЕНИЕ: MACD ЛИНИЯ vs СИГНАЛЬНАЯ
+    # ─────────────────────────────────
+    
+    macd_above_signal = macd_line > signal_line
+    macd_below_signal = macd_line < signal_line
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: СИЛА ГИСТОГРАММЫ
+    # Гистограмма не должна быть слишком слабой
+    # ─────────────────────────────────
+    
+    histogram_strength = abs(histogram)
+    
+    # Минимальная сила — зависит от пары
+    # Для EURUSD_otc примерно > 0.00002
+    # Универсальный подход: сравниваем с предыдущей гистограммой
+    min_strength = abs(prev_histogram) * 0.3 if abs(prev_histogram) > 0 else 0
+    histogram_strong = histogram_strength > min_strength
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: ГИСТОГРАММА НЕ "МЕРЦАЕТ"
+    # Проверяем, что за последние 3 значения гистограммы
+    # не было обратного пересечения
+    # ─────────────────────────────────
+    
+    # Для этого нужно считать MACD за несколько периодов
+    # Упрощённый подход: если prev_histogram очень близок к нулю,
+    # сигнал менее надёжный
+    not_flickering = abs(prev_histogram) > histogram_strength * 0.1
+    
+    # ─────────────────────────────────
+    # RSI ФИЛЬТРЫ
+    # ─────────────────────────────────
+    
+    rsi_bullish = rsi > 50          # для CALL
+    rsi_strong_bullish = rsi > 55   # сильный CALL
+    rsi_bearish = rsi < 50          # для PUT
+    rsi_strong_bearish = rsi < 45   # сильный PUT
+    
+    # RSI не в мёртвой зоне
+    rsi_decisive = abs(rsi - 50) > 5  # не между 45 и 55
+    
+    # ─────────────────────────────────
+    # СИГНАЛ CALL
+    # ─────────────────────────────────
+    
+    call_conditions = [
+        histogram_cross_up,      # гистограмма пересекла ноль вверх
+        macd_above_signal,       # MACD линия выше сигнальной
+        rsi_bullish,             # RSI > 50
+        histogram_strong,        # гистограмма достаточно сильная
+        not_flickering           # не мерцание
+    ]
+    
+    if all(call_conditions):
+        # Определяем силу сигнала
+        strength = 'STRONG' if rsi_strong_bullish else 'NORMAL'
+        return 'CALL'
+    
+    # ─────────────────────────────────
+    # СИГНАЛ PUT
+    # ─────────────────────────────────
+    
+    put_conditions = [
+        histogram_cross_down,    # гистограмма пересекла ноль вниз
+        macd_below_signal,       # MACD линия ниже сигнальной
+        rsi_bearish,             # RSI < 50
+        histogram_strong,        # гистограмма достаточно сильная
+        not_flickering           # не мерцание
+    ]
+    
+    if all(put_conditions):
+        strength = 'STRONG' if rsi_strong_bearish else 'NORMAL'
+        return 'PUT'
+    
+    return None
+Версия с силой сигнала
+python
+
+def strategy_5_with_strength(candles):
+    """
+    Версия, возвращающая силу сигнала
+    Полезно для бота: на сильных сигналах можно увеличить ставку
+    
+    Возвращает: dict {'direction': 'CALL'/'PUT', 'strength': 1-3} или None
+    """
+    
+    if len(candles) < 50:
+        return None
+    
+    macd = calculate_macd(candles, fast=12, slow=26, signal=9)
+    rsi = calculate_rsi_smooth(candles, period=14)
+    
+    if macd is None or rsi is None:
+        return None
+    
+    histogram = macd['histogram']
+    prev_histogram = macd['prev_histogram']
+    macd_line = macd['macd_line']
+    signal_line = macd['signal_line']
+    
+    # CALL
+    if prev_histogram < 0 and histogram > 0 and macd_line > signal_line:
+        if rsi <= 45:
+            return None  # RSI не подтверждает
+        
+        strength = 1  # базовый
+        if rsi > 55:
+            strength = 2  # средний
+        if rsi > 60 and abs(histogram) > abs(prev_histogram):
+            strength = 3  # сильный
+        
+        return {'direction': 'CALL', 'strength': strength}
+    
+    # PUT
+    if prev_histogram > 0 and histogram < 0 and macd_line < signal_line:
+        if rsi >= 55:
+            return None
+        
+        strength = 1
+        if rsi < 45:
+            strength = 2
+        if rsi < 40 and abs(histogram) > abs(prev_histogram):
+            strength = 3
+        
+        return {'direction': 'PUT', 'strength': strength}
+    
+    return None
+СТРАТЕГИЯ №6: «Двойное дно / Двойная вершина OTC»
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 15 секунд или 30 секунд
+ЭКСПИРАЦИЯ: 120 секунд
+ИНДИКАТОРЫ: Bollinger Bands(20, 2.0)
+НЕОБХОДИМО СВЕЧЕЙ: минимум 30
+python
+
+def strategy_6_double_pattern(candles):
+    """
+    Стратегия: Двойное дно / Двойная вершина
+    Ищем два касания полосы Боллинджера с последующим разворотом
+    
+    Возвращает: 'CALL', 'PUT' или None
+    """
+    
+    if len(candles) < 30:
+        return None
+    
+    # ─────────────────────────────────
+    # РАСЧЁТ ИНДИКАТОРОВ
+    # ─────────────────────────────────
+    
+    bb = calculate_bollinger_bands(candles, period=20, deviation=2.0)
+    
+    if bb is None:
+        return None
+    
+    # ─────────────────────────────────
+    # ПОИСК ДВОЙНОГО ДНА (CALL)
+    # ─────────────────────────────────
+    # Ищем в последних 10 свечах два касания нижней полосы BB
+    # с расстоянием 3-8 свечей между ними
+    
+    search_window = 10  # смотрим последние 10 свечей
+    min_distance = 3    # минимум свечей между касаниями
+    max_distance = 8    # максимум свечей между касаниями
+    
+    # Находим все касания нижней полосы BB
+    lower_touches = []
+    for i in range(-search_window, 0):
+        idx = len(candles) + i
+        if idx < 0:
+            continue
+        
+        candle = candles[idx]
+        
+        # Пересчитываем BB для каждой позиции
+        # (или используем одно значение — упрощение)
+        # Упрощение: используем текущее значение BB
+        
+        if candle['low'] <= bb['lower'] * 1.002:
+            lower_touches.append({
+                'index': idx,
+                'relative': i,
+                'low': candle['low']
+            })
+    
+    # Находим все касания верхней полосы BB
+    upper_touches = []
+    for i in range(-search_window, 0):
+        idx = len(candles) + i
+        if idx < 0:
+            continue
+        
+        candle = candles[idx]
+        
+        if candle['high'] >= bb['upper'] * 0.998:
+            upper_touches.append({
+                'index': idx,
+                'relative': i,
+                'high': candle['high']
+            })
+    
+    # ─────────────────────────────────
+    # ПРОВЕРКА ДВОЙНОГО ДНА → CALL
+    # ─────────────────────────────────
+    
+    double_bottom_found = False
+    
+    if len(lower_touches) >= 2:
+        for i in range(len(lower_touches)):
+            for j in range(i + 1, len(lower_touches)):
+                touch1 = lower_touches[i]
+                touch2 = lower_touches[j]
+                
+                distance = touch2['relative'] - touch1['relative']
+                
+                if min_distance <= distance <= max_distance:
+                    # Второе дно не ниже первого
+                    second_not_lower = touch2['low'] >= touch1['low'] * 0.9999
+                    
+                    # Между касаниями цена отскакивала вверх
+                    # (была хотя бы одна свеча с close выше middle BB)
+                    had_bounce = False
+                    for k in range(touch1['index'] + 1, touch2['index']):
+                        if k < len(candles) and candles[k]['close'] > bb['lower'] + (bb['middle'] - bb['lower']) * 0.3:
+                            had_bounce = True
+                            break
+                    
+                    if second_not_lower and had_bounce:
+                        double_bottom_found = True
+                        break
+            if double_bottom_found:
+                break
+    
+    # ─────────────────────────────────
+    # ПРОВЕРКА ДВОЙНОЙ ВЕРШИНЫ → PUT
+    # ─────────────────────────────────
+    
+    double_top_found = False
+    
+    if len(upper_touches) >= 2:
+        for i in range(len(upper_touches)):
+            for j in range(i + 1, len(upper_touches)):
+                touch1 = upper_touches[i]
+                touch2 = upper_touches[j]
+                
+                distance = touch2['relative'] - touch1['relative']
+                
+                if min_distance <= distance <= max_distance:
+                    second_not_higher = touch2['high'] <= touch1['high'] * 1.0001
+                    
+                    had_bounce = False
+                    for k in range(touch1['index'] + 1, touch2['index']):
+                        if k < len(candles) and candles[k]['close'] < bb['upper'] - (bb['upper'] - bb['middle']) * 0.3:
+                            had_bounce = True
+                            break
+                    
+                    if second_not_higher and had_bounce:
+                        double_top_found = True
+                        break
+            if double_top_found:
+                break
+    
+    # ─────────────────────────────────
+    # ПОДТВЕРЖДЕНИЕ: ТЕКУЩАЯ СВЕЧА РАЗВОРОТНАЯ
+    # ─────────────────────────────────
+    
+    current = candles[-1]
+    is_bullish = current['close'] > current

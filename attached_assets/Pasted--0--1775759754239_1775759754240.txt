@@ -1,0 +1,733 @@
+🔧 ЧАСТЬ 0: Расчёт индикаторов
+Прежде чем описывать стратегии — формулы расчёта всех индикаторов, которые тебе понадобятся.
+
+RSI (Relative Strength Index)
+python
+
+def calculate_rsi(candles, period):
+    """
+    candles: список словарей с ключом 'close'
+    period: период RSI
+    Возвращает: float (0-100)
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < period + 1:
+        return None
+    
+    # Считаем изменения цены
+    deltas = []
+    for i in range(1, len(closes)):
+        deltas.append(closes[i] - closes[i - 1])
+    
+    # Берём последние period изменений
+    recent_deltas = deltas[-(period):]
+    
+    # Разделяем на gains и losses
+    gains = [d if d > 0 else 0 for d in recent_deltas]
+    losses = [abs(d) if d < 0 else 0 for d in recent_deltas]
+    
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi
+Более точная версия с экспоненциальным сглаживанием (рекомендую для бота):
+
+python
+
+def calculate_rsi_smooth(candles, period):
+    """
+    Версия RSI с экспоненциальным сглаживанием Wilder'а
+    Более точная, совпадает с тем, что показывает PO
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < period + 1:
+        return None
+    
+    deltas = []
+    for i in range(1, len(closes)):
+        deltas.append(closes[i] - closes[i - 1])
+    
+    # Первое среднее — простое
+    first_gains = [d if d > 0 else 0 for d in deltas[:period]]
+    first_losses = [abs(d) if d < 0 else 0 for d in deltas[:period]]
+    
+    avg_gain = sum(first_gains) / period
+    avg_loss = sum(first_losses) / period
+    
+    # Далее — экспоненциальное сглаживание
+    for i in range(period, len(deltas)):
+        current_gain = deltas[i] if deltas[i] > 0 else 0
+        current_loss = abs(deltas[i]) if deltas[i] < 0 else 0
+        
+        avg_gain = (avg_gain * (period - 1) + current_gain) / period
+        avg_loss = (avg_loss * (period - 1) + current_loss) / period
+    
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi
+Bollinger Bands
+python
+
+import math
+
+def calculate_bollinger_bands(candles, period=20, deviation=2.0):
+    """
+    Возвращает: dict с ключами 'upper', 'middle', 'lower', 'width'
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < period:
+        return None
+    
+    # Берём последние period значений
+    data = closes[-period:]
+    
+    # Средняя линия (SMA)
+    middle = sum(data) / period
+    
+    # Стандартное отклонение
+    variance = sum((x - middle) ** 2 for x in data) / period
+    std_dev = math.sqrt(variance)
+    
+    # Верхняя и нижняя полосы
+    upper = middle + (deviation * std_dev)
+    lower = middle - (deviation * std_dev)
+    
+    # Ширина полос (нормализованная)
+    width = (upper - lower) / middle if middle != 0 else 0
+    
+    return {
+        'upper': upper,
+        'middle': middle,
+        'lower': lower,
+        'width': width,
+        'std_dev': std_dev
+    }
+EMA (Exponential Moving Average)
+python
+
+def calculate_ema(candles, period):
+    """
+    Возвращает: float — текущее значение EMA
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < period:
+        return None
+    
+    multiplier = 2 / (period + 1)
+    
+    # Первое значение EMA = SMA
+    ema = sum(closes[:period]) / period
+    
+    # Далее считаем EMA
+    for i in range(period, len(closes)):
+        ema = (closes[i] - ema) * multiplier + ema
+    
+    return ema
+
+
+def calculate_ema_series(candles, period):
+    """
+    Возвращает: список значений EMA для каждой свечи
+    (нужно для определения пересечений)
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < period:
+        return None
+    
+    multiplier = 2 / (period + 1)
+    
+    ema_values = []
+    ema = sum(closes[:period]) / period
+    
+    # Заполняем None для первых period-1 значений
+    for i in range(period - 1):
+        ema_values.append(None)
+    
+    ema_values.append(ema)
+    
+    for i in range(period, len(closes)):
+        ema = (closes[i] - ema) * multiplier + ema
+        ema_values.append(ema)
+    
+    return ema_values
+MACD
+python
+
+def calculate_macd(candles, fast=12, slow=26, signal=9):
+    """
+    Возвращает: dict с ключами:
+    'macd_line' — значение линии MACD
+    'signal_line' — значение сигнальной линии
+    'histogram' — значение гистограммы
+    'prev_histogram' — предыдущее значение гистограммы
+    """
+    closes = [c['close'] for c in candles]
+    
+    if len(closes) < slow + signal:
+        return None
+    
+    # Считаем быструю и медленную EMA
+    def ema_series(data, period):
+        multiplier = 2 / (period + 1)
+        ema = sum(data[:period]) / period
+        result = [None] * (period - 1) + [ema]
+        for i in range(period, len(data)):
+            ema = (data[i] - ema) * multiplier + ema
+            result.append(ema)
+        return result
+    
+    fast_ema = ema_series(closes, fast)
+    slow_ema = ema_series(closes, slow)
+    
+    # Линия MACD = Fast EMA - Slow EMA
+    macd_line_series = []
+    for i in range(len(closes)):
+        if fast_ema[i] is not None and slow_ema[i] is not None:
+            macd_line_series.append(fast_ema[i] - slow_ema[i])
+        else:
+            macd_line_series.append(None)
+    
+    # Убираем None
+    macd_clean = [x for x in macd_line_series if x is not None]
+    
+    if len(macd_clean) < signal:
+        return None
+    
+    # Сигнальная линия = EMA от линии MACD
+    signal_ema = ema_series(macd_clean, signal)
+    
+    # Текущие значения
+    macd_current = macd_clean[-1]
+    signal_current = signal_ema[-1]
+    histogram_current = macd_current - signal_current
+    
+    # Предыдущие значения
+    macd_prev = macd_clean[-2]
+    signal_prev = signal_ema[-2]
+    histogram_prev = macd_prev - signal_prev
+    
+    return {
+        'macd_line': macd_current,
+        'signal_line': signal_current,
+        'histogram': histogram_current,
+        'prev_histogram': histogram_prev,
+        'macd_prev': macd_prev,
+        'signal_prev': signal_prev
+    }
+Stochastic Oscillator
+python
+
+def calculate_stochastic(candles, k_period=5, d_period=3, smooth=3):
+    """
+    Возвращает: dict с ключами:
+    'k' — текущее значение %K
+    'd' — текущее значение %D
+    'prev_k' — предыдущее %K
+    'prev_d' — предыдущее %D
+    """
+    if len(candles) < k_period + d_period + smooth:
+        return None
+    
+    # Считаем сырые %K значения
+    raw_k_values = []
+    for i in range(k_period - 1, len(candles)):
+        window = candles[i - k_period + 1: i + 1]
+        highest = max(c['high'] for c in window)
+        lowest = min(c['low'] for c in window)
+        
+        if highest == lowest:
+            raw_k_values.append(50.0)
+        else:
+            current_close = candles[i]['close']
+            raw_k = ((current_close - lowest) / (highest - lowest)) * 100
+            raw_k_values.append(raw_k)
+    
+    # Сглаживание %K (SMA)
+    smoothed_k = []
+    for i in range(smooth - 1, len(raw_k_values)):
+        window = raw_k_values[i - smooth + 1: i + 1]
+        smoothed_k.append(sum(window) / smooth)
+    
+    # %D = SMA от сглаженного %K
+    d_values = []
+    for i in range(d_period - 1, len(smoothed_k)):
+        window = smoothed_k[i - d_period + 1: i + 1]
+        d_values.append(sum(window) / d_period)
+    
+    if len(smoothed_k) < 2 or len(d_values) < 2:
+        return None
+    
+    return {
+        'k': smoothed_k[-1],
+        'd': d_values[-1],
+        'prev_k': smoothed_k[-2],
+        'prev_d': d_values[-2]
+    }
+CCI (Commodity Channel Index)
+python
+
+def calculate_cci(candles, period=20):
+    """
+    Возвращает: float — текущее значение CCI
+    """
+    if len(candles) < period:
+        return None
+    
+    # Типичная цена = (High + Low + Close) / 3
+    typical_prices = []
+    for c in candles:
+        tp = (c['high'] + c['low'] + c['close']) / 3
+        typical_prices.append(tp)
+    
+    # Берём последние period значений
+    tp_window = typical_prices[-period:]
+    
+    # SMA типичной цены
+    tp_sma = sum(tp_window) / period
+    
+    # Среднее абсолютное отклонение
+    mean_deviation = sum(abs(tp - tp_sma) for tp in tp_window) / period
+    
+    if mean_deviation == 0:
+        return 0.0
+    
+    # CCI
+    current_tp = typical_prices[-1]
+    cci = (current_tp - tp_sma) / (0.015 * mean_deviation)
+    
+    return cci
+🎯 ЧАСТЬ 1: СТРАТЕГИИ НА 1 МИНУТУ
+СТРАТЕГИЯ №1: «RSI + Bollinger Scalp»
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 5 секунд
+ЭКСПИРАЦИЯ: 60 секунд
+ИНДИКАТОРЫ: RSI(6), Bollinger Bands(20, 2.0)
+НЕОБХОДИМО СВЕЧЕЙ ДЛЯ РАСЧЁТА: минимум 26
+python
+
+def strategy_1_rsi_bollinger(candles):
+    """
+    Стратегия: RSI + Bollinger Scalp
+    candles: список свечей (минимум 26 штук)
+    Каждая свеча: {'time', 'open', 'close', 'high', 'low'}
+    
+    Возвращает:
+        'CALL' — сигнал вверх
+        'PUT'  — сигнал вниз
+        None   — нет сигнала
+    """
+    
+    if len(candles) < 26:
+        return None
+    
+    # ─────────────────────────────────
+    # РАСЧЁТ ИНДИКАТОРОВ
+    # ─────────────────────────────────
+    
+    rsi = calculate_rsi_smooth(candles, period=6)
+    bb = calculate_bollinger_bands(candles, period=20, deviation=2.0)
+    
+    if rsi is None or bb is None:
+        return None
+    
+    # ─────────────────────────────────
+    # ДАННЫЕ СВЕЧЕЙ
+    # ─────────────────────────────────
+    
+    # Текущая свеча (последняя закрытая)
+    current = candles[-1]
+    current_close = current['close']
+    current_open = current['open']
+    current_high = current['high']
+    current_low = current['low']
+    
+    # Предыдущая свеча
+    prev = candles[-2]
+    prev_close = prev['close']
+    prev_low = prev['low']
+    prev_high = prev['high']
+    
+    # ─────────────────────────────────
+    # ВСПОМОГАТЕЛЬНЫЕ РАСЧЁТЫ
+    # ─────────────────────────────────
+    
+    # Тело текущей свечи
+    body = abs(current_close - current_open)
+    
+    # Полный диапазон текущей свечи
+    full_range = current_high - current_low
+    
+    # Свеча бычья?
+    is_bullish = current_close > current_open
+    
+    # Свеча медвежья?
+    is_bearish = current_close < current_open
+    
+    # Тело значимое (не дожи) — тело > 30% от полного диапазона
+    is_significant = body > (full_range * 0.3) if full_range > 0 else False
+    
+    # Предыдущая свеча касалась нижней полосы BB
+    # (low предыдущей свечи <= нижняя полоса * 1.001)
+    prev_touched_lower = prev_low <= bb['lower'] * 1.001
+    
+    # Предыдущая свеча касалась верхней полосы BB
+    prev_touched_upper = prev_high >= bb['upper'] * 0.999
+    
+    # BB не слишком широкие (фильтр волатильности)
+    # width < 0.04 для валютных пар
+    # Для крипто увеличь до 0.08
+    bb_normal_width = bb['width'] < 0.04
+    
+    # ─────────────────────────────────
+    # СИГНАЛ CALL
+    # ─────────────────────────────────
+    
+    call_conditions = [
+        prev_touched_lower,      # предыдущая свеча касалась нижней BB
+        rsi < 30,                # RSI в зоне перепроданности
+        is_bullish,              # текущая свеча бычья (подтверждение)
+        is_significant,          # тело свечи значимое
+        bb_normal_width          # волатильность в норме
+    ]
+    
+    if all(call_conditions):
+        return 'CALL'
+    
+    # ─────────────────────────────────
+    # СИГНАЛ PUT
+    # ─────────────────────────────────
+    
+    put_conditions = [
+        prev_touched_upper,      # предыдущая свеча касалась верхней BB
+        rsi > 70,                # RSI в зоне перекупленности
+        is_bearish,              # текущая свеча медвежья (подтверждение)
+        is_significant,          # тело свечи значимое
+        bb_normal_width          # волатильность в норме
+    ]
+    
+    if all(put_conditions):
+        return 'PUT'
+    
+    return None
+Параметры для адаптации под пары
+python
+
+# Настройки для разных пар
+STRATEGY_1_PARAMS = {
+    'EURUSD_otc': {
+        'rsi_period': 6,
+        'rsi_overbought': 70,
+        'rsi_oversold': 30,
+        'bb_period': 20,
+        'bb_deviation': 2.0,
+        'bb_max_width': 0.04,
+        'body_min_ratio': 0.3,
+        'touch_tolerance': 1.001  # множитель допуска касания
+    },
+    'GBPUSD_otc': {
+        'rsi_period': 8,
+        'rsi_overbought': 75,
+        'rsi_oversold': 25,
+        'bb_period': 20,
+        'bb_deviation': 2.2,
+        'bb_max_width': 0.05,
+        'body_min_ratio': 0.3,
+        'touch_tolerance': 1.002
+    },
+    'USDCHF_otc': {
+        'rsi_period': 5,
+        'rsi_overbought': 65,
+        'rsi_oversold': 35,
+        'bb_period': 20,
+        'bb_deviation': 1.8,
+        'bb_max_width': 0.03,
+        'body_min_ratio': 0.3,
+        'touch_tolerance': 1.001
+    },
+    'AUDCAD_otc': {
+        'rsi_period': 6,
+        'rsi_overbought': 70,
+        'rsi_oversold': 30,
+        'bb_period': 20,
+        'bb_deviation': 2.0,
+        'bb_max_width': 0.04,
+        'body_min_ratio': 0.3,
+        'touch_tolerance': 1.001
+    },
+    'Bitcoin_otc': {
+        'rsi_period': 8,
+        'rsi_overbought': 75,
+        'rsi_oversold': 25,
+        'bb_period': 20,
+        'bb_deviation': 2.5,
+        'bb_max_width': 0.08,
+        'body_min_ratio': 0.25,
+        'touch_tolerance': 1.003
+    }
+}
+Универсальная версия с параметрами
+python
+
+def strategy_1_universal(candles, params):
+    """
+    Универсальная версия стратегии №1 с параметрами
+    """
+    
+    min_candles = max(params['bb_period'], params['rsi_period']) + 6
+    if len(candles) < min_candles:
+        return None
+    
+    rsi = calculate_rsi_smooth(candles, period=params['rsi_period'])
+    bb = calculate_bollinger_bands(
+        candles, 
+        period=params['bb_period'], 
+        deviation=params['bb_deviation']
+    )
+    
+    if rsi is None or bb is None:
+        return None
+    
+    current = candles[-1]
+    prev = candles[-2]
+    
+    body = abs(current['close'] - current['open'])
+    full_range = current['high'] - current['low']
+    is_bullish = current['close'] > current['open']
+    is_bearish = current['close'] < current['open']
+    is_significant = body > (full_range * params['body_min_ratio']) if full_range > 0 else False
+    
+    tol = params['touch_tolerance']
+    prev_touched_lower = prev['low'] <= bb['lower'] * tol
+    prev_touched_upper = prev['high'] >= bb['upper'] / tol
+    bb_ok = bb['width'] < params['bb_max_width']
+    
+    # CALL
+    if (prev_touched_lower and 
+        rsi < params['rsi_oversold'] and 
+        is_bullish and 
+        is_significant and 
+        bb_ok):
+        return 'CALL'
+    
+    # PUT
+    if (prev_touched_upper and 
+        rsi > params['rsi_overbought'] and 
+        is_bearish and 
+        is_significant and 
+        bb_ok):
+        return 'PUT'
+    
+    return None
+СТРАТЕГИЯ №2: «Три свечи одного цвета»
+
+ТАЙМФРЕЙМ СВЕЧЕЙ: 5 секунд
+ЭКСПИРАЦИЯ: 60 секунд
+ИНДИКАТОРЫ: нет (чистый Price Action)
+НЕОБХОДИМО СВЕЧЕЙ: минимум 5
+python
+
+def strategy_2_three_candles(candles):
+    """
+    Стратегия: Три свечи одного цвета (Pattern Reversal)
+    
+    Возвращает:
+        'CALL' — после 3 красных свечей подряд (ожидаем разворот вверх)
+        'PUT'  — после 3 зелёных свечей подряд (ожидаем разворот вниз)
+        None   — нет сигнала
+    """
+    
+    if len(candles) < 5:
+        return None
+    
+    # ─────────────────────────────────
+    # БЕРЁМ ПОСЛЕДНИЕ 3 ЗАКРЫТЫЕ СВЕЧИ
+    # (candles[-1] — текущая, если она ещё не закрыта,
+    #  используй candles[-4], [-3], [-2] как три свечи
+    #  и входи на candles[-1])
+    # ─────────────────────────────────
+    
+    c1 = candles[-4]  # первая из трёх
+    c2 = candles[-3]  # вторая
+    c3 = candles[-2]  # третья (последняя закрытая)
+    c0 = candles[-5]  # свеча ДО серии (для фильтра)
+    
+    # ─────────────────────────────────
+    # ОПРЕДЕЛЯЕМ ЦВЕТ СВЕЧЕЙ
+    # ─────────────────────────────────
+    
+    c1_bearish = c1['close'] < c1['open']
+    c2_bearish = c2['close'] < c2['open']
+    c3_bearish = c3['close'] < c3['open']
+    
+    c1_bullish = c1['close'] > c1['open']
+    c2_bullish = c2['close'] > c2['open']
+    c3_bullish = c3['close'] > c3['open']
+    
+    # ─────────────────────────────────
+    # ПРОВЕРКА ПОСЛЕДОВАТЕЛЬНОГО СНИЖЕНИЯ/РОСТА
+    # ─────────────────────────────────
+    
+    # Для CALL: три медвежьих, каждая закрывается ниже предыдущей
+    descending = (c2['close'] < c1['close'] and 
+                  c3['close'] < c2['close'])
+    
+    # Для PUT: три бычьих, каждая закрывается выше предыдущей
+    ascending = (c2['close'] > c1['close'] and 
+                 c3['close'] > c2['close'])
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: РАЗМЕР СВЕЧЕЙ ПРИМЕРНО ОДИНАКОВЫЙ
+    # ─────────────────────────────────
+    
+    body1 = abs(c1['close'] - c1['open'])
+    body2 = abs(c2['close'] - c2['open'])
+    body3 = abs(c3['close'] - c3['open'])
+    
+    # Ни одна свеча не должна быть больше другой в 3 раза
+    bodies = [body1, body2, body3]
+    max_body = max(bodies)
+    min_body = min(bodies)
+    
+    # Защита от деления на ноль
+    if min_body == 0:
+        return None
+    
+    bodies_similar = (max_body / min_body) < 3.0
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: СВЕЧИ НЕ ДОЖИ
+    # ─────────────────────────────────
+    
+    # Минимальный размер тела (защита от микродвижений)
+    min_body_size = min_body > 0  # просто больше нуля
+    
+    # Для более строгой фильтрации можно задать 
+    # минимальный абсолютный размер:
+    # min_body_size = min_body > 0.00001  # для форекс пар
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: НЕТ АНОМАЛЬНОГО ИМПУЛЬСА ПЕРЕД СЕРИЕЙ
+    # ─────────────────────────────────
+    
+    body_before = abs(c0['close'] - c0['open'])
+    avg_series_body = (body1 + body2 + body3) / 3
+    
+    no_impulse_before = True
+    if avg_series_body > 0:
+        no_impulse_before = body_before < (avg_series_body * 3)
+    
+    # ─────────────────────────────────
+    # ФИЛЬТР: НЕ БОЛЕЕ 3 СВЕЧЕЙ ПОДРЯД
+    # (если уже 4+ — это тренд, не входим против)
+    # ─────────────────────────────────
+    
+    # Проверяем, что свеча ДО серии (c0) другого цвета
+    c0_bearish = c0['close'] < c0['open']
+    c0_bullish = c0['close'] > c0['open']
+    
+    # ─────────────────────────────────
+    # СИГНАЛ CALL
+    # ─────────────────────────────────
+    
+    call_conditions = [
+        c1_bearish,           # все три свечи медвежьи
+        c2_bearish,
+        c3_bearish,
+        descending,           # последовательное снижение
+        bodies_similar,       # размеры похожие
+        min_body_size,        # не дожи
+        no_impulse_before,    # нет импульса до серии
+        not c0_bearish        # свеча до серии НЕ медвежья
+                              # (серия именно 3, а не 4+)
+    ]
+    
+    if all(call_conditions):
+        return 'CALL'
+    
+    # ─────────────────────────────────
+    # СИГНАЛ PUT
+    # ─────────────────────────────────
+    
+    put_conditions = [
+        c1_bullish,           # все три свечи бычьи
+        c2_bullish,
+        c3_bullish,
+        ascending,            # последовательный рост
+        bodies_similar,       # размеры похожие
+        min_body_size,        # не дожи
+        no_impulse_before,    # нет импульса до серии
+        not c0_bullish        # свеча до серии НЕ бычья
+    ]
+    
+    if all(put_conditions):
+        return 'PUT'
+    
+    return None
+Продвинутая версия с подтверждением (выше винрейт)
+python
+
+def strategy_2_confirmed(candles):
+    """
+    Версия с подтверждением: ждём 4-ю свечу другого цвета
+    Меньше сигналов, но винрейт выше на 3-5%
+    """
+    
+    if len(candles) < 6:
+        return None
+    
+    c0 = candles[-6]  # до серии
+    c1 = candles[-5]  # первая из трёх
+    c2 = candles[-4]  # вторая
+    c3 = candles[-3]  # третья
+    c4 = candles[-2]  # четвёртая (подтверждение)
+    # Вход на candles[-1]
+    
+    # Тела
+    body1 = abs(c1['close'] - c1['open'])
+    body2 = abs(c2['close'] - c2['open'])
+    body3 = abs(c3['close'] - c3['open'])
+    bodies = [body1, body2, body3]
+    
+    if min(bodies) == 0:
+        return None
+    
+    bodies_similar = (max(bodies) / min(bodies)) < 3.0
+    
+    body_before = abs(c0['close'] - c0['open'])
+    avg_body = sum(bodies) / 3
+    no_impulse = body_before < (avg_body * 3) if avg_body > 0 else True
+    
+    # CALL: 3 медвежьих + 4-я бычья
+    if (c1['close'] < c1['open'] and
+        c2['close'] < c2['open'] and
+        c3['close'] < c3['open'] and
+        c2['close'] < c1['close'] and
+        c3['close'] < c2['close'] and
+        c4['close'] > c4['open'] and    # 4-я свеча БЫЧЬЯ
+        c0['close'] >= c0['open'] and   # до серии не медвежья
+        bodies_similar and
+        no_impulse):
+        return 'CALL'
+    
+    # PUT: 3 бычьих + 4-я медвежья
+    if (c1['close'] > c1['open'] and
+        c2['close'] > c2['open'] and
+        c3['close'] > c3['open'] and
+        c2['close'] > c1['close'] and
+        c3['close'] > c2['close'] and
+        c4['close'] < c4['
