@@ -28,6 +28,7 @@ async def calculate_signal(
     candles: list[dict],
     raised_threshold: bool = False,
     expiry: str = "1m",
+    symbol: str = "",
 ) -> SignalResult:
     """
     Receives a list of OHLC dicts:
@@ -141,6 +142,7 @@ async def calculate_signal(
         n_bars_15s=len(df),
         n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,
         n_bars_5m=len(df5m)     if df5m     is not None else 0,
+        symbol=symbol,
         # v1 does not accept expiry — it picks expiry internally via _pick_expiry()
     )
 

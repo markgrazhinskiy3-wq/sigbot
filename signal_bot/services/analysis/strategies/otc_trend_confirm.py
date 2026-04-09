@@ -12,6 +12,10 @@ Expiry: 2 minutes
 Best in: TRENDING_UP, TRENDING_DOWN, directional RANGE
 """
 from __future__ import annotations
+try:
+    from ..pair_profile import PairParams
+except ImportError:
+    PairParams = None  # type: ignore[misc,assignment]
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -41,6 +45,7 @@ def otc_trend_confirm_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     n     = len(df)
@@ -86,13 +91,16 @@ def otc_trend_confirm_strategy(
     else:
         hist_growing_up = hist_growing_dn = False
 
+    macd_rsi_bull = pair_params.macd_rsi_bull if pair_params else 50.0
+    macd_rsi_bear = pair_params.macd_rsi_bear if pair_params else 50.0
+
     buy_met, buy_parts, buy_conds = _check_buy(
         hist_now, hist_prev, hist_cross_up, macd_now, sig_now,
-        rsi14, is_flickering, hist_growing_up
+        rsi14, is_flickering, hist_growing_up, macd_rsi_bull,
     )
     sell_met, sell_parts, sell_conds = _check_sell(
         hist_now, hist_prev, hist_cross_dn, macd_now, sig_now,
-        rsi14, is_flickering, hist_growing_dn
+        rsi14, is_flickering, hist_growing_dn, macd_rsi_bear,
     )
 
     buy_wins  = buy_met > sell_met or (buy_met == sell_met and ctx_trend_up)
@@ -157,7 +165,7 @@ def otc_trend_confirm_strategy(
 
 
 def _check_buy(hist_now, hist_prev, hist_cross_up, macd_now, sig_now,
-               rsi14, is_flickering, hist_growing):
+               rsi14, is_flickering, hist_growing, macd_rsi_bull=50.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -173,11 +181,11 @@ def _check_buy(hist_now, hist_prev, hist_cross_up, macd_now, sig_now,
     if c2:
         met += 1; parts.append(f"MACD выше сигнальной ({macd_now:.6f}>{sig_now:.6f})")
 
-    # C3: RSI above 50 (bullish bias)
-    c3 = rsi14 > 50
+    # C3: RSI above threshold (pair-adapted: 50 normal, 52 calm)
+    c3 = rsi14 > macd_rsi_bull
     conds["rsi14_bullish"] = c3
     if c3:
-        met += 1; parts.append(f"RSI(14)={rsi14:.1f} выше 50")
+        met += 1; parts.append(f"RSI(14)={rsi14:.1f} выше {macd_rsi_bull:.0f}")
 
     # C4: Not flickering (MACD not rapidly switching sides)
     c4 = not is_flickering
@@ -185,17 +193,19 @@ def _check_buy(hist_now, hist_prev, hist_cross_up, macd_now, sig_now,
     if c4:
         met += 1; parts.append("MACD стабильный (не мерцает)")
 
-    # C5: RSI not in neutral zone 45-55 (document: filter weak signals)
-    c5 = rsi14 < 45 or rsi14 > 55
+    # C5: RSI not in neutral zone — pair-adapted zone
+    neutral_lo = max(45.0, macd_rsi_bull - 5.0)
+    neutral_hi = min(55.0, macd_rsi_bull + 5.0)
+    c5 = rsi14 < neutral_lo or rsi14 > neutral_hi
     conds["rsi14_decisive"] = c5
     if c5:
-        met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны 45-55")
+        met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны {neutral_lo:.0f}-{neutral_hi:.0f}")
 
     return met, parts, conds
 
 
 def _check_sell(hist_now, hist_prev, hist_cross_dn, macd_now, sig_now,
-                rsi14, is_flickering, hist_growing):
+                rsi14, is_flickering, hist_growing, macd_rsi_bear=50.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -211,11 +221,11 @@ def _check_sell(hist_now, hist_prev, hist_cross_dn, macd_now, sig_now,
     if c2:
         met += 1; parts.append(f"MACD ниже сигнальной ({macd_now:.6f}<{sig_now:.6f})")
 
-    # C3: RSI below 50
-    c3 = rsi14 < 50
+    # C3: RSI below threshold (pair-adapted: 50 normal, 48 calm)
+    c3 = rsi14 < macd_rsi_bear
     conds["rsi14_bearish"] = c3
     if c3:
-        met += 1; parts.append(f"RSI(14)={rsi14:.1f} ниже 50")
+        met += 1; parts.append(f"RSI(14)={rsi14:.1f} ниже {macd_rsi_bear:.0f}")
 
     # C4: Not flickering
     c4 = not is_flickering
@@ -223,11 +233,13 @@ def _check_sell(hist_now, hist_prev, hist_cross_dn, macd_now, sig_now,
     if c4:
         met += 1; parts.append("MACD стабильный (не мерцает)")
 
-    # C5: RSI decisive
-    c5 = rsi14 < 45 or rsi14 > 55
+    # C5: RSI decisive — pair-adapted neutral zone
+    neutral_lo = max(45.0, macd_rsi_bear - 5.0)
+    neutral_hi = min(55.0, macd_rsi_bear + 5.0)
+    c5 = rsi14 < neutral_lo or rsi14 > neutral_hi
     conds["rsi14_decisive"] = c5
     if c5:
-        met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны 45-55")
+        met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны {neutral_lo:.0f}-{neutral_hi:.0f}")
 
     return met, parts, conds
 

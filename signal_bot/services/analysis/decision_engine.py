@@ -123,6 +123,7 @@ def run_decision_engine(
     n_bars_15s: int = 0,
     n_bars_1m:  int = 0,
     n_bars_5m:  int = 0,
+    symbol: str = "",                        # OTC symbol e.g. "#AUDCAD_otc" — for pair-specific params
 ) -> EngineResult:
     """
     Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
@@ -139,6 +140,15 @@ def run_decision_engine(
     """
     n = len(df1m)
     _bar_debug = {"n_bars_15s": n_bars_15s or n, "n_bars_1m": n_bars_1m, "n_bars_5m": n_bars_5m}
+
+    # ── Pair profile (classification + parameter overrides) ───────────────────
+    try:
+        from .pair_profile import get_pair_params, get_disabled_strategies
+        _pair_params      = get_pair_params(symbol) if symbol else None
+        _disabled_strats  = get_disabled_strategies(symbol) if symbol else set()
+    except Exception:
+        _pair_params     = None
+        _disabled_strats = set()
 
     if n < 15:
         return _no_signal("Недостаточно данных (нужно ≥15 свечей)", {**_bar_debug})
@@ -289,6 +299,10 @@ def run_decision_engine(
             if not is_strategy_enabled(name):
                 debug_strategies[name] = {"status": "DISABLED", "skipped": True}
                 continue
+            # Skip strategies disabled for this pair (compatibility matrix)
+            if name in _disabled_strats:
+                debug_strategies[name] = {"status": "PAIR_DISABLED", "skipped": True}
+                continue
             try:
                 kwargs = dict(df=df1m, ind=ind, levels=levels,
                               ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
@@ -297,6 +311,10 @@ def run_decision_engine(
                             "three_candle_reversal", "stoch_snap",
                             "ema_micro_cross", "otc_trend_confirm", "double_bottom_top"):
                     kwargs["mode"] = mode_obj.mode
+                # Pass pair_params to new strategies for parameter adaptation
+                if name in ("rsi_bb_scalp", "three_candle_reversal", "stoch_snap",
+                            "ema_micro_cross", "otc_trend_confirm", "double_bottom_top"):
+                    kwargs["pair_params"] = _pair_params
                 if name == "level_breakout":
                     kwargs["df1m_ctx"] = df1m_ctx
                 if name == "level_touch":
@@ -464,6 +482,11 @@ def run_decision_engine(
         conf_raw *= 0.50   # BUY against downtrend: conf halved → likely below threshold
     if direction == "SELL" and strong_up:
         conf_raw *= 0.50   # SELL against uptrend: conf halved → likely below threshold
+
+    # ── Pair confidence adjustment (volatile penalty / calm bonus) ────────────
+    if _pair_params and _pair_params.confidence_adj != 0.0:
+        conf_raw += _pair_params.confidence_adj
+        conf_raw = max(0.0, min(100.0, conf_raw))
 
     # ── Threshold check ────────────────────────────────────────────────────────
     # Hard floor: 55 for all tiers — no signal below 55 ever becomes a trade.

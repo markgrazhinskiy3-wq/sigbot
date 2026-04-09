@@ -116,7 +116,7 @@ async def _scan_and_broadcast(
             continue
 
         try:
-            result = await calculate_signal(candles, expiry="2m")
+            result = await calculate_signal(candles, expiry="2m", symbol=symbol)
         except Exception as exc:
             logger.debug("Auto-signal calc error %s: %s", symbol, exc)
             continue
@@ -205,7 +205,7 @@ async def _fire_pre_alert_then_signal(
     signal = None
     if candles and len(candles) >= 60:
         try:
-            fresh = await calculate_signal(candles, expiry="2m")
+            fresh = await calculate_signal(candles, expiry="2m", symbol=symbol)
             if fresh.direction in ("BUY", "SELL") and (fresh.confidence or 0) >= MIN_CONFIDENCE:
                 signal = SignalResponse(
                     direction=fresh.direction,

@@ -42,6 +42,7 @@ def double_bottom_top_strategy(
     ctx_trend_up: bool = False,
     ctx_trend_down: bool = False,
     mode: str = "RANGE",
+    pair_params=None,
 ) -> StrategyResult:
     close = df["close"].values
     open_ = df["open"].values
