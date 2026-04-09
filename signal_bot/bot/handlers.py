@@ -1859,7 +1859,7 @@ async def cmd_paper_test(message: Message) -> None:
     await message.answer(
         f"🧪 <b>Paper Trading Test запущен</b>\n\n"
         f"Цель: <b>{target} сделок</b>\n"
-        f"Экспирация: <b>{expiry}</b>\n"
+        f"Экспирация: <b>{ {'1m':'1м','2m':'2м','both':'1м + 2м'}.get(expiry, expiry) }</b>\n"
         f"Все пары OTC сканируются в тихом режиме.\n"
         f"Сигналы <b>НЕ</b> отправляются пользователям.\n\n"
         f"Прогресс каждые 10 сделок.\n"
@@ -2052,6 +2052,7 @@ async def cmd_strat_test(message: Message) -> None:
     two_m_only  = allowed <= {"otc_trend_confirm", "double_bottom_top"}
     one_m_only  = allowed.isdisjoint({"otc_trend_confirm", "double_bottom_top"})
     expiry_mode = "2m" if two_m_only else ("1m" if one_m_only else "both")
+    expiry_label = {"1m": "1м", "2m": "2м", "both": "1м + 2м"}.get(expiry_mode, expiry_mode)
 
     # Cancel any existing task
     old_task = _strat_test_tasks.pop(uid, None)
@@ -2062,7 +2063,7 @@ async def cmd_strat_test(message: Message) -> None:
         f"🔬 <b>Strategy Test запущен</b>\n\n"
         f"Стратегия: <b>{strat_label}</b>\n"
         f"Цель: <b>{target} сделок</b>\n"
-        f"Экспирация: <b>{expiry_mode}</b>\n\n"
+        f"Экспирация: <b>{expiry_label}</b>\n\n"
         f"Сканирование всех OTC пар в тихом режиме.\n"
         f"Сигналы пользователям <b>НЕ</b> отправляются.\n"
         f"Прогресс каждые 5 сделок.\n\n"
@@ -2092,7 +2093,7 @@ async def cmd_strat_test(message: Message) -> None:
             # Build header that shows which strategies were tested
             header = (
                 f"🔬 <b>Strategy Test — {strat_label}</b>\n"
-                f"Сделок: {len(results)} | Экспирация: {expiry_mode}\n"
+                f"Сделок: {len(results)} | Экспирация: {expiry_label}\n"
                 f"──────────────────────────────\n"
             )
 
