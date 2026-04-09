@@ -32,6 +32,12 @@ from .strategies   import (
     ema_bounce_strategy,
     level_breakout_strategy,
     level_touch_strategy,
+    rsi_bb_scalp_strategy,
+    three_candle_reversal_strategy,
+    stoch_snap_strategy,
+    ema_micro_cross_strategy,
+    otc_trend_confirm_strategy,
+    double_bottom_top_strategy,
 )
 
 # Strategy adaptation — optional import, falls back gracefully if unavailable
@@ -44,41 +50,57 @@ logger = logging.getLogger(__name__)
 
 
 # ── Mode → strategy routing ───────────────────────────────────────────────────
-# PRIMARY strategies compete on confidence — highest score wins.
-# level_bounce removed (43% WR, duplicated by level_touch which scores 62%+).
+# New strategies (1-6 from the trading document) are PRIMARY across all modes.
+# Old strategies kept as secondary fallbacks.
+#
+# 1m strategies: rsi_bb_scalp, three_candle_reversal, stoch_snap, ema_micro_cross
+# 2m strategies: otc_trend_confirm, double_bottom_top
 _MODE_STRATEGIES: dict[str, dict] = {
     "TRENDING_UP": {
         "priority":  [],
-        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
-        "secondary": [],
+        # Trend-following strategies work best in trending markets
+        "primary":   ["ema_micro_cross", "otc_trend_confirm", "rsi_bb_scalp", "three_candle_reversal"],
+        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
     },
     "TRENDING_DOWN": {
         "priority":  [],
-        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
-        "secondary": [],
+        "primary":   ["ema_micro_cross", "otc_trend_confirm", "rsi_bb_scalp", "three_candle_reversal"],
+        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
     },
     "RANGE": {
         "priority":  [],
-        "primary":   ["level_touch", "level_breakout"],
-        "secondary": [],
+        # Mean-reversion strategies dominate in range markets
+        "primary":   ["rsi_bb_scalp", "stoch_snap", "three_candle_reversal", "double_bottom_top"],
+        "secondary": ["ema_micro_cross", "level_touch", "level_breakout"],
     },
     "VOLATILE": {
         "priority":  [],
-        "primary":   ["level_touch", "level_breakout"],
-        "secondary": [],
+        # Only the most selective strategies in volatile markets
+        "primary":   ["rsi_bb_scalp", "stoch_snap", "three_candle_reversal"],
+        "secondary": ["level_touch", "level_breakout"],
     },
     "SQUEEZE": {
         "priority":  [],
-        "primary":   ["level_touch", "ema_bounce", "level_breakout"],
-        "secondary": [],
+        # Squeeze = compression before breakout; mean-reversion + double patterns work
+        "primary":   ["rsi_bb_scalp", "stoch_snap", "double_bottom_top", "ema_micro_cross"],
+        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
     },
 }
 
 _STRATEGY_FNS = {
-    "level_touch":    level_touch_strategy,
-    "ema_bounce":     ema_bounce_strategy,
-    "level_breakout": level_breakout_strategy,
+    "level_touch":          level_touch_strategy,
+    "ema_bounce":           ema_bounce_strategy,
+    "level_breakout":       level_breakout_strategy,
+    "rsi_bb_scalp":         rsi_bb_scalp_strategy,
+    "three_candle_reversal": three_candle_reversal_strategy,
+    "stoch_snap":           stoch_snap_strategy,
+    "ema_micro_cross":      ema_micro_cross_strategy,
+    "otc_trend_confirm":    otc_trend_confirm_strategy,
+    "double_bottom_top":    double_bottom_top_strategy,
 }
+
+# Strategies that suggest 2-minute expiry
+_TWO_MIN_STRATEGIES = {"otc_trend_confirm", "double_bottom_top"}
 
 
 @dataclass
@@ -274,7 +296,10 @@ def run_decision_engine(
             try:
                 kwargs = dict(df=df1m, ind=ind, levels=levels,
                               ctx_trend_up=ctx_up, ctx_trend_down=ctx_down)
-                if name in ("level_breakout", "ema_bounce"):
+                # Pass mode to strategies that accept it
+                if name in ("level_breakout", "ema_bounce", "rsi_bb_scalp",
+                            "three_candle_reversal", "stoch_snap",
+                            "ema_micro_cross", "otc_trend_confirm", "double_bottom_top"):
                     kwargs["mode"] = mode_obj.mode
                 if name == "level_breakout":
                     kwargs["df1m_ctx"] = df1m_ctx
@@ -357,10 +382,19 @@ def run_decision_engine(
     best = max(candidates, key=lambda r: r.confidence)
 
     # If two strategies disagree on direction → pick by confidence, then by priority
+    # Lower number = higher priority (wins tie-break)
     _STRATEGY_PRIORITY = {
-        "level_breakout": 1,
-        "ema_bounce":     2,
-        "level_touch":    3,
+        # New strategies (primary)
+        "rsi_bb_scalp":          1,
+        "stoch_snap":            1,
+        "three_candle_reversal": 2,
+        "ema_micro_cross":       2,
+        "otc_trend_confirm":     3,
+        "double_bottom_top":     3,
+        # Legacy strategies (secondary fallback)
+        "level_breakout":        4,
+        "ema_bounce":            5,
+        "level_touch":           6,
     }
 
     buy_cands  = [r for r in candidates if r.direction == "BUY"]
@@ -532,10 +566,10 @@ def run_decision_engine(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _pick_expiry(strategy: str, quality: str) -> str:
-    """Bounce/breakout → 1m, trend-follow → 2m."""
-    if strategy in ("level_breakout", "ema_bounce"):
-        return "1m"
-    return "2m"
+    """1m strategies → 1m, dedicated 2m strategies → 2m."""
+    if strategy in _TWO_MIN_STRATEGIES:
+        return "2m"
+    return "1m"
 
 
 def _no_signal(reason: str, debug: dict) -> EngineResult:
