@@ -35,7 +35,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python signal_bot/main.py"
+args = "echo 'Bot runs on Railway — not starting here'"
 
 [agent]
 stack = "PNPM_WORKSPACE"
