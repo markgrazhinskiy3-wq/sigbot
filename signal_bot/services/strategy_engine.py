@@ -143,7 +143,7 @@ async def calculate_signal(
         n_bars_1m=len(df1m_ctx) if df1m_ctx is not None else 0,
         n_bars_5m=len(df5m)     if df5m     is not None else 0,
         symbol=symbol,
-        # v1 does not accept expiry — it picks expiry internally via _pick_expiry()
+        expiry=expiry,     # "1m"/"2m" filters strategy pool; "both" = no filter
     )
 
     logger.info(

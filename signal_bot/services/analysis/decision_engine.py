@@ -95,6 +95,9 @@ _STRATEGY_FNS = {
     "double_bottom_top":    double_bottom_top_strategy,
 }
 
+# Strategies that suggest 1-minute expiry
+_ONE_MIN_STRATEGIES = {"rsi_bb_scalp", "stoch_snap", "three_candle_reversal", "ema_micro_cross"}
+
 # Strategies that suggest 2-minute expiry
 _TWO_MIN_STRATEGIES = {"otc_trend_confirm", "double_bottom_top"}
 
@@ -124,6 +127,7 @@ def run_decision_engine(
     n_bars_1m:  int = 0,
     n_bars_5m:  int = 0,
     symbol: str = "",                        # OTC symbol e.g. "#AUDCAD_otc" — for pair-specific params
+    expiry: str = "both",                    # "1m" | "2m" | "both" — filters strategy pool by expiry tier
 ) -> EngineResult:
     """
     Full 4-layer analysis pipeline optimised for 1-2 min OTC expiry.
@@ -137,6 +141,8 @@ def run_decision_engine(
         n_bars_15s:  number of raw 15-sec bars (informational, for debug)
         n_bars_1m:   number of 1-min bars after resampling
         n_bars_5m:   number of 5-min bars after resampling
+        expiry:      "1m" → run only 1-min strategies; "2m" → run only 2-min strategies;
+                     "both" → no filter (auto-scanner and fallback)
     """
     n = len(df1m)
     _bar_debug = {"n_bars_15s": n_bars_15s or n, "n_bars_1m": n_bars_1m, "n_bars_5m": n_bars_5m}
@@ -236,6 +242,18 @@ def run_decision_engine(
 
     # ── Layer 3: Strategies ───────────────────────────────────────────────────
     routing = _MODE_STRATEGIES.get(mode_obj.mode, _MODE_STRATEGIES["RANGE"])
+
+    # ── Expiry filter: keep only strategies matching the requested expiry tier ─
+    # "1m"  → exclude 2-min strategies from all tiers
+    # "2m"  → exclude 1-min strategies from all tiers
+    # "both"→ no filter (auto-scanner lets the engine pick expiry naturally)
+    if expiry in ("1m", "2m"):
+        _exclude = _TWO_MIN_STRATEGIES if expiry == "1m" else _ONE_MIN_STRATEGIES
+        routing = {
+            tier: [s for s in names if s not in _exclude]
+            for tier, names in routing.items()
+        }
+        logger.info("Expiry filter '%s': excluded %s", expiry, _exclude)
 
     # ── Multi-timeframe context ───────────────────────────────────────────────
     #

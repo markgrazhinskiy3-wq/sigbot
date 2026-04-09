@@ -37,7 +37,7 @@ async def scan_all_signals(pairs_map: dict[str, str]) -> list[SignalResponse]:
         if not candles:
             continue
         label = pairs_map.get(symbol, symbol)
-        result: SignalResult = await calculate_signal(candles, symbol=symbol)
+        result: SignalResult = await calculate_signal(candles, symbol=symbol, expiry="both")
         if result.direction not in ("BUY", "SELL"):
             continue
         results.append(SignalResponse(
