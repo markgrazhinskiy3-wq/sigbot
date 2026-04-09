@@ -35,8 +35,8 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 5
-_MIN_MET = 4
+_TOTAL   = 7
+_MIN_MET = 5
 
 
 def three_candle_reversal_strategy(
@@ -54,8 +54,8 @@ def three_candle_reversal_strategy(
     low   = df["low"].values
     n     = len(df)
 
-    if n < 6:
-        return _none("Мало данных", {"early_reject": "n<6"})
+    if n < 7:
+        return _none("Мало данных", {"early_reject": "n<7"})
 
     # Dead market guard
     if ind.atr_ratio < 0.25:
@@ -145,13 +145,13 @@ def _check_buy(close, open_, high, low, n, avg_body, allow_4_candles=False):
     parts = []
     conds: dict[str, bool] = {}
 
-    # Need candles at positions -4, -3, -2 (three bearish), -1 is current
-    c1 = close[-4]
-    c2 = close[-3]
-    c3 = close[-2]
-    o1 = open_[-4]
-    o2 = open_[-3]
-    o3 = open_[-2]
+    # Need candles at positions -4, -3, -2 (three bearish), -1 is current, -5 is before series
+    c1 = close[-4]; o1 = open_[-4]
+    c2 = close[-3]; o2 = open_[-3]
+    c3 = close[-2]; o3 = open_[-2]
+    # "before series" candle — the one that should NOT be bearish
+    c0 = close[-5] if n >= 5 else close[-4]
+    o0 = open_[-5] if n >= 5 else open_[-4]
 
     # C1: All three candles are bearish (close < open)
     # For volatile pairs (allow_4_candles): also accept a 4-candle pattern
@@ -179,6 +179,7 @@ def _check_buy(close, open_, high, low, n, avg_body, allow_4_candles=False):
         max_body = max(bodies)
         cond3 = avg_of_three > 0 and max_body < avg_of_three * 3.0
     else:
+        avg_of_three = 0.0
         cond3 = False
     conds["similar_candle_sizes"] = cond3
     if cond3:
@@ -209,6 +210,19 @@ def _check_buy(close, open_, high, low, n, avg_body, allow_4_candles=False):
     if cond5:
         met += 1; parts.append("Не сильный тренд перед паттерном")
 
+    # C6: Candle before series is NOT bearish (series is exactly 3, not 4+)
+    cond6 = c0 >= o0  # c0 is bullish or neutral — series starts fresh
+    conds["c0_not_same_color"] = cond6
+    if cond6:
+        met += 1; parts.append("Свеча до серии не медвежья (серия ровно 3)")
+
+    # C7: No momentum spike before the series (body_before < avg_series * 3)
+    body_before = abs(c0 - o0)
+    cond7 = avg_of_three == 0 or body_before < avg_of_three * 3.0
+    conds["no_impulse_before"] = cond7
+    if cond7:
+        met += 1; parts.append("Нет импульса до серии")
+
     return met, parts, conds
 
 
@@ -218,12 +232,11 @@ def _check_sell(close, open_, high, low, n, avg_body, allow_4_candles=False):
     parts = []
     conds: dict[str, bool] = {}
 
-    c1 = close[-4]
-    c2 = close[-3]
-    c3 = close[-2]
-    o1 = open_[-4]
-    o2 = open_[-3]
-    o3 = open_[-2]
+    c1 = close[-4]; o1 = open_[-4]
+    c2 = close[-3]; o2 = open_[-3]
+    c3 = close[-2]; o3 = open_[-2]
+    c0 = close[-5] if n >= 5 else close[-4]
+    o0 = open_[-5] if n >= 5 else open_[-4]
 
     # C1: All three candles are bullish
     bullish_1 = c1 > o1
@@ -249,6 +262,7 @@ def _check_sell(close, open_, high, low, n, avg_body, allow_4_candles=False):
         max_body = max(bodies)
         cond3 = avg_of_three > 0 and max_body < avg_of_three * 3.0
     else:
+        avg_of_three = 0.0
         cond3 = False
     conds["similar_candle_sizes"] = cond3
     if cond3:
@@ -277,6 +291,19 @@ def _check_sell(close, open_, high, low, n, avg_body, allow_4_candles=False):
     conds["no_strong_trend"] = cond5
     if cond5:
         met += 1; parts.append("Не сильный тренд перед паттерном")
+
+    # C6: Candle before series is NOT bullish (series is exactly 3, not 4+)
+    cond6 = c0 <= o0  # c0 is bearish or neutral
+    conds["c0_not_same_color"] = cond6
+    if cond6:
+        met += 1; parts.append("Свеча до серии не бычья (серия ровно 3)")
+
+    # C7: No momentum spike before the series
+    body_before = abs(c0 - o0)
+    cond7 = avg_of_three == 0 or body_before < avg_of_three * 3.0
+    conds["no_impulse_before"] = cond7
+    if cond7:
+        met += 1; parts.append("Нет импульса до серии")
 
     return met, parts, conds
 

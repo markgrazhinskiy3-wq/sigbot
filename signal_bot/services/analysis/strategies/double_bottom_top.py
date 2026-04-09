@@ -175,12 +175,14 @@ def _check_double_bottom(close, open_, high, low, n, ind,
     # They must have at least 3 bars between them
     low1_idx, low1_val = None, None
     low2_idx, low2_val = None, None
+    _MAX_DIST = 10  # pattern lows must be ≤10 bars apart (too far = stale pattern)
     for i in range(len(local_lows) - 1, -1, -1):
         idx, val = local_lows[i]
         if low2_idx is None and idx < scan_n - 1:
             low2_idx, low2_val = idx, val
         elif low1_idx is None and idx < low2_idx - 2:
-            low1_idx, low1_val = idx, val
+            if low2_idx - idx <= _MAX_DIST:  # within max distance
+                low1_idx, low1_val = idx, val
             break
 
     if low1_idx is None:
@@ -247,12 +249,14 @@ def _check_double_top(close, open_, high, low, n, ind,
     # Find two most recent highs with space between them
     high1_idx, high1_val = None, None
     high2_idx, high2_val = None, None
+    _MAX_DIST = 10
     for i in range(len(local_highs) - 1, -1, -1):
         idx, val = local_highs[i]
         if high2_idx is None and idx < scan_n - 1:
             high2_idx, high2_val = idx, val
         elif high1_idx is None and idx < high2_idx - 2:
-            high1_idx, high1_val = idx, val
+            if high2_idx - idx <= _MAX_DIST:
+                high1_idx, high1_val = idx, val
             break
 
     if high1_idx is None:

@@ -64,6 +64,19 @@ def rsi_bb_scalp_strategy(
     if ind.atr_ratio < 0.3:
         return _none("ATR мёртвый", {"early_reject": f"atr_ratio={ind.atr_ratio:.3f}<0.3"})
 
+    # BB absolute width guard (spec: bb_max_width=0.04 for forex)
+    # Computed early so we can use it below — placed after indicators
+    _bb_p_early = min(20, n)
+    _cs_early   = pd.Series(df["close"].values)
+    _mid_e = _cs_early.rolling(_bb_p_early).mean().iloc[-1]
+    _std_e = _cs_early.rolling(_bb_p_early).std().iloc[-1]
+    _bw_check = (2.0 * float(_std_e) / float(_mid_e)) if float(_mid_e) > 0 else 0.0
+    if _bw_check > 0.04:
+        return _none(
+            f"BB слишком широкие (width={_bw_check:.4f}>0.04) — высокая волатильность",
+            {"early_reject": f"bb_width={_bw_check:.4f}>0.04"},
+        )
+
     # Compute BB(20, bb_std) inline — pair-adapted deviation
     bb_p  = min(20, n)
     close_s = pd.Series(close)

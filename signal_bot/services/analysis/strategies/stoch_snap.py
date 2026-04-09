@@ -31,8 +31,8 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 4
-_MIN_MET = 3
+_TOTAL   = 5
+_MIN_MET = 4
 
 
 def stoch_snap_strategy(
@@ -70,15 +70,21 @@ def stoch_snap_strategy(
     k_rising  = k_now > k_prev
     k_falling = k_now < k_prev
 
-    stoch_os     = pair_params.stoch_os     if pair_params else 20.0
-    stoch_ob     = pair_params.stoch_ob     if pair_params else 80.0
-    stoch_rsi_os = pair_params.stoch_rsi_os if pair_params else 40.0
-    stoch_rsi_ob = pair_params.stoch_rsi_ob if pair_params else 60.0
+    stoch_os              = pair_params.stoch_os              if pair_params else 20.0
+    stoch_ob              = pair_params.stoch_ob              if pair_params else 80.0
+    stoch_rsi_os          = pair_params.stoch_rsi_os          if pair_params else 40.0
+    stoch_rsi_ob          = pair_params.stoch_rsi_ob          if pair_params else 60.0
+    stoch_min_cross_angle = pair_params.stoch_min_cross_angle if pair_params else 2.0
+
+    # Cross angle: how sharply K diverged from D after the crossover
+    cross_angle = abs(k_now - d_now)
 
     buy_met, buy_parts, buy_conds = _check_buy(
-        k_now, d_now, k_prev, cross_up, k_rising, ind, stoch_os, stoch_rsi_os)
+        k_now, d_now, k_prev, cross_up, k_rising, ind,
+        stoch_os, stoch_rsi_os, cross_angle, stoch_min_cross_angle)
     sell_met, sell_parts, sell_conds = _check_sell(
-        k_now, d_now, k_prev, cross_dn, k_falling, ind, stoch_ob, stoch_rsi_ob)
+        k_now, d_now, k_prev, cross_dn, k_falling, ind,
+        stoch_ob, stoch_rsi_ob, cross_angle, stoch_min_cross_angle)
 
     buy_wins  = buy_met > sell_met or (buy_met == sell_met and ctx_trend_down)
     sell_wins = sell_met > buy_met or (sell_met == buy_met and ctx_trend_up)
@@ -155,7 +161,8 @@ def stoch_snap_strategy(
 
 
 def _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind,
-               stoch_os=20.0, stoch_rsi_os=40.0):
+               stoch_os=20.0, stoch_rsi_os=40.0,
+               cross_angle=0.0, min_cross_angle=2.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -184,11 +191,18 @@ def _check_buy(k_now, d_now, k_prev, cross_up, k_rising, ind,
     if c4:
         met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перепроданность (<{stoch_rsi_os:.0f})")
 
+    # C5: Cross angle — K and D must diverge enough after crossing (no weak crosses)
+    c5 = cross_angle > min_cross_angle
+    conds["strong_cross_angle"] = c5
+    if c5:
+        met += 1; parts.append(f"Угол пересечения K-D={cross_angle:.1f} (>{min_cross_angle:.1f})")
+
     return met, parts, conds
 
 
 def _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind,
-                stoch_ob=80.0, stoch_rsi_ob=60.0):
+                stoch_ob=80.0, stoch_rsi_ob=60.0,
+                cross_angle=0.0, min_cross_angle=2.0):
     met = 0
     parts = []
     conds: dict[str, bool] = {}
@@ -216,6 +230,12 @@ def _check_sell(k_now, d_now, k_prev, cross_dn, k_falling, ind,
     conds["rsi_confirms_overbought"] = c4
     if c4:
         met += 1; parts.append(f"RSI {ind.rsi:.1f} подтверждает перекупленность (>{stoch_rsi_ob:.0f})")
+
+    # C5: Cross angle — strong divergence of K from D
+    c5 = cross_angle > min_cross_angle
+    conds["strong_cross_angle"] = c5
+    if c5:
+        met += 1; parts.append(f"Угол пересечения K-D={cross_angle:.1f} (>{min_cross_angle:.1f})")
 
     return met, parts, conds
 

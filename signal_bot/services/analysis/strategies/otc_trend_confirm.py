@@ -34,7 +34,7 @@ class StrategyResult:
     debug: dict
 
 
-_TOTAL   = 5
+_TOTAL   = 6
 _MIN_MET = 4
 
 
@@ -201,6 +201,13 @@ def _check_buy(hist_now, hist_prev, hist_cross_up, macd_now, sig_now,
     if c5:
         met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны {neutral_lo:.0f}-{neutral_hi:.0f}")
 
+    # C6: Histogram is strong (not a weak/tiny cross) — current ≥ 30% of previous magnitude
+    min_strength = abs(hist_prev) * 0.3 if abs(hist_prev) > 0 else 0.0
+    c6 = abs(hist_now) > min_strength
+    conds["histogram_strong"] = c6
+    if c6:
+        met += 1; parts.append(f"Гистограмма сильная (|{hist_now:.6f}|>30% prev)")
+
     return met, parts, conds
 
 
@@ -240,6 +247,13 @@ def _check_sell(hist_now, hist_prev, hist_cross_dn, macd_now, sig_now,
     conds["rsi14_decisive"] = c5
     if c5:
         met += 1; parts.append(f"RSI(14)={rsi14:.1f} вне нейтральной зоны {neutral_lo:.0f}-{neutral_hi:.0f}")
+
+    # C6: Histogram is strong — current magnitude ≥ 30% of previous
+    min_strength = abs(hist_prev) * 0.3 if abs(hist_prev) > 0 else 0.0
+    c6 = abs(hist_now) > min_strength
+    conds["histogram_strong"] = c6
+    if c6:
+        met += 1; parts.append(f"Гистограмма сильная (|{hist_now:.6f}|>30% prev)")
 
     return met, parts, conds
 

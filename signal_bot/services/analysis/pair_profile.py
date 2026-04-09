@@ -119,6 +119,10 @@ class PairParams:
     ema_fast_span: int = 3
     ema_slow_span: int = 8
 
+    # Stochastic cross angle: min |K-D| after crossover
+    # Volatile: stricter (3.0) — big swings but noisy; Calm: looser (1.5)
+    stoch_min_cross_angle: float = 2.0
+
     # Minimum confidence bonus/penalty applied in engine
     # Positive = bonus for reliable pairs, negative = penalty for noisy ones
     confidence_adj: float = 0.0
@@ -130,38 +134,40 @@ def get_pair_params(symbol: str) -> PairParams:
 
     if pt == PairType.VOLATILE:
         return PairParams(
-            pair_type       = PairType.VOLATILE,
-            rsi_oversold    = 25.0,
-            rsi_overbought  = 75.0,
-            bb_std          = 2.2,
-            stoch_os        = 15.0,
-            stoch_ob        = 85.0,
-            stoch_rsi_os    = 35.0,
-            stoch_rsi_ob    = 65.0,
-            allow_4_candles = True,
-            macd_rsi_bull   = 50.0,
-            macd_rsi_bear   = 50.0,
-            ema_fast_span   = 5,
-            ema_slow_span   = 13,
-            confidence_adj  = -3.0,   # slight penalty for noisy pairs
+            pair_type             = PairType.VOLATILE,
+            rsi_oversold          = 25.0,
+            rsi_overbought        = 75.0,
+            bb_std                = 2.2,
+            stoch_os              = 15.0,
+            stoch_ob              = 85.0,
+            stoch_rsi_os          = 35.0,
+            stoch_rsi_ob          = 65.0,
+            allow_4_candles       = True,
+            macd_rsi_bull         = 50.0,
+            macd_rsi_bear         = 50.0,
+            ema_fast_span         = 5,
+            ema_slow_span         = 13,
+            stoch_min_cross_angle = 3.0,  # stricter — volatile pairs are noisy
+            confidence_adj        = -3.0,
         )
 
     if pt == PairType.CALM:
         return PairParams(
-            pair_type       = PairType.CALM,
-            rsi_oversold    = 35.0,
-            rsi_overbought  = 65.0,
-            bb_std          = 1.8,
-            stoch_os        = 25.0,
-            stoch_ob        = 75.0,
-            stoch_rsi_os    = 45.0,
-            stoch_rsi_ob    = 55.0,
-            allow_4_candles = False,
-            macd_rsi_bull   = 52.0,
-            macd_rsi_bear   = 48.0,
-            ema_fast_span   = 3,
-            ema_slow_span   = 8,
-            confidence_adj  = +2.0,   # bonus for cleaner signals
+            pair_type             = PairType.CALM,
+            rsi_oversold          = 35.0,
+            rsi_overbought        = 65.0,
+            bb_std                = 1.8,
+            stoch_os              = 25.0,
+            stoch_ob              = 75.0,
+            stoch_rsi_os          = 45.0,
+            stoch_rsi_ob          = 55.0,
+            allow_4_candles       = False,
+            macd_rsi_bull         = 52.0,
+            macd_rsi_bear         = 48.0,
+            ema_fast_span         = 3,
+            ema_slow_span         = 8,
+            stoch_min_cross_angle = 1.5,  # looser — calm pairs have smaller moves
+            confidence_adj        = +2.0,
         )
 
     # NORMAL — standard parameters
