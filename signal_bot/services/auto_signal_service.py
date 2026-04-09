@@ -52,8 +52,8 @@ async def auto_signal_loop(bot) -> None:
     from services.signal_service import SignalResponse, format_signal_message
     from db.database import list_approved
 
-    logger.info("Auto-signal broadcaster started (expiry=%ds, min_conf=%d, pre_alert=%ds)",
-                AUTO_EXPIRY_SEC, MIN_CONFIDENCE, PRE_ALERT_DELAY)
+    logger.info("Auto-signal broadcaster started (expiry=%ds, min_conf=%d, pre_alert_max=%ds)",
+                AUTO_EXPIRY_SEC, MIN_CONFIDENCE, PRE_ALERT_WAIT_MAX)
 
     # Restore auto-signals preferences from DB (survives restarts)
     try:
