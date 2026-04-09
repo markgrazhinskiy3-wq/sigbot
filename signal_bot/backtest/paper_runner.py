@@ -86,6 +86,32 @@ ProgressCb = Callable[[str], Awaitable[None]] | None
 
 # ── Core runner ───────────────────────────────────────────────────────────────
 
+_NEW_STRATEGIES = {
+    "rsi_bb_scalp", "three_candle_reversal", "stoch_snap",
+    "ema_micro_cross", "otc_trend_confirm", "double_bottom_top",
+}
+
+# Human-readable aliases for strategy names
+_STRATEGY_ALIASES: dict[str, str] = {
+    "rsi":         "rsi_bb_scalp",
+    "rsi_bb":      "rsi_bb_scalp",
+    "bb":          "rsi_bb_scalp",
+    "3candle":     "three_candle_reversal",
+    "three":       "three_candle_reversal",
+    "reversal":    "three_candle_reversal",
+    "stoch":       "stoch_snap",
+    "snap":        "stoch_snap",
+    "ema":         "ema_micro_cross",
+    "cross":       "ema_micro_cross",
+    "micro":       "ema_micro_cross",
+    "macd":        "otc_trend_confirm",
+    "trend":       "otc_trend_confirm",
+    "double":      "double_bottom_top",
+    "dbt":         "double_bottom_top",
+    "w":           "double_bottom_top",
+}
+
+
 class PaperRunner:
     """
     Runs the paper trading simulation until `target_trades` are resolved.
@@ -96,15 +122,17 @@ class PaperRunner:
         self,
         target_trades: int = 100,
         pairs: list[dict] | None = None,
-        expiry: str = "both",            # "1m" | "2m" | "both"
+        expiry: str = "both",                      # "1m" | "2m" | "both"
         progress_cb: ProgressCb = None,
         progress_every: int = 10,
+        allowed_strategies: set[str] | None = None, # None = all; set = only these
     ):
-        self.target_trades  = target_trades
-        self.pairs          = pairs or _DEFAULT_PAIRS
-        self.expiry         = expiry
-        self.progress_cb    = progress_cb
-        self.progress_every = progress_every
+        self.target_trades      = target_trades
+        self.pairs              = pairs or _DEFAULT_PAIRS
+        self.expiry             = expiry
+        self.progress_cb        = progress_cb
+        self.progress_every     = progress_every
+        self.allowed_strategies = allowed_strategies  # filter signals by strategy name
 
         self._active:   dict[str, PaperTrade]  = {}   # symbol → pending trade
         self._results:  list[TradeResult]       = []
@@ -291,6 +319,17 @@ class PaperRunner:
 
                 if result.direction not in ("BUY", "SELL"):
                     continue
+
+                # ── Strategy filter ────────────────────────────────────────
+                # If allowed_strategies is set, skip signals from other strategies
+                if self.allowed_strategies is not None:
+                    strat_name = (result.details or {}).get("primary_strategy", "")
+                    if strat_name not in self.allowed_strategies:
+                        logger.debug(
+                            "StratFilter: SKIP %s %s — strategy %r not in allowed set",
+                            label, exp_str, strat_name,
+                        )
+                        continue
 
                 # ── Session trend filter ───────────────────────────────────
                 # Block signals that go against the detected session direction.
@@ -569,24 +608,30 @@ def _bar(pct: float, width: int = 8) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def run_paper_test(
-    target:      int = 100,
-    expiry:      str = "both",
-    pairs:       list[dict] | None = None,
-    progress_cb: ProgressCb = None,
-    progress_every: int = 10,
+    target:             int = 100,
+    expiry:             str = "both",
+    pairs:              list[dict] | None = None,
+    progress_cb:        ProgressCb = None,
+    progress_every:     int = 10,
+    allowed_strategies: set[str] | None = None,
 ) -> tuple[list[TradeResult], str]:
     """
     Run paper trading until `target` trades are resolved.
+
+    Args:
+        allowed_strategies: if set, only signals from these strategy names are recorded.
+                            Pass _NEW_STRATEGIES to test only the 6 new strategies.
 
     Returns:
         (results, summary_text)
     """
     runner = PaperRunner(
-        target_trades  = target,
-        pairs          = pairs,
-        expiry         = expiry,
-        progress_cb    = progress_cb,
-        progress_every = progress_every,
+        target_trades      = target,
+        pairs              = pairs,
+        expiry             = expiry,
+        progress_cb        = progress_cb,
+        progress_every     = progress_every,
+        allowed_strategies = allowed_strategies,
     )
     results = await runner.run()
     summary = runner.build_summary()

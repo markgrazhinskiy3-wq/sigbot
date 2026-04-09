@@ -1964,6 +1964,219 @@ async def cmd_paper_test(message: Message) -> None:
     _paper_test_tasks[uid] = task
 
 
+# ─── Strategy Test (/strat_test) ─────────────────────────────────────────────
+
+_strat_test_tasks: dict[int, asyncio.Task] = {}
+
+_STRAT_HELP = (
+    "Доступные стратегии / псевдонимы:\n"
+    "  <code>new</code>      — все 6 новых стратегий\n"
+    "  <code>rsi</code>      — RSI + Bollinger Scalp\n"
+    "  <code>3candle</code>  — Три свечи одного цвета\n"
+    "  <code>stoch</code>    — Stochastic Snap\n"
+    "  <code>ema</code>      — EMA Micro-Cross\n"
+    "  <code>macd</code>     — MACD Trend Confirm (2m)\n"
+    "  <code>double</code>   — Двойное дно/вершина (2m)"
+)
+
+
+@router.message(Command("strat_test"))
+async def cmd_strat_test(message: Message) -> None:
+    """
+    Admin-only: test a specific strategy (or all new strategies) in paper mode.
+    Usage: /strat_test [strategy] [n]
+
+    strategy = new | rsi | 3candle | stoch | ema | macd | double
+    n = number of trades to collect (default 30, max 200)
+
+    Examples:
+      /strat_test new 50         — all 6 new strategies, 50 trades
+      /strat_test rsi 30         — only RSI+BB scalp, 30 trades
+      /strat_test stoch 20       — only Stochastic Snap, 20 trades
+      /strat_test stop           — cancel running test
+    """
+    if not _is_admin(message.from_user.id):
+        return
+
+    uid  = message.from_user.id
+    args = (message.text or "").split()
+
+    if len(args) >= 2 and args[1].lower() == "stop":
+        task = _strat_test_tasks.pop(uid, None)
+        if task and not task.done():
+            task.cancel()
+            await message.answer("⏹ Strat test остановлен.", parse_mode="HTML")
+        else:
+            await message.answer("Нет активного strat test.", parse_mode="HTML")
+        return
+
+    if len(args) < 2:
+        await message.answer(
+            "📈 <b>Strategy Test</b>\n\n"
+            "Использование: <code>/strat_test [стратегия] [n]</code>\n\n"
+            + _STRAT_HELP +
+            "\n\nПример: <code>/strat_test new 30</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    from backtest.paper_runner import _NEW_STRATEGIES, _STRATEGY_ALIASES
+
+    strat_arg = args[1].lower()
+
+    if strat_arg == "new":
+        allowed = set(_NEW_STRATEGIES)
+        strat_label = "все новые стратегии"
+    elif strat_arg in _NEW_STRATEGIES:
+        allowed = {strat_arg}
+        strat_label = strat_arg
+    elif strat_arg in _STRATEGY_ALIASES:
+        resolved = _STRATEGY_ALIASES[strat_arg]
+        allowed  = {resolved}
+        strat_label = resolved
+    else:
+        await message.answer(
+            f"❌ Неизвестная стратегия: <code>{strat_arg}</code>\n\n"
+            + _STRAT_HELP,
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        target = int(args[2]) if len(args) >= 3 else 30
+        target = max(5, min(target, 200))
+    except ValueError:
+        target = 30
+
+    # Determine best expiry for selected strategies
+    two_m_only  = allowed <= {"otc_trend_confirm", "double_bottom_top"}
+    one_m_only  = allowed.isdisjoint({"otc_trend_confirm", "double_bottom_top"})
+    expiry_mode = "2m" if two_m_only else ("1m" if one_m_only else "both")
+
+    # Cancel any existing task
+    old_task = _strat_test_tasks.pop(uid, None)
+    if old_task and not old_task.done():
+        old_task.cancel()
+
+    await message.answer(
+        f"🔬 <b>Strategy Test запущен</b>\n\n"
+        f"Стратегия: <b>{strat_label}</b>\n"
+        f"Цель: <b>{target} сделок</b>\n"
+        f"Экспирация: <b>{expiry_mode}</b>\n\n"
+        f"Сканирование всех OTC пар в тихом режиме.\n"
+        f"Сигналы пользователям <b>НЕ</b> отправляются.\n"
+        f"Прогресс каждые 5 сделок.\n\n"
+        f"Остановить: <code>/strat_test stop</code>",
+        parse_mode="HTML",
+    )
+
+    bot = message.bot
+
+    async def _progress(msg: str) -> None:
+        try:
+            await bot.send_message(uid, msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+    async def _run_strat_test() -> None:
+        try:
+            from backtest.paper_runner import run_paper_test
+            results, summary = await run_paper_test(
+                target             = target,
+                expiry             = expiry_mode,
+                progress_cb        = _progress,
+                progress_every     = 5,
+                allowed_strategies = allowed,
+            )
+
+            # Build header that shows which strategies were tested
+            header = (
+                f"🔬 <b>Strategy Test — {strat_label}</b>\n"
+                f"Сделок: {len(results)} | Экспирация: {expiry_mode}\n"
+                f"──────────────────────────────\n"
+            )
+
+            # Send header
+            await bot.send_message(uid, header, parse_mode="HTML")
+
+            # Send summary in chunks
+            _LIMIT = 3800
+            lines  = summary.split("\n")
+            chunk, length = [], 0
+            for line in lines:
+                length += len(line) + 1
+                if length > _LIMIT:
+                    await bot.send_message(
+                        uid, "<pre>" + "\n".join(chunk) + "</pre>",
+                        parse_mode="HTML",
+                    )
+                    chunk, length = [line], len(line) + 1
+                else:
+                    chunk.append(line)
+            if chunk:
+                await bot.send_message(
+                    uid, "<pre>" + "\n".join(chunk) + "</pre>",
+                    parse_mode="HTML",
+                )
+
+            # CSV export
+            import tempfile, csv
+            from aiogram.types import FSInputFile
+            if results:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".csv", prefix="strat_test_", delete=False,
+                    mode="w", newline="", encoding="utf-8",
+                ) as tmp:
+                    fpath = tmp.name
+                    writer = csv.writer(tmp)
+                    writer.writerow([
+                        "pair", "direction", "expiry",
+                        "entry_price", "close_price", "result", "pnl_pct",
+                        "entry_time", "strategy", "confidence", "session",
+                    ])
+                    for r in results:
+                        dbg = r.trade.details.get("debug", {})
+                        writer.writerow([
+                            r.trade.pair,
+                            r.trade.direction,
+                            r.trade.expiry,
+                            r.trade.entry_price,
+                            r.close_price,
+                            r.result,
+                            r.pnl_pct,
+                            datetime.fromtimestamp(r.trade.entry_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            r.trade.details.get("primary_strategy", ""),
+                            dbg.get("final_score") or r.trade.details.get("confidence_raw", ""),
+                            getattr(r.trade, "session_dir", "NEUTRAL"),
+                        ])
+                try:
+                    doc = FSInputFile(fpath, filename=f"strat_test_{strat_arg}.csv")
+                    await bot.send_document(
+                        uid, doc,
+                        caption=f"📊 <b>{strat_label}</b> — {len(results)} сделок",
+                        parse_mode="HTML",
+                    )
+                finally:
+                    try:
+                        os.unlink(fpath)
+                    except Exception:
+                        pass
+
+        except asyncio.CancelledError:
+            logger.info("Strat test cancelled for user %d", uid)
+        except Exception as exc:
+            logger.exception("Strat test error for user %d: %s", uid, exc)
+            try:
+                await bot.send_message(uid, f"❌ Strat test ошибка: {exc}", parse_mode="HTML")
+            except Exception:
+                pass
+        finally:
+            _strat_test_tasks.pop(uid, None)
+
+    task = asyncio.create_task(_run_strat_test())
+    _strat_test_tasks[uid] = task
+
+
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────
 
 @router.message(Command("addadmin"))
