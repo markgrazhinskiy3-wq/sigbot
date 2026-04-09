@@ -58,32 +58,28 @@ logger = logging.getLogger(__name__)
 _MODE_STRATEGIES: dict[str, dict] = {
     "TRENDING_UP": {
         "priority":  [],
-        # Trend-following strategies work best in trending markets
         "primary":   ["ema_micro_cross", "otc_trend_confirm", "rsi_bb_scalp", "three_candle_reversal"],
-        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
+        "secondary": [],
     },
     "TRENDING_DOWN": {
         "priority":  [],
         "primary":   ["ema_micro_cross", "otc_trend_confirm", "rsi_bb_scalp", "three_candle_reversal"],
-        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
+        "secondary": [],
     },
     "RANGE": {
         "priority":  [],
-        # Mean-reversion strategies dominate in range markets
         "primary":   ["rsi_bb_scalp", "stoch_snap", "three_candle_reversal", "double_bottom_top"],
-        "secondary": ["ema_micro_cross", "level_touch", "level_breakout"],
+        "secondary": ["ema_micro_cross"],
     },
     "VOLATILE": {
         "priority":  [],
-        # Only the most selective strategies in volatile markets
         "primary":   ["rsi_bb_scalp", "stoch_snap", "three_candle_reversal"],
-        "secondary": ["level_touch", "level_breakout"],
+        "secondary": [],
     },
     "SQUEEZE": {
         "priority":  [],
-        # Squeeze = compression before breakout; mean-reversion + double patterns work
         "primary":   ["rsi_bb_scalp", "stoch_snap", "double_bottom_top", "ema_micro_cross"],
-        "secondary": ["ema_bounce", "level_touch", "level_breakout"],
+        "secondary": [],
     },
 }
 
