@@ -194,47 +194,81 @@ def calculate_strategy_availability(
     levels,
     levels_info: dict,
 ) -> tuple[int, list[str]]:
-    """Check prerequisites (not full signals) for each of the 6 strategies."""
+    """Check prerequisites for each of the 6 NEW active strategies."""
     applicable = []
     try:
-        current = float(df["close"].iloc[-1])
-        last10  = df.tail(10)
-        last5   = df.tail(5)
-        last20  = df.tail(20)
+        current   = float(df["close"].iloc[-1])
+        last10    = df.tail(10)
+        last5     = df.tail(5)
+        last3     = df.tail(3)
         atr_ratio = ind.atr_ratio
 
         ema_aligned = (ind.ema5 > ind.ema13 > ind.ema21) or \
                       (ind.ema5 < ind.ema13 < ind.ema21)
-
-        # Candles in trend direction (last 10)
-        if ind.ema5 > ind.ema13:
-            trend_candles = int((last10["close"] > last10["open"]).sum())
-        else:
-            trend_candles = int((last10["close"] < last10["open"]).sum())
-
-        sig_levels = levels_info.get("supports", []) + levels_info.get("resistances", [])
-        sig_prices = [lv["price"] for lv in sig_levels]
-
-        # ── 1. EMA Bounce ─────────────────────────────────────
-        if ema_aligned and atr_ratio > 0.5 and trend_candles >= 3:
-            applicable.append("EMA Bounce")
-
-        # ── 2. Level Touch ────────────────────────────────────
-        near_level = any(
-            abs(p - current) / current < 0.003 for p in sig_prices
-        )
-        if sig_levels and near_level:
-            applicable.append("Level Touch")
-
-        # ── 3. RSI Reversal ───────────────────────────────────
         rsi_now = ind.rsi
-        rsi_extreme = rsi_now < 25 or rsi_now > 75
-        last_c = df["close"].tail(5).values
-        consec_up = all(last_c[i] < last_c[i + 1] for i in range(len(last_c) - 1))
-        consec_dn = all(last_c[i] > last_c[i + 1] for i in range(len(last_c) - 1))
-        consec_move = (consec_up or consec_dn) and atr_ratio > 0.7
-        if rsi_extreme or consec_move:
-            applicable.append("RSI Reversal")
+
+        # ── 1. RSI + Bollinger Scalp (1m) ─────────────────────
+        # RSI extreme + price near BB band
+        rsi_extreme = rsi_now < 35 or rsi_now > 65
+        bb_mid  = (ind.bb_upper + ind.bb_lower) / 2
+        bb_half = (ind.bb_upper - ind.bb_lower) / 2
+        near_bb = bb_half > 0 and abs(current - bb_mid) > bb_half * 0.6
+        if rsi_extreme and near_bb and atr_ratio > 0.4:
+            applicable.append("RSI+BB Scalp")
+
+        # ── 2. Three Candle Reversal (1m) ─────────────────────
+        # Three consecutive same-color candles
+        c = last3["close"].values
+        o = last3["open"].values
+        if len(c) == 3:
+            all_bull = all(c[i] > o[i] for i in range(3))
+            all_bear = all(c[i] < o[i] for i in range(3))
+            if (all_bull or all_bear) and atr_ratio > 0.5:
+                applicable.append("Three Candle Reversal")
+
+        # ── 3. Stochastic Snap (1m) ───────────────────────────
+        # Stoch oversold/overbought (using RSI as proxy if stoch unavailable)
+        stoch_extreme = rsi_now < 30 or rsi_now > 70
+        last_c5 = df["close"].tail(5).values
+        consec_up = len(last_c5) > 1 and all(last_c5[i] < last_c5[i+1] for i in range(len(last_c5)-1))
+        consec_dn = len(last_c5) > 1 and all(last_c5[i] > last_c5[i+1] for i in range(len(last_c5)-1))
+        if stoch_extreme and (consec_up or consec_dn):
+            applicable.append("Stoch Snap")
+
+        # ── 4. EMA Micro-Cross (1m) ───────────────────────────
+        # EMAs close to crossing — ema5 near ema13
+        ema_gap = abs(ind.ema5 - ind.ema13)
+        ema_pct = ema_gap / ind.ema13 if ind.ema13 > 0 else 1.0
+        if ema_pct < 0.002 and atr_ratio > 0.4:
+            applicable.append("EMA Micro-Cross")
+
+        # ── 5. MACD Trend Confirm (2m) ────────────────────────
+        # EMA alignment + trend structure (proxy for MACD histogram)
+        if ind.ema5 > ind.ema13:
+            trend_bull = int((last10["close"] > last10["open"]).sum())
+            if ema_aligned and trend_bull >= 5:
+                applicable.append("MACD Trend")
+        else:
+            trend_bear = int((last10["close"] < last10["open"]).sum())
+            if ema_aligned and trend_bear >= 5:
+                applicable.append("MACD Trend")
+
+        # ── 6. Double Bottom / Top (2m) ───────────────────────
+        # Two local lows/highs at similar price (swing detection proxy)
+        highs  = df["high"].tail(20).values
+        lows   = df["low"].tail(20).values
+        if len(lows) >= 10:
+            # local lows
+            local_lows = [lows[i] for i in range(1, len(lows)-1) if lows[i] < lows[i-1] and lows[i] < lows[i+1]]
+            local_highs = [highs[i] for i in range(1, len(highs)-1) if highs[i] > highs[i-1] and highs[i] > highs[i+1]]
+            avg_low  = sum(local_lows)  / len(local_lows)  if local_lows  else 0
+            avg_high = sum(local_highs) / len(local_highs) if local_highs else 0
+            double_bottom = len(local_lows) >= 2 and avg_low > 0 and (
+                max(local_lows) - min(local_lows)) / avg_low < 0.003
+            double_top = len(local_highs) >= 2 and avg_high > 0 and (
+                max(local_highs) - min(local_highs)) / avg_high < 0.003
+            if double_bottom or double_top:
+                applicable.append("Double Bottom/Top")
 
     except Exception as exc:
         logger.debug("Strategy availability error: %s", exc)
@@ -314,33 +348,34 @@ def _mode_label_ru(mode: str) -> str:
 
 def _build_explanation(df: pd.DataFrame, ind, levels_info: dict, applicable: list[str], mode: str) -> str:
     try:
-        current = float(df["close"].iloc[-1])
-        parts   = []
+        parts = []
 
-        if "EMA Bounce" in applicable:
+        if "RSI+BB Scalp" in applicable:
+            side = "перепродан" if ind.rsi < 35 else "перекуплен"
+            parts.append(f"RSI {ind.rsi:.0f} ({side}), цена у края BB.")
+
+        if "Three Candle Reversal" in applicable:
+            last3 = df.tail(3)
+            bull = all(last3["close"].values[i] > last3["open"].values[i] for i in range(3))
+            parts.append(f"3 свечи {'бычьи' if bull else 'медвежьи'} подряд — разворот.")
+
+        if "Stoch Snap" in applicable:
+            side = "перепродан" if ind.rsi < 30 else "перекуплен"
+            parts.append(f"Осциллятор {side}, движение истощается.")
+
+        if "EMA Micro-Cross" in applicable:
+            parts.append(f"EMA5/EMA13 у пересечения ({ind.ema5:.5g}/{ind.ema13:.5g}).")
+
+        if "MACD Trend" in applicable:
             direction = "вверх" if ind.ema5 > ind.ema13 else "вниз"
-            parts.append(f"EMA выровнены {direction} ({ind.ema5:.5g}/{ind.ema13:.5g}).")
+            parts.append(f"Тренд подтверждён EMA, движение {direction}.")
 
-        sups = levels_info.get("supports", [])
-        ress = levels_info.get("resistances", [])
-        all_lvls = sups + ress
-        if all_lvls and ("Level Touch" in applicable or "Micro Breakout" in applicable):
-            nearest = min(all_lvls, key=lambda lv: abs(lv["price"] - current))
-            dist    = abs(nearest["price"] - current) / current * 100
-            parts.append(f"Уровень {nearest['price']:.5g} ({nearest['touches']} касания, {dist:.2f}% от цены).")
-
-        if "RSI Reversal" in applicable:
-            parts.append(f"RSI {ind.rsi:.0f} — условия разворота.")
-
-        if "Squeeze Breakout" in applicable:
-            parts.append("Волатильность сжата, BB сужаются — ожидаем пробой.")
-
-        if "Divergence" in applicable and not parts:
-            parts.append("Дивергенция RSI на свинговых экстремумах.")
+        if "Double Bottom/Top" in applicable:
+            parts.append("Двойное дно/вершина — разворотная структура.")
 
         n = len(applicable)
-        if n >= 3:
-            parts.append(f"{n} стратегии доступны.")
+        if n >= 3 and len(parts) < 2:
+            parts.append(f"{n} стратегии подходят для этой пары.")
 
         if not parts:
             parts.append(f"Режим: {_mode_label_ru(mode)}. Условия подходящие.")
