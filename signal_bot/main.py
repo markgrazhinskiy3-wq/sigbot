@@ -75,23 +75,30 @@ async def _setup_commands(bot: Bot) -> None:
     user_commands = [
         BotCommand(command="signal", description="📊 Скан пар — лучшие сигналы прямо сейчас"),
         BotCommand(command="start",  description="🏠 Главное меню"),
-        BotCommand(command="stats",  description="📈 Моя статистика"),
+        BotCommand(command="stats",  description="📈 Моя статистика — WIN/LOSS и winrate"),
         BotCommand(command="help",   description="ℹ️ Как пользоваться ботом"),
     ]
     admin_commands = user_commands + [
-        BotCommand(command="admin",     description="⚙️ Панель администратора"),
-        BotCommand(command="pending",   description="⏳ Заявки на одобрение"),
-        BotCommand(command="approve",   description="✅ Одобрить пользователя"),
-        BotCommand(command="deny",      description="❌ Отклонить пользователя"),
-        BotCommand(command="users",     description="👥 Список всех пользователей"),
-        BotCommand(command="broadcast", description="📢 Рассылка"),
-        BotCommand(command="debug",     description="🔬 Debug анализа пары"),
-        BotCommand(command="daystats",  description="📅 Статистика всех сигналов за сегодня"),
-        BotCommand(command="report",    description="📋 Performance-отчёт по стратегиям (/report 7)"),
-        BotCommand(command="condstats", description="🔬 Частота условий стратегий (/condstats reset)"),
-        BotCommand(command="addadmin",     description="➕ Назначить администратора"),
-        BotCommand(command="removeadmin",  description="➖ Снять администратора"),
-        BotCommand(command="admins",       description="👥 Список администраторов"),
+        # ── Пользователи ───────────────────────────────────────────────────
+        BotCommand(command="pending",    description="⏳ Заявки на одобрение"),
+        BotCommand(command="approve",    description="✅ Одобрить: /approve ID"),
+        BotCommand(command="deny",       description="❌ Отклонить: /deny ID"),
+        BotCommand(command="users",      description="👥 Все пользователи и статусы"),
+        BotCommand(command="broadcast",  description="📢 Рассылка: /broadcast текст"),
+        # ── Анализ и отчёты ────────────────────────────────────────────────
+        BotCommand(command="debug",      description="🔬 Анализ: /debug или /debug SYMBOL"),
+        BotCommand(command="report",     description="📋 Отчёт: /report today | 7 | 30 | all"),
+        BotCommand(command="condstats",  description="📉 Частота условий стратегий"),
+        BotCommand(command="export_csv", description="💾 Экспорт логов сигналов в CSV"),
+        # ── Бэктест ────────────────────────────────────────────────────────
+        BotCommand(command="paper_test", description="🧪 Бэктест: /paper_test 50 | 50 stoch | stop"),
+        # ── Пары и WS ──────────────────────────────────────────────────────
+        BotCommand(command="pairsinfo",  description="📡 Все пары с payout%"),
+        BotCommand(command="pairsdiag",  description="🔌 Диагностика WebSocket PocketOption"),
+        # ── Управление администраторами ────────────────────────────────────
+        BotCommand(command="addadmin",    description="➕ Назначить администратора: /addadmin ID"),
+        BotCommand(command="removeadmin", description="➖ Снять администратора: /removeadmin ID"),
+        BotCommand(command="admins",      description="👥 Список всех администраторов"),
     ]
 
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())

@@ -412,21 +412,6 @@ async def cb_toggle_auto(callback: CallbackQuery) -> None:
 
 # ─── Admin commands ──────────────────────────────────────────────────────────
 
-@router.message(Command("admin"))
-async def cmd_admin(message: Message) -> None:
-    if not _is_admin(message.from_user.id):
-        return
-
-    await message.answer(
-        "🔧 <b>Панель администратора</b>\n\n"
-        "Команды:\n"
-        "/approve <code>ID</code> — одобрить пользователя\n"
-        "/deny <code>ID</code> — отклонить пользователя\n"
-        "/users — список всех пользователей\n"
-        "/pending — список ожидающих\n"
-        "/broadcast <code>текст</code> — рассылка всем одобренным",
-        parse_mode="HTML",
-    )
 
 
 @router.message(Command("approve"))
@@ -1476,114 +1461,192 @@ async def cmd_help(message: Message) -> None:
         reply_markup=main_menu_keyboard(lang=lang, auto_enabled=is_auto_enabled(user_id)),
     )
 
+    if _is_admin(user_id):
+        await message.answer(
+            "🔧 <b>Команды администратора</b>\n\n"
+            "<b>Пользователи:</b>\n"
+            "/pending — заявки на одобрение\n"
+            "/approve <code>ID</code> — одобрить\n"
+            "/deny <code>ID</code> — отклонить\n"
+            "/users — список всех пользователей\n"
+            "/broadcast <code>текст</code> — рассылка всем\n\n"
+            "<b>Анализ и отчёты:</b>\n"
+            "/debug — анализ последнего сигнала\n"
+            "/debug <code>SYMBOL</code> — свежий анализ пары\n"
+            "/report today — статистика за сегодня\n"
+            "/report <code>7</code> — отчёт за N дней\n"
+            "/report all — полный отчёт за всё время\n"
+            "/condstats — частота условий стратегий\n"
+            "/export_csv — экспорт логов сигналов в CSV\n\n"
+            "<b>Бэктест:</b>\n"
+            "/paper_test <code>50</code> — тест всех стратегий (50 сделок)\n"
+            "/paper_test <code>30 stoch</code> — тест одной стратегии\n"
+            "/paper_test stop — остановить тест\n\n"
+            "<b>Пары и WS:</b>\n"
+            "/pairsinfo — все пары с payout%\n"
+            "/pairsdiag — диагностика WebSocket\n\n"
+            "<b>Администраторы (только главный):</b>\n"
+            "/addadmin <code>ID</code> — назначить\n"
+            "/removeadmin <code>ID</code> — снять\n"
+            "/admins — список администраторов",
+            parse_mode="HTML",
+        )
 
-# ─── /daystats (admin) ───────────────────────────────────────────────────────
 
-@router.message(Command("daystats"))
-async def cmd_daystats(message: Message) -> None:
+# ─── /report — unified stats command ─────────────────────────────────────────
+# Replaces: /daystats, /analytics, /report
+# Usage:
+#   /report          — краткое summary (analytics) + детальный breakdown
+#   /report today    — статистика за сегодня (бывший /daystats)
+#   /report all      — полный отчёт за всё время
+#   /report 7        — отчёт за последние N дней
+
+async def _send_chunks(message: Message, lines: list[str], limit: int = 4000) -> None:
+    chunk, length = [], 0
+    for line in lines:
+        length += len(line) + 1
+        if length > limit:
+            await message.answer("\n".join(chunk), parse_mode="HTML")
+            chunk, length = [line], len(line) + 1
+        else:
+            chunk.append(line)
+    if chunk:
+        await message.answer("\n".join(chunk), parse_mode="HTML")
+
+
+@router.message(Command("report"))
+async def cmd_report(message: Message) -> None:
+    """Admin-only: unified report — today / N days / all / analytics summary."""
     if not _is_admin(message.from_user.id):
         return
 
     from datetime import datetime, timezone
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    data = await get_daily_admin_stats(today)
+    from itertools import groupby
 
-    t = data["totals"]
-    total   = t.get("total")   or 0
-    users   = t.get("unique_users") or 0
-    wins    = t.get("wins")    or 0
-    losses  = t.get("losses")  or 0
-    pending = t.get("pending") or 0
-    winrate = t.get("winrate")
-    buy_c   = t.get("buy_count")  or 0
-    sell_c  = t.get("sell_count") or 0
+    args = (message.text or "").split()
+    arg  = args[1].lower() if len(args) >= 2 else ""
 
-    if total == 0:
-        await message.answer(
-            f"📊 <b>Статистика за {today}</b>\n\nСигналов за сегодня ещё не было.",
-            parse_mode="HTML",
-        )
+    # ── /report today ─────────────────────────────────────────────────────────
+    if arg == "today":
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        data = await get_daily_admin_stats(date_str)
+        tot  = data["totals"]
+
+        total   = tot.get("total")        or 0
+        users   = tot.get("unique_users") or 0
+        wins    = tot.get("wins")         or 0
+        losses  = tot.get("losses")       or 0
+        pending = tot.get("pending")      or 0
+        winrate = tot.get("winrate")
+        buy_c   = tot.get("buy_count")    or 0
+        sell_c  = tot.get("sell_count")   or 0
+
+        if total == 0:
+            await message.answer(
+                f"📅 <b>Статистика за {date_str}</b>\n\nСигналов за сегодня ещё не было.",
+                parse_mode="HTML",
+            )
+            return
+
+        wr_str = f"{winrate}%" if winrate is not None else "—"
+        lines  = [
+            f"📅 <b>Статистика за {date_str} (UTC)</b>\n",
+            f"Всего сигналов:    <b>{total}</b>",
+            f"Уникальных юзеров: <b>{users}</b>",
+            f"✅ Прибыльных:     <b>{wins}</b>",
+            f"❌ Убыточных:      <b>{losses}</b>",
+            f"⏳ В процессе:     <b>{pending}</b>",
+            f"🎯 Точность:       <b>{wr_str}</b>",
+            f"📈 BUY / SELL:     <b>{buy_c} / {sell_c}</b>",
+        ]
+        if data.get("by_strategy"):
+            lines.append("\n<b>По стратегиям:</b>")
+            for s in data["by_strategy"]:
+                wr = f"{s['winrate']}%" if s["winrate"] is not None else "—"
+                lines.append(f"  {s['strategy'] or '?'}: {s['total']} сиг  {s['wins']}W/{s['losses']}L  ({wr})")
+        if data.get("by_pair"):
+            lines.append("\n<b>По парам (топ):</b>")
+            for p in data["by_pair"]:
+                wr = f"{p['winrate']}%" if p["winrate"] is not None else "—"
+                lines.append(f"  {p['pair_label']}: {p['total']} сиг  {p['wins']}W/{p['losses']}L  ({wr})")
+        await message.answer("\n".join(lines), parse_mode="HTML")
         return
 
-    wr_str = f"{winrate}%" if winrate is not None else "—"
-
-    lines = [
-        f"📊 <b>Статистика за {today} (UTC)</b>\n",
-        f"Всего сигналов:    <b>{total}</b>",
-        f"Уникальных юзеров: <b>{users}</b>",
-        f"✅ Прибыльных:     <b>{wins}</b>",
-        f"❌ Убыточных:      <b>{losses}</b>",
-        f"⏳ В процессе:     <b>{pending}</b>",
-        f"🎯 Точность:       <b>{wr_str}</b>",
-        f"📈 BUY / SELL:     <b>{buy_c} / {sell_c}</b>",
-    ]
-
-    _strat_names = {
-        "impulse":  "Импульс",
-        "bounce":   "Отскок",
-        "breakout": "Лож. пробой",
-    }
-
-    if data["by_strategy"]:
-        lines.append("\n<b>По стратегиям:</b>")
-        for s in data["by_strategy"]:
-            name = _strat_names.get(s["strategy"] or "", s["strategy"] or "?")
-            wr   = f"{s['winrate']}%" if s["winrate"] is not None else "—"
-            lines.append(
-                f"  {name}: {s['total']} сиг  {s['wins']}W/{s['losses']}L  ({wr})"
-            )
-
-    if data["by_pair"]:
-        lines.append("\n<b>По парам (топ):</b>")
-        for p in data["by_pair"]:
-            wr = f"{p['winrate']}%" if p["winrate"] is not None else "—"
-            lines.append(
-                f"  {p['pair_label']}: {p['total']} сиг  {p['wins']}W/{p['losses']}L  ({wr})"
-            )
-
-    await message.answer("\n".join(lines), parse_mode="HTML")
-
-
-# ─── /report ─────────────────────────────────────────────────────────────────
-
-@router.message(Command("report"))
-async def cmd_report(message: Message) -> None:
-    """Admin-only: performance breakdown by strategy/mode/tier/expiry/confidence."""
-    if not _is_admin(message.from_user.id):
-        return
-
-    # Parse optional days arg: /report 7  or  /report 30
-    args  = (message.text or "").split()
+    # ── /report [all | N] — performance breakdown ─────────────────────────────
     days: int | None = None
-    if len(args) >= 2:
+    if arg and arg != "all":
         try:
-            days = int(args[1])
+            days = int(arg)
         except ValueError:
-            pass
+            await message.answer(
+                "Использование:\n"
+                "<code>/report today</code> — за сегодня\n"
+                "<code>/report 7</code>     — за N дней\n"
+                "<code>/report all</code>   — за всё время\n"
+                "<code>/report</code>       — краткое summary + разбивка",
+                parse_mode="HTML",
+            )
+            return
 
+    # ── If no arg: show analytics summary first ───────────────────────────────
+    if not arg:
+        summary = await analytics_logger.get_summary()
+        if summary and summary.get("total", 0) > 0:
+            total    = summary["total"]
+            resolved = summary["resolved"]
+            wins     = summary["wins"]
+            losses   = summary["losses"]
+            wr       = summary["winrate"]
+            pending  = total - resolved
+            wr_str   = f"{wr}%" if wr is not None else "—"
+            sumlines = [
+                "📊 <b>Analytics — общая сводка</b>\n",
+                f"Всего сигналов:  <b>{total}</b>",
+                f"Разрешено:       <b>{resolved}</b>  (pending: {pending})",
+                f"WIN / LOSS:      <b>{wins} / {losses}</b>",
+                f"Общий winrate:   <b>{wr_str}</b>",
+            ]
+            for row in summary.get("by_pattern", []):
+                n = row["n"]; w = row["w"]
+                pat_wr = round(w / n * 100, 1) if n else 0
+                sumlines.append(f"  {row['pattern_winner'] or '—': <22} {w}/{n}  ({pat_wr}%)")
+            for row in summary.get("by_expiry", []):
+                n = row["n"]; w = row["w"]
+                exp_wr = round(w / n * 100, 1) if n else 0
+                sumlines.append(f"  {row['expiry']}: {w}/{n} ({exp_wr}%)")
+            await message.answer("\n".join(sumlines), parse_mode="HTML")
+
+    # ── Performance breakdown ─────────────────────────────────────────────────
     rows = await get_performance_report(days=days)
 
+    period_label = (
+        f"последние {days} дн." if days
+        else ("всё время" if arg == "all" else "всё время")
+    )
+
     if not rows:
-        period = f"последние {days} дн." if days else "всё время"
         await message.answer(
-            f"📋 <b>Performance Report</b> ({period})\n\nДанных пока нет.",
+            f"📋 <b>Performance Report</b> ({period_label})\n\nДанных пока нет.",
             parse_mode="HTML",
         )
         return
 
     _STRAT_LABEL = {
-        "ema_bounce":     "EMA Bounce",
-        "level_breakout": "Level Breakout",
-        "level_bounce":   "Level Bounce (legacy)",
-        "rsi_reversal":   "RSI Rev (legacy)",
-        "unknown":        "Unknown",
+        "ema_bounce":           "EMA Bounce",
+        "level_breakout":       "Level Breakout",
+        "level_bounce":         "Level Bounce (legacy)",
+        "rsi_reversal":         "RSI Rev (legacy)",
+        "rsi_bb_scalp":         "RSI+BB Scalp",
+        "three_candle_reversal":"Three Candle Reversal",
+        "stoch_snap":           "Stochastic Snap",
+        "ema_micro_cross":      "EMA Micro-Cross",
+        "otc_trend_confirm":    "OTC Trend Confirm",
+        "double_bottom_top":    "Double Bottom/Top",
+        "unknown":              "Unknown",
     }
 
-    period_label = f"последние {days} дн." if days else "всё время"
     lines = [f"📋 <b>Performance Report</b> ({period_label})\n"]
 
-    # Group rows by strategy
-    from itertools import groupby
     for strat, strat_rows in groupby(rows, key=lambda r: r["strategy"]):
         strat_rows = list(strat_rows)
         s_total = sum(r["total"] for r in strat_rows)
@@ -1593,7 +1656,6 @@ async def cmd_report(message: Message) -> None:
         label   = _STRAT_LABEL.get(strat, strat)
         lines.append(f"\n<b>{label}</b>  [{s_total} сиг  {s_wins}W/{s_loss}L  {s_wr}]")
 
-        # Group by mode × tier
         def _mode_tier(r: dict) -> tuple:
             return (r["market_mode"], r["used_tier"])
 
@@ -1605,28 +1667,13 @@ async def cmd_report(message: Message) -> None:
             g_wr   = f"{round(g_wins / (g_wins + g_loss) * 100, 1)}%" if (g_wins + g_loss) > 0 else "—"
             tier_label = {"primary": "1st", "secondary": "2nd"}.get(tier or "", tier or "?")
             lines.append(f"  {mode or '?'} [{tier_label}]  {g_tot} сиг  {g_wins}W/{g_loss}L  {g_wr}")
-
-            # Detail rows: expiry + confidence band
             for r in group:
                 band = r["confidence_band"]
                 exp  = f"{r['expiration_sec'] // 60}м" if r["expiration_sec"] else "?"
                 wr   = f"{r['win_rate']}%" if r["win_rate"] is not None else "—"
-                lines.append(
-                    f"    {exp}  ⭐{band}  {r['total']}сиг  {r['wins']}W/{r['losses']}L  {wr}"
-                )
+                lines.append(f"    {exp}  ⭐{band}  {r['total']}сиг  {r['wins']}W/{r['losses']}L  {wr}")
 
-    # Split into chunks to respect Telegram's 4096-char message limit
-    LIMIT = 4000
-    chunk, length = [], 0
-    for line in lines:
-        length += len(line) + 1
-        if length > LIMIT:
-            await message.answer("\n".join(chunk), parse_mode="HTML")
-            chunk, length = [line], len(line) + 1
-        else:
-            chunk.append(line)
-    if chunk:
-        await message.answer("\n".join(chunk), parse_mode="HTML")
+    await _send_chunks(message, lines)
 
 
 # ─── /condstats — condition frequency report ──────────────────────────────────
@@ -1706,66 +1753,7 @@ def _mini_bar(rate: int) -> str:
     return "█" * filled + "░" * (5 - filled)
 
 
-# ─── Analytics (/analytics, /export_csv) ──────────────────────────────────────
-
-@router.message(Command("analytics"))
-async def cmd_analytics(message: Message) -> None:
-    """Admin-only: show winrate summary from signals_log."""
-    if not _is_admin(message.from_user.id):
-        return
-
-    summary = await analytics_logger.get_summary()
-    if not summary or summary.get("total", 0) == 0:
-        await message.answer(
-            "📊 <b>Analytics</b>\n\nПока нет залогированных сигналов.\n"
-            "Сигналы логируются автоматически при каждом BUY/SELL.",
-            parse_mode="HTML",
-        )
-        return
-
-    total    = summary["total"]
-    resolved = summary["resolved"]
-    wins     = summary["wins"]
-    losses   = summary["losses"]
-    wr       = summary["winrate"]
-    pending  = total - resolved
-
-    wr_str = f"{wr}%" if wr is not None else "—"
-
-    lines = [
-        "📊 <b>Analytics — signals_log</b>\n",
-        f"Всего сигналов:  <b>{total}</b>",
-        f"Разрешено:       <b>{resolved}</b>  (pending: {pending})",
-        f"WIN / LOSS:      <b>{wins} / {losses}</b>",
-        f"Общий winrate:   <b>{wr_str}</b>",
-    ]
-
-    by_pattern = summary.get("by_pattern", [])
-    if by_pattern:
-        lines.append("\n<b>По паттерну:</b>")
-        for row in by_pattern:
-            n = row["n"]
-            w = row["w"]
-            pat_wr = round(w / n * 100, 1) if n else 0
-            bar = _mini_bar(pat_wr)
-            lines.append(
-                f"  {row['pattern_winner'] or '—': <22} {w}/{n}  ({pat_wr}%)  {bar}"
-            )
-
-    by_expiry = summary.get("by_expiry", [])
-    if by_expiry:
-        lines.append("\n<b>По экспирации:</b>")
-        for row in by_expiry:
-            n = row["n"]
-            w = row["w"]
-            exp_wr = round(w / n * 100, 1) if n else 0
-            bar = _mini_bar(exp_wr)
-            lines.append(f"  {row['expiry']}: {w}/{n} ({exp_wr}%) {bar}")
-
-    lines.append("\n<i>Экспорт в CSV: /export_csv</i>")
-
-    await message.answer("\n".join(lines), parse_mode="HTML")
-
+# ─── /export_csv ─────────────────────────────────────────────────────────────
 
 @router.message(Command("export_csv"))
 async def cmd_export_csv(message: Message) -> None:
@@ -1807,22 +1795,32 @@ async def cmd_export_csv(message: Message) -> None:
             pass
 
 
-# ─── Paper Trading Test (/paper_test) ────────────────────────────────────────
+# ─── /paper_test — paper trading + per-strategy test ─────────────────────────
+# Replaces: /paper_test + /strat_test
+# Usage:
+#   /paper_test [n]            — тест всех стратегий (n сделок, default 100)
+#   /paper_test [n] [strat]    — тест одной стратегии (rsi/stoch/ema/3candle/macd/double/new)
+#   /paper_test stop           — остановить тест
 
-# Active paper test tasks per admin user_id
 _paper_test_tasks: dict[int, asyncio.Task] = {}
+
+_STRAT_ALIASES_HELP = (
+    "  <code>new</code>      — все 6 стратегий\n"
+    "  <code>rsi</code>      — RSI + Bollinger Scalp\n"
+    "  <code>3candle</code>  — Три свечи одного цвета\n"
+    "  <code>stoch</code>    — Stochastic Snap\n"
+    "  <code>ema</code>      — EMA Micro-Cross\n"
+    "  <code>macd</code>     — MACD Trend Confirm (2m)\n"
+    "  <code>double</code>   — Двойное дно/вершина (2m)"
+)
 
 
 @router.message(Command("paper_test"))
 async def cmd_paper_test(message: Message) -> None:
     """
-    Admin-only: run a silent paper trading session.
-    Usage: /paper_test [n]  (default n=100)
-    Usage: /paper_test stop  — cancel running session
-
-    Scans all OTC pairs in real-time using the SAME engine as live trading.
-    No signals are sent to users. Results logged to signals_log (source='paper').
-    Summary printed after target trades are resolved.
+    Admin-only: paper trading test — all strategies or a specific one.
+    Usage: /paper_test [n] [strategy]  (n default=100, strategy default=all)
+    Usage: /paper_test stop            — cancel running session
     """
     if not _is_admin(message.from_user.id):
         return
@@ -1830,7 +1828,7 @@ async def cmd_paper_test(message: Message) -> None:
     uid  = message.from_user.id
     args = (message.text or "").split()
 
-    # ── Stop command ───────────────────────────────────────────────────────────
+    # ── Stop ──────────────────────────────────────────────────────────────────
     if len(args) >= 2 and args[1].lower() == "stop":
         task = _paper_test_tasks.pop(uid, None)
         if task and not task.done():
@@ -1840,30 +1838,66 @@ async def cmd_paper_test(message: Message) -> None:
             await message.answer("Нет активного paper test.", parse_mode="HTML")
         return
 
-    # ── Start command ──────────────────────────────────────────────────────────
-    # Cancel any existing task for this user
+    from backtest.paper_runner import _NEW_STRATEGIES, _STRATEGY_ALIASES
+
+    # ── Parse n (first numeric arg) ───────────────────────────────────────────
+    target       = 100
+    strat_arg    = None
+    allowed      = None
+    strat_label  = "все стратегии"
+
+    for a in args[1:]:
+        if a.isdigit():
+            target = max(1, min(int(a), 500))
+        elif a.lower() not in ("stop",):
+            strat_arg = a.lower()
+
+    # ── Parse strategy filter ─────────────────────────────────────────────────
+    if strat_arg:
+        if strat_arg == "new":
+            allowed     = set(_NEW_STRATEGIES)
+            strat_label = "все новые стратегии"
+        elif strat_arg in _NEW_STRATEGIES:
+            allowed     = {strat_arg}
+            strat_label = strat_arg
+        elif strat_arg in _STRATEGY_ALIASES:
+            resolved    = _STRATEGY_ALIASES[strat_arg]
+            allowed     = {resolved}
+            strat_label = resolved
+        else:
+            await message.answer(
+                f"❌ Неизвестная стратегия: <code>{strat_arg}</code>\n\n"
+                f"Доступные псевдонимы:\n{_STRAT_ALIASES_HELP}\n\n"
+                f"Пример: <code>/paper_test 30 stoch</code>",
+                parse_mode="HTML",
+            )
+            return
+
+    # ── Auto-select expiry for strategy ───────────────────────────────────────
+    if allowed:
+        two_m_only  = allowed <= {"otc_trend_confirm", "double_bottom_top"}
+        one_m_only  = allowed.isdisjoint({"otc_trend_confirm", "double_bottom_top"})
+        expiry      = "2m" if two_m_only else ("1m" if one_m_only else "both")
+    else:
+        expiry = "both"
+
+    expiry_label = {"1m": "1м", "2m": "2м", "both": "1м + 2м"}.get(expiry, expiry)
+    is_strat_mode = allowed is not None
+
+    # ── Cancel any existing task ──────────────────────────────────────────────
     old_task = _paper_test_tasks.pop(uid, None)
     if old_task and not old_task.done():
         old_task.cancel()
 
-    try:
-        target = int(args[1]) if len(args) >= 2 else 100
-        target = max(1, min(target, 500))
-    except ValueError:
-        target = 100
-
-    expiry = "both"
-    if len(args) >= 3 and args[2] in ("1m", "2m"):
-        expiry = args[2]
-
     await message.answer(
-        f"🧪 <b>Paper Trading Test запущен</b>\n\n"
-        f"Цель: <b>{target} сделок</b>\n"
-        f"Экспирация: <b>{ {'1m':'1м','2m':'2м','both':'1м + 2м'}.get(expiry, expiry) }</b>\n"
-        f"Все пары OTC сканируются в тихом режиме.\n"
+        f"{'🔬' if is_strat_mode else '🧪'} "
+        f"<b>{'Strategy Test' if is_strat_mode else 'Paper Trading Test'} запущен</b>\n\n"
+        + (f"Стратегия: <b>{strat_label}</b>\n" if is_strat_mode else "")
+        + f"Цель: <b>{target} сделок</b>\n"
+        f"Экспирация: <b>{expiry_label}</b>\n"
         f"Сигналы <b>НЕ</b> отправляются пользователям.\n\n"
-        f"Прогресс каждые 10 сделок.\n"
-        f"Остановить: /paper_test stop",
+        f"Прогресс каждые {'5' if is_strat_mode else '10'} сделок.\n"
+        f"Остановить: <code>/paper_test stop</code>",
         parse_mode="HTML",
     )
 
@@ -1879,35 +1913,41 @@ async def cmd_paper_test(message: Message) -> None:
         try:
             from backtest.paper_runner import run_paper_test
             results, summary = await run_paper_test(
-                target      = target,
-                expiry      = expiry,
-                progress_cb = _progress,
+                target             = target,
+                expiry             = expiry,
+                progress_cb        = _progress,
+                progress_every     = 5 if is_strat_mode else 10,
+                allowed_strategies = allowed,
             )
-            # Send summary in chunks (Telegram 4096 char limit)
+
+            if is_strat_mode:
+                await bot.send_message(
+                    uid,
+                    f"🔬 <b>Strategy Test — {strat_label}</b>\n"
+                    f"Сделок: {len(results)} | Экспирация: {expiry_label}",
+                    parse_mode="HTML",
+                )
+
             _LIMIT = 3800
             lines  = summary.split("\n")
             chunk, length = [], 0
             for line in lines:
                 length += len(line) + 1
                 if length > _LIMIT:
-                    await bot.send_message(
-                        uid, "<pre>" + "\n".join(chunk) + "</pre>",
-                        parse_mode="HTML",
-                    )
+                    await bot.send_message(uid, "<pre>" + "\n".join(chunk) + "</pre>", parse_mode="HTML")
                     chunk, length = [line], len(line) + 1
                 else:
                     chunk.append(line)
             if chunk:
-                await bot.send_message(
-                    uid, "<pre>" + "\n".join(chunk) + "</pre>",
-                    parse_mode="HTML",
-                )
-            # Export CSV — only trades from this session (not historical DB rows)
+                await bot.send_message(uid, "<pre>" + "\n".join(chunk) + "</pre>", parse_mode="HTML")
+
             import tempfile, csv
             from aiogram.types import FSInputFile
             if results:
+                csv_prefix = f"strat_{strat_arg}_" if is_strat_mode else "paper_"
+                csv_name   = f"paper_{strat_arg or 'all'}.csv"
                 with tempfile.NamedTemporaryFile(
-                    suffix=".csv", prefix="paper_export_", delete=False,
+                    suffix=".csv", prefix=csv_prefix, delete=False,
                     mode="w", newline="", encoding="utf-8",
                 ) as tmp:
                     fpath = tmp.name
@@ -1918,7 +1958,7 @@ async def cmd_paper_test(message: Message) -> None:
                         "entry_time", "strategy", "confidence", "session",
                     ])
                     for r in results:
-                        dbg  = r.trade.details.get("debug", {})
+                        dbg = r.trade.details.get("debug", {})
                         writer.writerow([
                             r.trade.pair,
                             r.trade.symbol,
@@ -1934,13 +1974,10 @@ async def cmd_paper_test(message: Message) -> None:
                             getattr(r.trade, "session_dir", "NEUTRAL"),
                         ])
                 try:
-                    doc = FSInputFile(fpath, filename="paper_signals_log.csv")
+                    doc = FSInputFile(fpath, filename=csv_name)
                     await bot.send_document(
                         uid, doc,
-                        caption=(
-                            f"📊 <b>Paper signals_log.csv</b>\n"
-                            f"Строк (сессия): <b>{len(results)}</b>"
-                        ),
+                        caption=f"📊 <b>{strat_label}</b> — {len(results)} сделок",
                         parse_mode="HTML",
                     )
                 finally:
@@ -1962,220 +1999,6 @@ async def cmd_paper_test(message: Message) -> None:
 
     task = asyncio.create_task(_run_paper())
     _paper_test_tasks[uid] = task
-
-
-# ─── Strategy Test (/strat_test) ─────────────────────────────────────────────
-
-_strat_test_tasks: dict[int, asyncio.Task] = {}
-
-_STRAT_HELP = (
-    "Доступные стратегии / псевдонимы:\n"
-    "  <code>new</code>      — все 6 новых стратегий\n"
-    "  <code>rsi</code>      — RSI + Bollinger Scalp\n"
-    "  <code>3candle</code>  — Три свечи одного цвета\n"
-    "  <code>stoch</code>    — Stochastic Snap\n"
-    "  <code>ema</code>      — EMA Micro-Cross\n"
-    "  <code>macd</code>     — MACD Trend Confirm (2m)\n"
-    "  <code>double</code>   — Двойное дно/вершина (2m)"
-)
-
-
-@router.message(Command("strat_test"))
-async def cmd_strat_test(message: Message) -> None:
-    """
-    Admin-only: test a specific strategy (or all new strategies) in paper mode.
-    Usage: /strat_test [strategy] [n]
-
-    strategy = new | rsi | 3candle | stoch | ema | macd | double
-    n = number of trades to collect (default 30, max 200)
-
-    Examples:
-      /strat_test new 50         — all 6 new strategies, 50 trades
-      /strat_test rsi 30         — only RSI+BB scalp, 30 trades
-      /strat_test stoch 20       — only Stochastic Snap, 20 trades
-      /strat_test stop           — cancel running test
-    """
-    if not _is_admin(message.from_user.id):
-        return
-
-    uid  = message.from_user.id
-    args = (message.text or "").split()
-
-    if len(args) >= 2 and args[1].lower() == "stop":
-        task = _strat_test_tasks.pop(uid, None)
-        if task and not task.done():
-            task.cancel()
-            await message.answer("⏹ Strat test остановлен.", parse_mode="HTML")
-        else:
-            await message.answer("Нет активного strat test.", parse_mode="HTML")
-        return
-
-    if len(args) < 2:
-        await message.answer(
-            "📈 <b>Strategy Test</b>\n\n"
-            "Использование: <code>/strat_test [стратегия] [n]</code>\n\n"
-            + _STRAT_HELP +
-            "\n\nПример: <code>/strat_test new 30</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    from backtest.paper_runner import _NEW_STRATEGIES, _STRATEGY_ALIASES
-
-    strat_arg = args[1].lower()
-
-    if strat_arg == "new":
-        allowed = set(_NEW_STRATEGIES)
-        strat_label = "все новые стратегии"
-    elif strat_arg in _NEW_STRATEGIES:
-        allowed = {strat_arg}
-        strat_label = strat_arg
-    elif strat_arg in _STRATEGY_ALIASES:
-        resolved = _STRATEGY_ALIASES[strat_arg]
-        allowed  = {resolved}
-        strat_label = resolved
-    else:
-        await message.answer(
-            f"❌ Неизвестная стратегия: <code>{strat_arg}</code>\n\n"
-            + _STRAT_HELP,
-            parse_mode="HTML",
-        )
-        return
-
-    try:
-        target = int(args[2]) if len(args) >= 3 else 30
-        target = max(5, min(target, 200))
-    except ValueError:
-        target = 30
-
-    # Determine best expiry for selected strategies
-    two_m_only  = allowed <= {"otc_trend_confirm", "double_bottom_top"}
-    one_m_only  = allowed.isdisjoint({"otc_trend_confirm", "double_bottom_top"})
-    expiry_mode = "2m" if two_m_only else ("1m" if one_m_only else "both")
-    expiry_label = {"1m": "1м", "2m": "2м", "both": "1м + 2м"}.get(expiry_mode, expiry_mode)
-
-    # Cancel any existing task
-    old_task = _strat_test_tasks.pop(uid, None)
-    if old_task and not old_task.done():
-        old_task.cancel()
-
-    await message.answer(
-        f"🔬 <b>Strategy Test запущен</b>\n\n"
-        f"Стратегия: <b>{strat_label}</b>\n"
-        f"Цель: <b>{target} сделок</b>\n"
-        f"Экспирация: <b>{expiry_label}</b>\n\n"
-        f"Сканирование всех OTC пар в тихом режиме.\n"
-        f"Сигналы пользователям <b>НЕ</b> отправляются.\n"
-        f"Прогресс каждые 5 сделок.\n\n"
-        f"Остановить: <code>/strat_test stop</code>",
-        parse_mode="HTML",
-    )
-
-    bot = message.bot
-
-    async def _progress(msg: str) -> None:
-        try:
-            await bot.send_message(uid, msg, parse_mode="HTML")
-        except Exception:
-            pass
-
-    async def _run_strat_test() -> None:
-        try:
-            from backtest.paper_runner import run_paper_test
-            results, summary = await run_paper_test(
-                target             = target,
-                expiry             = expiry_mode,
-                progress_cb        = _progress,
-                progress_every     = 5,
-                allowed_strategies = allowed,
-            )
-
-            # Build header that shows which strategies were tested
-            header = (
-                f"🔬 <b>Strategy Test — {strat_label}</b>\n"
-                f"Сделок: {len(results)} | Экспирация: {expiry_label}\n"
-                f"──────────────────────────────\n"
-            )
-
-            # Send header
-            await bot.send_message(uid, header, parse_mode="HTML")
-
-            # Send summary in chunks
-            _LIMIT = 3800
-            lines  = summary.split("\n")
-            chunk, length = [], 0
-            for line in lines:
-                length += len(line) + 1
-                if length > _LIMIT:
-                    await bot.send_message(
-                        uid, "<pre>" + "\n".join(chunk) + "</pre>",
-                        parse_mode="HTML",
-                    )
-                    chunk, length = [line], len(line) + 1
-                else:
-                    chunk.append(line)
-            if chunk:
-                await bot.send_message(
-                    uid, "<pre>" + "\n".join(chunk) + "</pre>",
-                    parse_mode="HTML",
-                )
-
-            # CSV export
-            import tempfile, csv
-            from aiogram.types import FSInputFile
-            if results:
-                with tempfile.NamedTemporaryFile(
-                    suffix=".csv", prefix="strat_test_", delete=False,
-                    mode="w", newline="", encoding="utf-8",
-                ) as tmp:
-                    fpath = tmp.name
-                    writer = csv.writer(tmp)
-                    writer.writerow([
-                        "pair", "direction", "expiry",
-                        "entry_price", "close_price", "result", "pnl_pct",
-                        "entry_time", "strategy", "confidence", "session",
-                    ])
-                    for r in results:
-                        dbg = r.trade.details.get("debug", {})
-                        writer.writerow([
-                            r.trade.pair,
-                            r.trade.direction,
-                            r.trade.expiry,
-                            r.trade.entry_price,
-                            r.close_price,
-                            r.result,
-                            r.pnl_pct,
-                            datetime.fromtimestamp(r.trade.entry_time).strftime("%Y-%m-%d %H:%M:%S"),
-                            r.trade.details.get("primary_strategy", ""),
-                            dbg.get("final_score") or r.trade.details.get("confidence_raw", ""),
-                            getattr(r.trade, "session_dir", "NEUTRAL"),
-                        ])
-                try:
-                    doc = FSInputFile(fpath, filename=f"strat_test_{strat_arg}.csv")
-                    await bot.send_document(
-                        uid, doc,
-                        caption=f"📊 <b>{strat_label}</b> — {len(results)} сделок",
-                        parse_mode="HTML",
-                    )
-                finally:
-                    try:
-                        os.unlink(fpath)
-                    except Exception:
-                        pass
-
-        except asyncio.CancelledError:
-            logger.info("Strat test cancelled for user %d", uid)
-        except Exception as exc:
-            logger.exception("Strat test error for user %d: %s", uid, exc)
-            try:
-                await bot.send_message(uid, f"❌ Strat test ошибка: {exc}", parse_mode="HTML")
-            except Exception:
-                pass
-        finally:
-            _strat_test_tasks.pop(uid, None)
-
-    task = asyncio.create_task(_run_strat_test())
-    _strat_test_tasks[uid] = task
 
 
 # ─── Admin management (/addadmin, /removeadmin, /admins) ─────────────────────
