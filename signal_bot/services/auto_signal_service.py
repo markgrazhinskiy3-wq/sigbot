@@ -324,9 +324,22 @@ async def _fire_pre_alert_then_signal(
         return
 
     # ── Send the final signal ─────────────────────────────────────────────────
+    from db.database              import save_signal_outcome
+    from services.outcome_tracker import track_outcome
+    from services import analytics_logger
+
+    strategy    = approved_sig.get("strategy", "")
+    signal_price = float(
+        signal.details.get("debug", {}).get("last_close", 0)
+        or approved_sig.get("entry_price", 0)
+    )
+    market_mode  = signal.details.get("market_mode", "")
+    conf_raw_out = signal.details.get("confidence_raw", new_conf)
+    conf_band    = signal.details.get("signal_quality", "")
+
     logger.info(
-        "Auto-signal fired: %s %s strategy=%s new_conf=%.0f → %d users",
-        pair_label, signal.direction, approved_sig["strategy"], new_conf, len(recipients),
+        "Auto-signal fired: %s %s strategy=%s new_conf=%.0f price=%.6f → %d users",
+        pair_label, signal.direction, strategy, new_conf, signal_price, len(recipients),
     )
 
     for user_id in recipients:
@@ -346,6 +359,48 @@ async def _fire_pre_alert_then_signal(
                     symbol, AUTO_EXPIRY_SEC, lang=lang
                 ),
             )
+
+            # ── Start outcome tracking for this user ──────────────────────────
+            # Save a pending record in DB → get outcome_id → wait expiry → notify
+            if signal_price > 0:
+                try:
+                    outcome_id = await save_signal_outcome(
+                        user_id        = user_id,
+                        symbol         = symbol,
+                        pair_label     = pair_label,
+                        direction      = signal.direction,
+                        confidence     = signal.confidence,   # stars (0-5)
+                        strategy       = strategy,
+                        expiration_sec = AUTO_EXPIRY_SEC,
+                        signal_price   = signal_price,
+                        market_mode    = market_mode,
+                        confidence_raw = conf_raw_out,
+                        confidence_band = conf_band,
+                    )
+                    asyncio.create_task(track_outcome(
+                        bot            = bot,
+                        chat_id        = user_id,
+                        outcome_id     = outcome_id,
+                        symbol         = symbol,
+                        pair_label     = pair_label,
+                        direction      = signal.direction,
+                        strategy       = strategy,
+                        expiration_sec = AUTO_EXPIRY_SEC,
+                        signal_price   = signal_price,
+                    ))
+                    asyncio.create_task(analytics_logger.log_signal(
+                        outcome_id  = outcome_id,
+                        pair        = pair_label,
+                        symbol      = symbol,
+                        direction   = signal.direction,
+                        expiry      = "2m" if AUTO_EXPIRY_SEC >= 120 else "1m",
+                        entry_price = signal_price,
+                        details     = signal.details,
+                    ))
+                except Exception as track_exc:
+                    logger.warning("Outcome tracking setup failed for user %d: %s",
+                                   user_id, track_exc)
+
         except Exception as exc:
             logger.debug("Signal send failed user %d: %s", user_id, exc)
 
