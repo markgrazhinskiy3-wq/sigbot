@@ -1,0 +1,304 @@
+Мой бот для Pocket Option OTC полностью готов и работает. Он генерирует сигналы для ручной торговли и отправляет их в Telegram. Бот тестирует все стратегии на всех парах, но проблема в том что общий винрейт сигналов 52.7% — это убыточно.
+
+Мне нужно доработать аналитический модуль бота так, чтобы:
+1. Бот продолжал ТЕСТИРОВАТЬ все стратегии на всех парах (для сбора статистики)
+2. Но ОТПРАВЛЯЛ в Telegram ТОЛЬКО сигналы прошедшие фильтрацию
+3. Отфильтрованные сигналы должны давать винрейт выше 60%
+4. Количество сигналов умеренное: 5-10 в час
+
+Я провёл анализ 262 тестовых сделок и получил следующие данные. На основе этих данных нужно построить фильтрующий модуль.
+
+══════════════════════════════════════════════
+РЕЗУЛЬТАТЫ АНАЛИЗА — СТРАТЕГИИ
+══════════════════════════════════════════════
+
+Стратегии которые РАБОТАЮТ (оставляем):
+- three_candle_reversal: 60.0% винрейт на 30 сделках, особенно хороша в BEAR сессии (69.2%), плоха в BULL (40%)
+- stoch_snap: 75.0% винрейт но всего 4 сделки — перспективная, нужно больше данных
+- otc_trend_confirm: 62.5% винрейт на 8 сделках — перспективная, работает на 2m экспирации
+
+Стратегии которые НЕ РАБОТАЮТ (отключаем для отправки, но продолжаем тестировать):
+- ema_micro_cross: 52.9% на 137 сделках — слишком много шума, генерирует 52% всех сигналов
+- rsi_bb_scalp: 50.7% на 68 сделках — не работает
+- double_bottom_top: 48.0% на 25 сделках — не работает, катастрофа в BEAR сессии (25%)
+
+══════════════════════════════════════════════
+РЕЗУЛЬТАТЫ АНАЛИЗА — ПАРЫ
+══════════════════════════════════════════════
+
+Пары с винрейтом 60%+ (БЕЛЫЙ СПИСОК — отправляем сигналы):
+- AUD/CHF OTC: 64.7% на 17 сделках
+- EUR/CHF OTC: 61.5% на 13 сделках
+- USD/CAD OTC: 61.1% на 18 сделках
+
+Пары 50-60% (СЕРЫЙ СПИСОК — отправляем только при высоком confidence):
+- AUD/CAD OTC: 57.1% на 14 сделках — мин confidence 62
+- AUD/USD OTC: 55.0% на 20 сделках — мин confidence 65
+
+Пары ниже 50% (ЧЁРНЫЙ СПИСОК — НИКОГДА не отправляем, только тестируем):
+- GBP/AUD OTC: 23.1%
+- BHD/CNY OTC: 22.2%
+- KES/USD OTC: 35.7%
+- CHF/JPY OTC: 35.7%
+- AUD/JPY OTC: 38.5%
+- USD/JPY OTC: 41.7%
+- EUR/JPY OTC: 43.8%
+- GBP/USD OTC: 44.4%
+- NZD/JPY OTC: 45.5%
+- AUD/NZD OTC: 46.2%
+- NZD/USD OTC: 50.0%
+- CAD/JPY OTC: 52.9%
+- AED/CNY OTC: 53.3%
+- EUR/GBP OTC: не тестировалась
+
+══════════════════════════════════════════════
+РЕЗУЛЬТАТЫ АНАЛИЗА — СЕССИИ
+══════════════════════════════════════════════
+
+- BEAR: 55.1% — лучшая сессия, three_candle_reversal показывает 69.2%
+- BULL: 53.2% — средняя
+- NEUTRAL: 50.4% — худшая сессия
+
+══════════════════════════════════════════════
+РЕЗУЛЬТАТЫ АНАЛИЗА — ДРУГИЕ ПРОБЛЕМЫ
+══════════════════════════════════════════════
+
+1. Confidence НЕ коррелирует с результатом — high confidence не даёт лучший винрейт. Нужно пересчитывать.
+2. 66.4% всех сделок SELL — сильный перекос, нужен баланс.
+3. Бот открывает 10-16 сделок одновременно — нужно ограничить до 3.
+
+══════════════════════════════════════════════
+ЧТО НУЖНО СДЕЛАТЬ
+══════════════════════════════════════════════
+
+СОЗДАЙ ФИЛЬТРУЮЩИЙ МОДУЛЬ из нескольких файлов и интегрируй в мой существующий бот.
+
+────────────────────────────────────
+ФАЙЛ: signal_filter.py
+────────────────────────────────────
+
+Класс SignalFilter — главный модуль фильтрации.
+
+Конструктор __init__(self, config=None) принимает опциональный конфиг.
+
+Главный метод check(signal) принимает dict сигнала с ключами: pair, direction, strategy, expiry, confidence, session, entry_price, entry_time.
+
+Возвращает dict:
+{
+    'approved': True/False,
+    'reason': str,
+    'signal': dict (копия сигнала с обновлённым confidence),
+    'new_confidence': float,
+    'filters_passed': list,
+    'filters_failed': list
+}
+
+Метод check() прогоняет сигнал через цепочку из 15 фильтров. Если любой фильтр не пройден — сразу return с approved=False и причиной.
+
+Фильтры по порядку:
+
+1. PAIR_BLACKLIST — пара не в чёрном списке
+2. PAIR_WHITELIST — пара в белом списке и enabled
+3. STRATEGY_ENABLED — стратегия включена для отправки
+4. STRATEGY_SESSION — стратегия разрешена в текущей сессии
+5. STRATEGY_EXPIRY — экспирация подходит для стратегии (three_candle_reversal и stoch_snap только 1m, otc_trend_confirm только 2m)
+6. CONFIDENCE_GLOBAL — confidence >= 55
+7. CONFIDENCE_STRATEGY — confidence >= минимум для стратегии (three_candle_reversal: 58, stoch_snap: 55, otc_trend_confirm: 55)
+8. CONFIDENCE_PAIR — confidence >= минимум для пары (AUD/CHF: 55, EUR/CHF: 55, USD/CAD: 55, AUD/CAD: 62, AUD/USD: 65)
+9. MAX_SIMULTANEOUS — не более 3 активных сделок одновременно (отслеживать по времени: 1m=60сек, 2m=120сек)
+10. MIN_TIME_BETWEEN — минимум 30 секунд между сделками
+11. HOURLY_PAIR_LIMIT — не более N сделок на пару в час (AUD/CHF: 3, EUR/CHF: 3, USD/CAD: 3, AUD/CAD: 2, AUD/USD: 2)
+12. HOURLY_TOTAL_LIMIT — не более 15 сделок в час всего
+13. DAILY_LIMIT — не более 100 сделок в день
+14. LOSS_STREAK — после 3 проигрышей подряд пауза 10 минут
+15. DIRECTION_BALANCE — не более 5 сделок в одном направлении подряд
+
+После прохождения всех фильтров — пересчёт confidence:
+- base_score = тестовый винрейт стратегии (three_candle_reversal=60, stoch_snap=75, otc_trend_confirm=62.5)
+- pair_multiplier: AUD/CHF=1.10, EUR/CHF=1.05, USD/CAD=1.05, AUD/CAD=0.95, AUD/USD=0.90
+- session_multiplier: BEAR=1.05, BULL=1.00, NEUTRAL=0.95
+- combo_bonus: three_candle_reversal+BEAR = +5, AUD/CHF + (three_candle_reversal или stoch_snap) = +3
+- penalty: 2 проигрыша подряд на паре = -10
+- формула: new_confidence = (base_score * pair_mult * session_mult) * 0.80 + (original_confidence * 0.20) + combo_bonus - penalty
+- ограничить диапазон 0-100
+
+Дополнительные методы:
+- update_result(pair, result) — обновить результат (WIN/LOSS/DRAW), нужно для отслеживания серий проигрышей
+- reset_daily() — сброс дневных счётчиков
+- get_stats() — текущая статистика: active_trades, trades_today, trades_last_hour, loss_streak, last_trade_time
+
+Внутренние методы:
+- _register_trade(signal) — добавить сделку в активные и историю
+- _cleanup_active_trades() — удалить истёкшие сделки
+- _recalculate_confidence(signal) — пересчёт confidence по формуле выше
+- _default_config() — конфиг по умолчанию со всеми параметрами
+
+Конфиг хранится в self.config как вложенный dict с разделами: whitelisted_pairs, blacklisted_pairs, allowed_strategies, limits, global_min_confidence.
+
+────────────────────────────────────
+ФАЙЛ: signal_formatter.py
+────────────────────────────────────
+
+Класс SignalFormatter для форматирования сообщений Telegram в HTML.
+
+Метод format_signal(signal_result):
+Красивое сообщение с:
+- Эмодзи направления: BUY = "🟢 ВВЕРХ (CALL)", SELL = "🔴 ВНИЗ (PUT)"
+- Пара, экспирация, цена входа
+- Название стратегии человекочитаемо: three_candle_reversal = "3 свечи (разворот)", stoch_snap = "Stochastic Snap", otc_trend_confirm = "MACD+RSI тренд"
+- Уровень уверенности: >=70 = "СИЛЬНЫЙ 🔥🔥🔥", >=60 = "СРЕДНИЙ 🔥🔥", остальное = "БАЗОВЫЙ 🔥"
+- Сессия, время, количество пройденных фильтров из 15
+- Формат HTML для Telegram (теги <b>, <i>)
+
+Метод format_rejected(signal_result):
+Короткое сообщение: ❌ ОТКЛОНЁН: пара направление, стратегия, причина
+
+Метод format_result(pair, direction, result, pnl):
+Одна строка: ✅/❌/➖ пара направление → результат (pnl%)
+
+Метод format_stats(stats, wins, losses):
+HTML сообщение со статистикой сессии: побед, поражений, винрейт, активных сделок, сделок сегодня, за час, серия проигрышей
+
+────────────────────────────────────
+ФАЙЛ: trade_logger.py
+────────────────────────────────────
+
+Класс TradeLogger для логирования в CSV.
+
+Конструктор принимает пути к двум файлам: trades_log.csv и rejected_log.csv.
+
+При инициализации создаёт файлы с заголовками если не существуют.
+
+trades_log.csv заголовки: timestamp, pair, direction, strategy, expiry, session, original_confidence, new_confidence, entry_price, close_price, result, pnl_pct, filters_passed
+
+rejected_log.csv заголовки: timestamp, pair, direction, strategy, expiry, session, confidence, reason, failed_filter
+
+Методы:
+- log_trade(signal_result) — записать одобренную сделку (result=PENDING)
+- log_rejected(signal_result) — записать отклонённый сигнал
+- update_trade_result(pair, result, pnl, close_price) — обновить последнюю PENDING сделку по паре
+- get_session_stats() — посчитать за сегодня: wins, losses, draws, total, winrate
+
+────────────────────────────────────
+ФАЙЛ: config_tuner.py
+────────────────────────────────────
+
+4 функции возвращающие dict конфига:
+
+get_conservative_config():
+- Только 3 пары: AUD/CHF, EUR/CHF, USD/CAD
+- Только three_candle_reversal (BEAR только) и stoch_snap
+- Макс 2 одновременных, 60 сек между сделками, 8 в час
+- Мин confidence 60
+- Пауза после 2 проигрышей на 15 минут
+- Ожидание: 2-5 сигналов в час, винрейт 65%+
+
+get_moderate_config():
+- 5 пар (все из белого списка)
+- three_candle_reversal + stoch_snap + otc_trend_confirm
+- Макс 3 одновременных, 30 сек между, 15 в час
+- Мин confidence 55
+- Пауза после 3 проигрышей на 10 минут
+- Ожидание: 5-10 сигналов в час, винрейт 60%+
+
+get_aggressive_config():
+- 5 пар с пониженными порогами confidence
+- + ema_micro_cross включена (только BEAR, confidence>=75)
+- Макс 4 одновременных, 20 сек между, 20 в час
+- Мин confidence 50
+- Ожидание: 10-20 сигналов в час, винрейт 55-60%
+
+get_bear_session_config():
+- 5 пар
+- three_candle_reversal + stoch_snap + otc_trend_confirm + ema_micro_cross(BEAR, conf>=70)
+- double_bottom_top и rsi_bb_scalp отключены
+- Оптимизирован для BEAR сессии
+
+Каждая функция возвращает полный dict конфига совместимый с SignalFilter(config=...).
+
+════════════════════════════════════════════════
+ИНТЕГРАЦИЯ В СУЩЕСТВУЮЩИЙ БОТ
+════════════════════════════════════════════════
+
+ВАЖНО: Не ломай существующую логику! Бот должен продолжать генерировать ВСЕ сигналы как раньше.
+
+Найди в моём коде место где сигналы генерируются и/или отправляются в Telegram.
+
+Добавь между генерацией и отправкой:
+
+1. Импорт:
+from signal_filter import SignalFilter
+from signal_formatter import SignalFormatter
+from trade_logger import TradeLogger
+from config_tuner import get_moderate_config
+
+2. Инициализация (один раз при старте бота):
+signal_filter = SignalFilter(config=get_moderate_config())
+formatter = SignalFormatter()
+trade_logger = TradeLogger()
+
+3. Перед каждой отправкой сигнала:
+filter_result = signal_filter.check(signal_dict)
+
+if filter_result['approved']:
+    # Форматируем и отправляем
+    message = formatter.format_signal(filter_result)
+    # ... отправка в Telegram с parse_mode='HTML' ...
+    trade_logger.log_trade(filter_result)
+else:
+    # Только логируем отказ
+    trade_logger.log_rejected(filter_result)
+
+4. После получения результата сделки:
+signal_filter.update_result(pair, result)  # 'WIN'/'LOSS'/'DRAW'
+trade_logger.update_trade_result(pair, result, pnl, close_price)
+
+5. Добавь Telegram команды для управления режимом:
+
+/mode conservative — переключить на get_conservative_config()
+/mode moderate — переключить на get_moderate_config()
+/mode aggressive — переключить на get_aggressive_config()
+/mode bear — переключить на get_bear_session_config()
+/stats — отправить текущую статистику через formatter.format_stats()
+/reset — сбросить дневные счётчики через signal_filter.reset_daily()
+
+При получении команды /mode:
+signal_filter.config = get_XXX_config()
+Отправить подтверждение: "✅ Режим переключён на: XXX"
+
+6. Автоматическая отправка статистики каждый час (если есть scheduler или можно добавить).
+
+7. Автоматический reset_daily() в 00:00 или при старте нового дня.
+
+════════════════════════════════════════════════
+ДВОЙНОЙ РЕЖИМ: ТЕСТ + ПРОДАКШЕН
+════════════════════════════════════════════════
+
+Бот должен работать в двух режимах одновременно:
+
+ТЕСТОВЫЙ ПОТОК (невидимый для пользователей):
+- ВСЕ сигналы от ВСЕХ стратегий на ВСЕХ парах записываются в отдельный файл all_signals_log.csv
+- Формат: timestamp, pair, direction, strategy, expiry, session, confidence, entry_price, close_price, result, pnl_pct, would_be_filtered (True/False)
+- Поле would_be_filtered показывает прошёл бы сигнал через фильтр или нет
+- Это нужно для сравнения: "что было бы если бы мы торговали всё" vs "что получилось с фильтром"
+
+БОЕВОЙ ПОТОК (то что видят пользователи):
+- Только сигналы прошедшие через SignalFilter.check()
+- Отправляются в Telegram
+- Записываются в trades_log.csv
+
+В trade_logger.py добавь метод:
+log_all_signal(signal, filter_result) — записывает в all_signals_log.csv каждый сигнал с пометкой прошёл фильтр или нет.
+
+════════════════════════════════════════════════
+ВАЖНЫЕ ДЕТАЛИ
+════════════════════════════════════════════════
+
+- Все сообщения в Telegram в формате HTML (parse_mode='HTML')
+- Время в сообщениях в формате HH:MM:SS
+- Используй datetime и timedelta для всех операций со временем
+- CSV файлы создаются автоматически при первом запуске
+- Все файлы должны корректно обрабатывать ситуацию когда CSV пустой или не существует
+- Используй defaultdict и collections для счётчиков
+- Не используй внешние библиотеки кроме стандартной библиотеки Python (csv, os, math, datetime, collections)
+- Если в моём боте уже есть какие-то из этих файлов — дополни их, не перезаписывай
