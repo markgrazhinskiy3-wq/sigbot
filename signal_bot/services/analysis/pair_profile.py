@@ -57,6 +57,7 @@ _DISABLED_STRATEGIES: dict[str, set[str]] = {
     "#EURJPY_otc": {"three_candle_reversal"},
 
     # GBP/AUD: Maximum volatility — only MACD Trend is reliable
+    # Test: 19% WR — worst pair in dataset
     "#GBPAUD_otc": {
         "rsi_bb_scalp",
         "three_candle_reversal",
@@ -65,10 +66,33 @@ _DISABLED_STRATEGIES: dict[str, set[str]] = {
         "double_bottom_top",
     },
 
+    # CHF/JPY: 32% WR in test — rsi_bb_scalp and ema_micro_cross unreliable
+    # High volatility + strong directional moves defeat mean-reversion and micro-cross
+    "#CHFJPY_otc": {
+        "rsi_bb_scalp",
+        "ema_micro_cross",
+    },
+
     # AUD/JPY: Only Stoch + MACD work (Category C)
+    # Test: 38% WR
     "#AUDJPY_otc": {
         "rsi_bb_scalp",
         "three_candle_reversal",
+        "ema_micro_cross",
+        "double_bottom_top",
+    },
+
+    # KES/USD: Exotic pair, 37% WR — mean-reversion and EMA cross unreliable
+    # Non-standard spread and tick behaviour; keep only three_candle + otc_trend
+    "#KESUSD_otc": {
+        "rsi_bb_scalp",
+        "ema_micro_cross",
+        "double_bottom_top",
+    },
+
+    # BHD/CNY: Exotic, 33% WR — same issue as KES/USD
+    "#BHDCNY_otc": {
+        "rsi_bb_scalp",
         "ema_micro_cross",
         "double_bottom_top",
     },

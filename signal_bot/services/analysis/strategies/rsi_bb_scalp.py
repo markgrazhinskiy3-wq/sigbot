@@ -34,7 +34,7 @@ class StrategyResult:
 
 
 _TOTAL   = 6
-_MIN_MET = 4
+_MIN_MET = 5   # raised from 4 → needs 5/6 conditions (41% WR at 4)
 
 
 def rsi_bb_scalp_strategy(

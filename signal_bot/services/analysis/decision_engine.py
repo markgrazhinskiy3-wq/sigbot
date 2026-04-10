@@ -514,6 +514,17 @@ def run_decision_engine(
     else:
         min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
 
+    # ── NEUTRAL context penalty: +5 when no directional confirmation ──────────
+    # Data: NEUTRAL session = 46.6% WR vs 52% in BULL/BEAR session.
+    # If the signal has NO support from either 1m EMA or macro slope,
+    # require 5 extra confidence points before letting it through.
+    ctx_supports_signal = (
+        (direction == "BUY"  and (ctx_up_1m or ctx_macro_up)) or
+        (direction == "SELL" and (ctx_dn_1m or ctx_macro_dn))
+    )
+    if not ctx_supports_signal:
+        min_threshold += 5   # need 60 instead of 55 in true neutral conditions
+
     if conf_raw < min_threshold:
         return _no_signal(
             f"Уверенность {conf_raw:.0f} < порог {min_threshold} (tier={used_tier})",
@@ -532,12 +543,13 @@ def run_decision_engine(
         )
 
     # ── Stars ──────────────────────────────────────────────────────────────────
-    if   conf_raw >= 75: stars = 5
-    elif conf_raw >= 65: stars = 4
+    # Tightened bins: data showed 75+ had same 48% WR as 55-60 → bins were too loose
+    if   conf_raw >= 80: stars = 5
+    elif conf_raw >= 70: stars = 4
     else:                stars = 3
 
-    if   conf_raw >= 75: quality = "strong"
-    elif conf_raw >= 65: quality = "good"
+    if   conf_raw >= 80: quality = "strong"
+    elif conf_raw >= 70: quality = "good"
     else:                quality = "moderate"
 
     # ── Expiry hint ────────────────────────────────────────────────────────────

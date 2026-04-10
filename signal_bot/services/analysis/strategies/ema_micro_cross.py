@@ -35,7 +35,7 @@ class StrategyResult:
 
 
 _TOTAL   = 5
-_MIN_MET = 3
+_MIN_MET = 4   # raised from 3 → needs 4/5 conditions (dominated 46% of all trades at 51% WR)
 
 
 def ema_micro_cross_strategy(
@@ -93,7 +93,7 @@ def ema_micro_cross_strategy(
         curr_above = float(ema3_s.iloc[-i])   > float(ema8_s.iloc[-i])
         if prev_above != curr_above:
             chop_count += 1
-    is_choppy = chop_count >= 3  # 3+ crossovers = EMA entangled = flat market
+    is_choppy = chop_count >= 2  # tightened: 2+ crossovers = EMA entangled (was 3)
 
     price    = close[-1]
     avg_body = float(np.mean(np.abs(close[-min(10, n):] - open_[-min(10, n):]))) or 1e-8
@@ -118,28 +118,28 @@ def ema_micro_cross_strategy(
     if buy_wins and buy_met >= _MIN_MET:
         direction = "BUY"
         conditions_met = buy_met
-        base_conf = 58 + (buy_met - _MIN_MET) * 10
+        base_conf = 55 + (buy_met - _MIN_MET) * 8  # reduced from 58+10 → less inflation
         reason = " | ".join(buy_parts)
-        # Strong: RSI clearly above 55
-        if ind.rsi > 55:
-            base_conf += 6
-            reason += f" | RSI {ind.rsi:.1f} чёткий бычий (+6)"
+        # Strong: RSI clearly above 58 (tightened from 55)
+        if ind.rsi > 58:
+            base_conf += 5
+            reason += f" | RSI {ind.rsi:.1f} чёткий бычий (+5)"
         # EMA distance growing (real trend, not noise)
         if abs(ema3_now - ema8_now) > abs(ema3_prev - ema8_prev):
-            base_conf += 4
-            reason += " | EMA расходятся (+4)"
+            base_conf += 3
+            reason += " | EMA расходятся (+3)"
 
     elif sell_wins and sell_met >= _MIN_MET:
         direction = "SELL"
         conditions_met = sell_met
-        base_conf = 58 + (sell_met - _MIN_MET) * 10
+        base_conf = 55 + (sell_met - _MIN_MET) * 8
         reason = " | ".join(sell_parts)
-        if ind.rsi < 45:
-            base_conf += 6
-            reason += f" | RSI {ind.rsi:.1f} чёткий медвежий (+6)"
+        if ind.rsi < 42:  # tightened from 45
+            base_conf += 5
+            reason += f" | RSI {ind.rsi:.1f} чёткий медвежий (+5)"
         if abs(ema3_now - ema8_now) > abs(ema3_prev - ema8_prev):
-            base_conf += 4
-            reason += " | EMA расходятся (+4)"
+            base_conf += 3
+            reason += " | EMA расходятся (+3)"
 
     if direction == "NONE":
         return _none(reason, {
@@ -199,11 +199,11 @@ def _check_buy(close, open_, high, low, n, avg_body, ind,
     if c4:
         met += 1; parts.append(f"Тело свечи {body_pct*100:.0f}% (не дожи)")
 
-    # C5: RSI not borderline (not in 48-52 ambiguous zone)
-    c5 = ind.rsi < 48 or ind.rsi > 52
+    # C5: RSI not borderline — widened neutral zone to 45-55 (was 48-52)
+    c5 = ind.rsi < 45 or ind.rsi > 55
     conds["rsi_decisive"] = c5
     if c5:
-        met += 1; parts.append(f"RSI {ind.rsi:.1f} вне нейтральной зоны")
+        met += 1; parts.append(f"RSI {ind.rsi:.1f} вне нейтральной зоны 45-55")
 
     return met, parts, conds
 
@@ -239,11 +239,11 @@ def _check_sell(close, open_, high, low, n, avg_body, ind,
     if c4:
         met += 1; parts.append(f"Тело свечи {body_pct*100:.0f}% (не дожи)")
 
-    # C5: RSI decisive
-    c5 = ind.rsi < 48 or ind.rsi > 52
+    # C5: RSI decisive — widened neutral zone to 45-55 (was 48-52)
+    c5 = ind.rsi < 45 or ind.rsi > 55
     conds["rsi_decisive"] = c5
     if c5:
-        met += 1; parts.append(f"RSI {ind.rsi:.1f} вне нейтральной зоны")
+        met += 1; parts.append(f"RSI {ind.rsi:.1f} вне нейтральной зоны 45-55")
 
     return met, parts, conds
 
