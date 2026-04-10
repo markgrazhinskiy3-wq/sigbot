@@ -146,6 +146,18 @@ async def track_outcome(
             pnl_pct=round(_signed_pnl, 5),
         ))
 
+        # ── Notify SignalFilter + TradeLogger about the outcome ───────────────
+        try:
+            from services.auto_signal_service import notify_outcome
+            notify_outcome(
+                pair=pair_label,
+                result="WIN" if outcome == "win" else "LOSS",
+                pnl=round(_signed_pnl, 5),
+                close_price=result_price,
+            )
+        except Exception as _notify_exc:
+            logger.debug("notify_outcome skipped: %s", _notify_exc)
+
         if outcome == "win":
             icon  = "✅"
             arrow = "⬆️" if direction == "BUY" else "⬇️"
