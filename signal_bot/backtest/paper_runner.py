@@ -220,8 +220,15 @@ class PaperRunner:
         Get candles for all pairs.
         Priority: shared in-memory cache (always fresh from live bot's refresher)
         then WS fetch as supplement for pairs missing from cache.
+
+        NOTE: Reference pairs for session detection (#EURUSD_otc, #GBPUSD_otc,
+        #AUDUSD_otc) are always included in the symbol list, even if they are
+        not in self.pairs. Without them, get_session_direction() always returns
+        NEUTRAL (no data → no trend detection).
         """
-        symbols = [p["symbol"] for p in self.pairs]
+        from services.analysis.session_trend import _REF_PAIRS as _SESSION_REF_PAIRS
+
+        symbols = list({p["symbol"] for p in self.pairs} | set(_SESSION_REF_PAIRS))
 
         # ── Primary: shared candle cache (maintained by live bot's refresher) ─
         cached = self._from_cache(symbols)
@@ -237,7 +244,7 @@ class PaperRunner:
                 return {}
 
             async with asyncio.timeout(60):
-                result = await fetch_all_pairs(symbols)
+                result = await fetch_all_pairs(symbols)  # symbols already includes _SESSION_REF_PAIRS
 
             filtered = {
                 sym: c for sym, c in result.items()

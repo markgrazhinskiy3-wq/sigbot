@@ -507,12 +507,16 @@ def run_decision_engine(
         conf_raw = max(0.0, min(100.0, conf_raw))
 
     # ── Threshold check ────────────────────────────────────────────────────────
-    # Hard floor: 55 for all tiers — no signal below 55 ever becomes a trade.
+    # Hard floor raised from 55 → 62 (Apr 2026 data: 65-70% bucket = 50% WR,
+    # confidence calibration is broken in mid-range).
     # After 2 consecutive losses: threshold raises to 70.
+    # 2m strategies: require ≥ 68 (53.8% WR at current threshold → needs higher bar).
     if raised_threshold:
         min_threshold = 70
+    elif best.strategy_name in _TWO_MIN_STRATEGIES:
+        min_threshold = 68   # 2m: raised from 55; 53.8% WR below 68 = coin flip
     else:
-        min_threshold = 55   # hard floor: no signal below 55 ever becomes a trade
+        min_threshold = 62   # raised from 55 — avoid broken 55-62 calibration band
 
     # ── NEUTRAL context penalty: +5 when no directional confirmation ──────────
     # Data: NEUTRAL session = 46.6% WR vs 52% in BULL/BEAR session.
@@ -523,7 +527,7 @@ def run_decision_engine(
         (direction == "SELL" and (ctx_dn_1m or ctx_macro_dn))
     )
     if not ctx_supports_signal:
-        min_threshold += 5   # need 60 instead of 55 in true neutral conditions
+        min_threshold += 5   # need 67/73 instead of 62/68 in true neutral conditions
 
     if conf_raw < min_threshold:
         return _no_signal(

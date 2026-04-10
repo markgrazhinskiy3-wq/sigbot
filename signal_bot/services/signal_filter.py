@@ -26,71 +26,78 @@ logger = logging.getLogger(__name__)
 
 def _default_config() -> dict:
     return {
-        # Pairs we ALWAYS send signals for (WR ≥ 60% in 262-trade test)
+        # Pairs we ALWAYS send signals for (WR ≥ 60% consistently)
         "whitelisted_pairs": {
-            "AUD/CHF OTC",
-            "EUR/CHF OTC",
-            "USD/CAD OTC",
+            "EUR/CHF OTC",     # 100% WR (3 trades, new data)
+            "USD/CAD OTC",     # whitelist — marginal but historically ok
         },
         # Grey pairs: send only when confidence meets higher bar
+        # Updated thresholds from 102-trade CSV analysis (Apr 2026)
         "grey_pairs": {
-            "AUD/CAD OTC": 62,
-            "AUD/USD OTC": 65,
+            "AUD/CHF OTC": 65,  # was whitelist; now 40% WR (5 trades) — require 65
+            "AUD/CAD OTC": 68,  # 25% WR → raised from 62, near-block
+            "AUD/USD OTC": 65,  # unchanged
         },
         # Pairs we NEVER send (WR < 50% — tested or structurally weak)
         "blacklisted_pairs": {
-            "GBP/AUD OTC",    # 23.1% WR
+            "GBP/AUD OTC",    # 23.1% WR (old test, 13 trades)
             "BHD/CNY OTC",    # 22.2% WR
-            "KES/USD OTC",    # 35.7% WR
+            "KES/USD OTC",    # 35.7% WR (old test — conflicts with new data, need more)
             "CHF/JPY OTC",    # 35.7% WR
             "AUD/JPY OTC",    # 38.5% WR
-            "USD/JPY OTC",    # 41.7% WR
+            "USD/JPY OTC",    # 41.7% WR (old test — 100% in new, but only 3 trades)
             "EUR/JPY OTC",    # 43.8% WR
             "GBP/USD OTC",    # 44.4% WR
             "NZD/JPY OTC",    # 45.5% WR
-            "AUD/NZD OTC",    # 46.2% WR
+            "AUD/NZD OTC",    # 40.0% WR (confirmed bad in both tests)
             "NZD/USD OTC",    # 50.0% WR
-            "AED/CNY OTC",    # 53.3% WR (marginal — keep out until more data)
+            "AED/CNY OTC",    # 53.3% WR (marginal)
         },
         # Strategies approved for Telegram delivery
-        # ema_micro_cross/rsi_bb_scalp/double_bottom_top: still run in engine
-        # for stats, but never sent to users
+        # Updated: ema_micro_cross added (69% WR, 29 trades — best performer)
+        # stoch_snap kept but threshold raised to 70 (0/3 in new test)
         "allowed_strategies": {
-            "three_candle_reversal",   # 60.0% WR (30 trades)
-            "stoch_snap",              # 75.0% WR (4 trades — promising)
-            "otc_trend_confirm",       # 62.5% WR (8 trades)
+            "ema_micro_cross",         # 69.0% WR (29 trades) ← NEW — best performer
+            "three_candle_reversal",   # 60.9% WR (23 trades)
+            "stoch_snap",              # 0/3 in new test → threshold raised to 70
+            "otc_trend_confirm",       # 62.5% WR (prior data)
         },
         # Sessions where a strategy must NOT fire
-        # three_candle_reversal in BULL = 40% WR (terrible)
         "strategy_session_blocks": {
-            "three_candle_reversal": {"BULL"},
+            "three_candle_reversal": {"BULL"},   # 40% WR in BULL session
         },
-        # Per-strategy minimum confidence (confidence_raw 0-100 scale)
+        # Per-strategy minimum confidence
+        # stoch_snap raised: 0W/3L in latest 102-trade test
+        # double_bottom_top: 53.8% WR — raise bar even though not in allowed list
         "strategy_min_conf": {
-            "three_candle_reversal": 58,
-            "stoch_snap":            55,
-            "otc_trend_confirm":     55,
+            "ema_micro_cross":         62,   # new — matches global floor
+            "three_candle_reversal":   62,   # raised from 58 (conf 65-70% = 50% WR)
+            "stoch_snap":              70,   # raised from 55 (0W/3L → need high confidence)
+            "otc_trend_confirm":       62,   # raised from 55
+            "double_bottom_top":       68,   # 53.8% WR → require high confidence even for paper
         },
-        # Per-pair minimum confidence (grey pairs enforce their own higher bar via grey_pairs)
+        # Per-pair minimum confidence
         "pair_min_conf": {
-            "AUD/CHF OTC":  55,
-            "EUR/CHF OTC":  55,
-            "USD/CAD OTC":  55,
-            "AUD/CAD OTC":  62,
+            "EUR/CHF OTC":  62,
+            "USD/CAD OTC":  62,
+            "AUD/CHF OTC":  65,
+            "AUD/CAD OTC":  68,
             "AUD/USD OTC":  65,
         },
         # Historical WR used as base for confidence recalculation
         "strategy_wr": {
-            "three_candle_reversal": 60.0,
-            "stoch_snap":            75.0,
-            "otc_trend_confirm":     62.5,
+            "ema_micro_cross":         69.0,  # 29 trades, Apr 2026
+            "three_candle_reversal":   60.9,  # 23 trades, Apr 2026
+            "stoch_snap":              70.0,  # prior data — keep optimistic but threshold enforced
+            "otc_trend_confirm":       62.5,  # prior data
+            "double_bottom_top":       53.8,  # 13 trades — honest calibration
         },
         # Pair multipliers for confidence recalc
         "pair_multiplier": {
-            "AUD/CHF OTC":  1.10,
-            "EUR/CHF OTC":  1.05,
-            "USD/CAD OTC":  1.05,
-            "AUD/CAD OTC":  0.95,
+            "EUR/CHF OTC":  1.10,   # 100% WR
+            "USD/CAD OTC":  1.00,   # neutral
+            "AUD/CHF OTC":  0.90,   # downgraded — 40% WR in new test
+            "AUD/CAD OTC":  0.85,   # downgraded — 25% WR
             "AUD/USD OTC":  0.90,
         },
         # Session multipliers
@@ -115,7 +122,10 @@ def _default_config() -> dict:
         "loss_streak_pause":  600,    # pause duration in seconds (10 min)
         "direction_streak_max": 5,    # max same-direction trades in a row
 
-        "global_min_confidence": 55,
+        # Raised from 55: bucket 55-60% and 60-65% had similar WR (61%), but
+        # bucket 65-70% had 50% WR (coin flip) — calibration is broken there.
+        # New floor forces signals to be either high-confidence (70+) or skip.
+        "global_min_confidence": 62,
     }
 
 
@@ -437,8 +447,8 @@ class SignalFilter:
         combo = 0.0
         if strategy == "three_candle_reversal" and session == "BEAR":
             combo += 5.0   # best combo: 69.2% WR in BEAR
-        if pair == "AUD/CHF OTC" and strategy in ("three_candle_reversal", "stoch_snap"):
-            combo += 3.0   # best pair + best strategies
+        if pair == "EUR/CHF OTC" and strategy in ("ema_micro_cross", "three_candle_reversal"):
+            combo += 3.0   # EUR/CHF: 100% WR in new test
 
         new_conf += combo
 

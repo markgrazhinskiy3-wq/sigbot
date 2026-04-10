@@ -25,11 +25,14 @@ logger = logging.getLogger(__name__)
 # OTC symbols used as the market-direction basket
 _REF_PAIRS = ["#EURUSD_otc", "#GBPUSD_otc", "#AUDUSD_otc"]
 
-# Minimum number of 5m candles required for a reliable EMA13
-_MIN_5M_CANDLES = 13
+# Minimum number of 5m candles required for a reliable EMA13.
+# Lowered from 13 → 8: EMA5 converges in ~5 bars, EMA13 needs ~8 to be meaningful.
+# Waiting for 13 bars (~65 min) caused ALL trades to show NEUTRAL at session start.
+_MIN_5M_CANDLES = 8
 
-# Minimum 15s candles per pair before we bother resampling (~15 minutes of data)
-_MIN_15S_CANDLES = 60
+# Minimum 15s candles per pair before we bother resampling.
+# Lowered from 60 → 30 (~7.5 min of data), enough for at least 1 full 5m candle.
+_MIN_15S_CANDLES = 30
 
 # Small buffer so flat EMA pairs don't flip direction on noise
 _EMA_BUFFER = 0.00005   # 0.5 pip equivalent in ratio terms
