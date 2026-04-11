@@ -427,50 +427,43 @@ class PaperRunner:
                 continue
 
             # ── Find a candle that is genuinely AFTER entry + expiry ──────────
-            # Avoids DRAW caused by using the same cached candle as entry price.
-            # Candles have a "time" field (Unix seconds). We need a candle whose
-            # time is at least entry_time + expiry_sec.
+            # Primary: use timestamp if available (c_time > 0 guards against
+            # OTC candles that arrive with time=0 — those are skipped here).
             min_close_time = trade.entry_time + trade.expiry_sec
             resolution_candle = None
             for c in reversed(candles):
                 c_time = c.get("time", 0)
-                if c_time and c_time >= min_close_time:
+                if c_time > 0 and c_time >= min_close_time:
                     resolution_candle = c
                     break
 
-            # Fallback: if no candle has a valid time, use the last candle but
-            # only if the price differs from entry (avoids false draws)
+            # Fallback: no timestamps available (OTC demo candles often have time=0).
+            # Use last candle only if its close price differs EXACTLY from entry
+            # (same float value = same candle = cache not yet refreshed → postpone).
+            # Any price difference, even sub-pip, counts as a valid resolution.
             if resolution_candle is None:
                 last = candles[-1]
-                if float(last["close"]) != trade.entry_price:
-                    resolution_candle = last
-                else:
-                    # Cache hasn't refreshed yet — skip and try next scan
+                if float(last["close"]) == trade.entry_price:
                     logger.debug(
-                        "PaperRunner: no post-expiry candle for %s yet "
-                        "(last_time=%s, need_time=%.0f) — postponing",
+                        "PaperRunner: close == entry for %s — cache not refreshed yet, postponing",
                         sym,
-                        candles[-1].get("time", "?"),
-                        min_close_time,
                     )
                     continue
+                resolution_candle = last
 
             close_price = float(resolution_candle["close"])
 
-            # Small epsilon guard: prices within 0.00001% are treated as DRAW
-            # (genuine tick ties do happen in OTC, but exact float equality is suspicious)
-            diff_pct = abs(close_price - trade.entry_price) / trade.entry_price * 100
-            if diff_pct < 0.00001:
-                outcome = "draw"
-                pnl_pct = 0.0
-            elif trade.direction == "BUY":
+            # WIN / LOSS — no DRAW case.
+            # Even a sub-pip movement is a valid outcome in binary options.
+            # DRAW was causing systematic false-draws when demo-server prices barely move.
+            if trade.direction == "BUY":
                 pnl_pct = (close_price - trade.entry_price) / trade.entry_price * 100
                 outcome = "win" if close_price > trade.entry_price else "loss"
             else:
                 pnl_pct = (trade.entry_price - close_price) / trade.entry_price * 100
                 outcome = "win" if close_price < trade.entry_price else "loss"
 
-            pnl_signed = 0.0 if outcome == "draw" else (pnl_pct if outcome == "win" else -abs(pnl_pct))
+            pnl_signed = pnl_pct if outcome == "win" else -abs(pnl_pct)
 
             res = TradeResult(
                 trade       = trade,
