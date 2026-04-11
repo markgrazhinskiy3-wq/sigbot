@@ -2088,6 +2088,14 @@ def _safe_json_asset(data: bytes) -> str | None:
         return None
 
 
+_HISTORY_EVENTS = frozenset({
+    "updateHistoryNewFast",   # standard: ~55 bars of 15s on changeSymbol+ps
+    "updateHistoryPeriod",    # response to loadHistoryPeriod explicit request
+    "updateHistory",          # older PO protocol variants
+    "history",                # some PO server versions
+})
+
+
 def _candles_from_binary_frames(
     binary_frames: list[tuple[str, bytes]],
     count: int,
@@ -2096,32 +2104,63 @@ def _candles_from_binary_frames(
 ) -> list[dict]:
     """
     Extract candles from Socket.IO binary frames.
-    Primary: 'updateHistoryNewFast' → ticks aggregated into OHLC.
+
+    Accepted events (all share the same JSON schema — {asset, history: [tick, ...]}):
+      - updateHistoryNewFast   : standard ~55-bar reply to changeSymbol+ps
+      - updateHistoryPeriod    : reply to explicit loadHistoryPeriod request (100+ bars)
+      - updateHistory / history: older PO protocol variants
+
+    Merges candles from all matching frames (deduplicates by timestamp), so an
+    explicit history request supplements the standard short reply.
+
     Filters by symbol if provided (e.g. '#EURUSD_otc' → 'EURUSD_otc').
     """
     symbol_clean = symbol.lstrip("#").upper() if symbol else ""
-    best: list[dict] = []
+
+    # Collect ticks from ALL accepted history events, then aggregate once
+    all_ticks: list = []
+    seen_frame_counts: dict[str, int] = {}
+
     for event_name, data in binary_frames:
-        if event_name != "updateHistoryNewFast":
+        if event_name not in _HISTORY_EVENTS:
             continue
         try:
             parsed = json.loads(data.decode("utf-8"))
         except Exception as e:
-            logger.warning("Binary frame decode error: %s", e)
+            logger.warning("Binary frame decode error (%s): %s", event_name, e)
             continue
         history = parsed.get("history")
-        asset = parsed.get("asset", "unknown")
+        asset   = parsed.get("asset", "unknown")
         if not isinstance(history, list) or not history:
             continue
-        # Filter to matching symbol — accept if symbol not specified or asset matches
         if symbol_clean and asset.upper() != symbol_clean:
             logger.debug("Skipping WS frame for %s (want %s)", asset, symbol_clean)
             continue
-        candles = _ticks_to_candles(history, period=period)
-        logger.info("Parsed %d candles from %s history (%s)", len(candles), asset, event_name)
-        if len(candles) > len(best):
-            best = candles
-    result = best[-count:] if len(best) > count else best
+        seen_frame_counts[event_name] = seen_frame_counts.get(event_name, 0) + len(history)
+        all_ticks.extend(history)
+
+    if not all_ticks:
+        return []
+
+    for ev, cnt in seen_frame_counts.items():
+        logger.info("History ticks from %s: %d", ev, cnt)
+
+    candles = _ticks_to_candles(all_ticks, period=period)
+
+    # Deduplicate by bucket timestamp (newest value wins for same bucket)
+    by_time: dict[int, dict] = {}
+    for c in candles:
+        t = c.get("time", 0)
+        if t > 0:
+            by_time[t] = c
+    if by_time:
+        candles = sorted(by_time.values(), key=lambda c: c["time"])
+
+    logger.info(
+        "Parsed %d candles from %d ticks (events: %s)",
+        len(candles), len(all_ticks), list(seen_frame_counts.keys()),
+    )
+    result = candles[-count:] if len(candles) > count else candles
     return result
 
 

@@ -30,10 +30,12 @@ CACHE_TTL: int = 90
 REFRESH_INTERVAL: int = 45
 
 # How many candles to keep per pair.
-# At 15s per candle and 45s refresh interval, each pair grows by ~3 candles/cycle.
-# 480 bars = 2 hours of 15s history → 120 one-minute candles after resample.
-# PO provides ~12 min on connect; full 2h accumulates in ~2h of uptime.
-CANDLE_COUNT: int = 480
+# With the loadHistoryPeriod request, PO may provide 1-min candles directly (~100 bars).
+# 720 bars covers:
+#   - 3 hours of 15s candles → 180 one-minute candles after resample
+#   - OR 720 one-minute candles if PO responds with pre-aggregated 1m bars
+# More history = more accurate ADX(14), RSI divergence, S/R levels.
+CANDLE_COUNT: int = 720
 
 # Minimum minutes of accumulation before signals are allowed.
 # After startup the cache has ~55 bars (13 min); we wait until enough WS cycles
@@ -159,7 +161,7 @@ async def _refresh_all_via_ws(symbols: list[str]) -> tuple[int, list[str]]:
         return 0, list(symbols)
 
     try:
-        async with asyncio.timeout(60):
+        async with asyncio.timeout(90):
             results = await fetch_all_pairs(symbols)
         ok = 0
         fallback = []

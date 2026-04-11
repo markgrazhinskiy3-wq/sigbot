@@ -39,11 +39,18 @@ from services.pocket_browser import _candles_from_binary_frames
 
 logger = logging.getLogger(__name__)
 
-# How long to wait for candle data after subscribing to a symbol (seconds)
-_HISTORY_TIMEOUT = 8
+# How long to wait for candle data after subscribing to a symbol (seconds).
+# Increased from 8→12 to allow time for both:
+#   1. updateHistoryNewFast (~1-2s after changeSymbol+ps)
+#   2. updateHistoryPeriod  (~3-6s after loadHistoryPeriod request)
+_HISTORY_TIMEOUT = 12
 
 # Minimum candles required to consider a response valid
 _MIN_CANDLES = 10
+
+# If we already have this many candles from updateHistoryNewFast, we still
+# wait up to this many additional seconds for updateHistoryPeriod to arrive.
+_EXTRA_WAIT_FOR_PERIOD = 5.0
 
 # Live payout cache — populated as a side-effect of every candle fetch.
 # {normalised_symbol: payout_int}  e.g. {"eurusd_otc": 82}
@@ -503,8 +510,28 @@ async def _fetch_symbol(
     await ws.send_str("42" + sub_msg)
     await ws.send_str('42["ps"]')
 
+    # Explicitly request a full page of historical candles (100+ bars).
+    # PO responds with updateHistoryPeriod binary event (same schema as
+    # updateHistoryNewFast). _candles_from_binary_frames now accepts both.
+    # time = current unix ms; index=0 = most recent page (~2h of 1m candles).
+    hist_req = json.dumps([
+        "loadHistoryPeriod",
+        {
+            "asset":  asset,
+            "period": 60,                          # 1-minute candles
+            "time":   int(time.time() * 1000),     # current time in ms
+            "index":  0,                           # page 0 = most recent
+        },
+    ])
+    await ws.send_str("42" + hist_req)
+
     deadline = time.monotonic() + _HISTORY_TIMEOUT
     binary_frames: list[tuple[str, bytes]] = []
+    got_fast_history = False          # received updateHistoryNewFast
+    got_period_history = False        # received updateHistoryPeriod
+    fast_history_at: float = 0.0     # when we got updateHistoryNewFast
+
+    from services.pocket_browser import _HISTORY_EVENTS
 
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
@@ -512,6 +539,15 @@ async def _fetch_symbol(
             # Cancelling queue.get() is SAFE — ws.receive() in reader is unaffected
             item = await asyncio.wait_for(queue.get(), timeout=min(remaining, 2.0))
         except asyncio.TimeoutError:
+            # If we have fast history and waited long enough for period history, stop early
+            if got_fast_history and not got_period_history:
+                waited = time.monotonic() - fast_history_at
+                if waited >= _EXTRA_WAIT_FOR_PERIOD:
+                    logger.debug(
+                        "%s: no updateHistoryPeriod after %.1fs — using fast history only",
+                        asset, waited,
+                    )
+                    break
             continue   # check deadline again
 
         if item is None:
@@ -525,24 +561,36 @@ async def _fetch_symbol(
             _capture_payout_from_text(item[1], asset)
         elif kind == "binary":
             _, event_name, raw = item
-            # Log non-candle binary events — they may contain payout data for forex OTC
-            if event_name and event_name != "updateHistoryNewFast":
+
+            # Track which history events we receive
+            if event_name == "updateHistoryNewFast":
+                got_fast_history = True
+                fast_history_at = time.monotonic()
+            elif event_name == "updateHistoryPeriod":
+                got_period_history = True
+                logger.info("✓ updateHistoryPeriod received for %s (%d bytes)", asset, len(raw))
+
+            # Log unknown binary events (for debugging PO protocol)
+            if event_name and event_name not in _HISTORY_EVENTS:
                 if event_name not in _seen_fetch_binary_events:
                     _seen_fetch_binary_events.add(event_name)
                     logger.info(
-                        "_fetch_symbol(%s): non-candle binary event %r len=%d  preview=%s",
+                        "_fetch_symbol(%s): non-history binary event %r len=%d  preview=%s",
                         asset, event_name, len(raw), raw[:60],
                     )
-                    # Try JSON decode — might contain payout
                     try:
                         obj = json.loads(raw.decode("utf-8"))
                         logger.info("  → decoded as JSON: %s", str(obj)[:300])
                     except Exception:
                         pass
+
             binary_frames.append((event_name, raw))
-            candles = _parse_frames(binary_frames, asset)
-            if len(candles) >= _MIN_CANDLES:
-                return candles
+
+            # Stop early only when we have BOTH history sources
+            if got_fast_history and got_period_history:
+                candles = _parse_frames(binary_frames, asset)
+                if len(candles) >= _MIN_CANDLES:
+                    return candles
 
     return _parse_frames(binary_frames, asset)
 
