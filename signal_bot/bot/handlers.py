@@ -2192,7 +2192,9 @@ async def cmd_update_ssid(message: Message) -> None:
         return
 
     try:
-        data = {"ws_url": _DEFAULT_WS_URL, "auth": auth}
+        import os as _os
+        ws_url = _os.environ.get("PO_WS_URL", _DEFAULT_WS_URL).strip()
+        data = {"ws_url": ws_url, "auth": auth}
         WS_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(WS_AUTH_PATH, "w") as f:
             _json.dump(data, f, indent=2)
