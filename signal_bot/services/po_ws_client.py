@@ -406,156 +406,163 @@ async def _fetch_candles_via_polling(
         stripped = text.lstrip("0123456789")
         return [stripped] if stripped else []
 
-    # ── Fresh EIO handshake (no WS upgrade attempt) ─────────────────────────
-    try:
-        r = await asyncio.wait_for(
-            http.get(http_base, params={"EIO": "4", "transport": "polling"},
-                     headers=headers),
-            timeout=10.0,
-        )
-        body = await r.text()
-        logger.info("Polling fresh handshake: status=%d body=%s", r.status, body[:120])
-    except Exception as e:
-        logger.error("Polling fresh handshake failed: %s", e)
-        return results
-
-    if r.status != 200 or not body.startswith("0"):
-        logger.error("Polling fresh handshake unexpected: status=%d body=%s", r.status, body[:120])
-        return results
-
-    sid_m = _re2.search(r'"sid"\s*:\s*"([^"]+)"', body)
-    if not sid_m:
-        logger.error("Polling fresh handshake: no sid")
-        return results
-    fresh_sid = sid_m.group(1)
-    logger.info("Polling fresh SID: %s", fresh_sid)
-
-    pt     = {"EIO": "4", "transport": "polling", "sid": fresh_sid}
-    ct_hdr = {**headers, "Content-Type": "text/plain"}
-
-    async def _post(data: str) -> None:
-        await asyncio.wait_for(
-            http.post(http_base, params=pt, data=data, headers=ct_hdr),
-            timeout=5.0,
-        )
-
-    async def _poll(t: float = 8.0) -> str:
-        r2 = await asyncio.wait_for(
-            http.get(http_base, params=pt, headers=headers),
-            timeout=t + 2,
-        )
-        return await r2.text()
-
-    # ── Namespace connect ────────────────────────────────────────────────────
-    await _post("40")
-    ack = await _poll(5.0)
-    logger.info("Polling CONNECT ACK: %s", ack[:120])
-
-    # ── Auth ─────────────────────────────────────────────────────────────────
-    auth_msg = "42" + json.dumps(["auth", auth_payload])
-    await _post(auth_msg)
-
-    # Drain auth ACK (a few polls)
-    for _ in range(3):
+    # ── Fresh aiohttp session + EIO handshake ───────────────────────────────
+    # Use a brand-new ClientSession so no state (cookies, keep-alive conns)
+    # from the prior WS-upgrade attempt bleeds in.  aiohttp's cookie jar will
+    # automatically persist any Set-Cookie (e.g. sticky-session cookie) from
+    # the handshake response and re-send it on every subsequent request.
+    async with aiohttp.ClientSession() as ph:
+        # Step 1 — EIO handshake
         try:
-            ack = await _poll(5.0)
-            logger.info("Polling auth ACK: %s", ack[:200])
-            if "auth" in ack.lower() or "success" in ack.lower():
-                break
-        except asyncio.TimeoutError:
-            break
+            r = await asyncio.wait_for(
+                ph.get(http_base,
+                       params={"EIO": "4", "transport": "polling"},
+                       headers=headers),
+                timeout=10.0,
+            )
+            body = await r.text()
+            logger.info(
+                "Polling fresh handshake: status=%d set-cookie=%s body=%s",
+                r.status,
+                r.headers.getall("Set-Cookie", []),
+                body[:120],
+            )
+        except Exception as e:
+            logger.error("Polling fresh handshake failed: %s", e)
+            return results
 
-    logger.info("HTTP polling fallback: fetching %d symbols", len(symbols))
+        if r.status != 200 or not body.startswith("0"):
+            logger.error("Polling fresh handshake unexpected: status=%d body=%s",
+                         r.status, body[:120])
+            return results
 
-    for symbol in symbols:
-        asset = symbol.lstrip("#")
-        now_ts  = int(time.time())
-        from_ts = now_ts - 720 * 60  # 720 one-minute bars back
+        sid_m = _re2.search(r'"sid"\s*:\s*"([^"]+)"', body)
+        if not sid_m:
+            logger.error("Polling fresh handshake: no sid")
+            return results
+        fresh_sid = sid_m.group(1)
+        logger.info("Polling fresh SID: %s", fresh_sid)
 
-        change_msg  = "42" + json.dumps(["changeSymbol", {"asset": asset, "period": 60}])
-        history_msg = "42" + json.dumps([
-            "loadHistoryPeriod",
-            {"asset": asset, "period": 60, "from": from_ts, "count": 720},
-        ])
-        await _post(change_msg)
-        await _post(history_msg)
+        pt     = {"EIO": "4", "transport": "polling", "sid": fresh_sid}
+        ct_hdr = {**headers, "Content-Type": "text/plain"}
 
-        deadline = time.monotonic() + per_symbol_timeout
-        candles: list[dict] = []
-        pending_binary_event: str | None = None  # event name waiting for binary blob
+        async def _post(data: str) -> None:
+            await asyncio.wait_for(
+                ph.post(http_base, params=pt, data=data, headers=ct_hdr),
+                timeout=5.0,
+            )
 
-        while time.monotonic() < deadline and not candles:
+        async def _poll(t: float = 8.0) -> str:
+            r2 = await asyncio.wait_for(
+                ph.get(http_base, params=pt, headers=headers),
+                timeout=t + 2,
+            )
+            return await r2.text()
+
+        # Step 2 — Socket.IO namespace connect
+        await _post("40")
+        ack = await _poll(5.0)
+        logger.info("Polling CONNECT ACK: %s", ack[:200])
+
+        if "Session ID unknown" in ack:
+            logger.error("Polling: SID rejected even from fresh session — giving up")
+            return results
+
+        # Step 3 — Auth
+        auth_msg = "42" + json.dumps(["auth", auth_payload])
+        await _post(auth_msg)
+
+        for _ in range(3):
             try:
-                txt = await _poll(min(8.0, deadline - time.monotonic()))
+                ack = await _poll(5.0)
+                logger.info("Polling auth ACK: %s", ack[:200])
+                if "auth" in ack.lower() or "success" in ack.lower():
+                    break
             except asyncio.TimeoutError:
                 break
-            except Exception as e:
-                logger.warning("Polling error for %s: %s", asset, e)
-                break
 
-            logger.info("Polling [%s] raw (%d): %s", asset, len(txt), txt[:300])
-            for pkt in _parse_packets(txt):
-                # Engine.IO PONG (heartbeat reply) — ignore
-                if pkt in ("3", "2"):
-                    continue
+        logger.info("HTTP polling fallback: fetching %d symbols", len(symbols))
 
-                # Binary attachment: b<base64>
-                if pkt.startswith("b"):
-                    try:
-                        raw_bytes = _b64.b64decode(pkt[1:] + "==")  # pad for safety
-                        ev_name = pending_binary_event or "updateHistoryPeriod"
-                        parsed = _candles_from_binary_frames(
-                            [(ev_name, raw_bytes)], count=9999,
-                            symbol=symbol, period=60,
-                        )
-                        if parsed:
-                            candles = parsed
-                            logger.info(
-                                "HTTP polling: %s → %d candles (binary/%s)",
-                                asset, len(candles), ev_name,
+        # Step 4 — Per-symbol candle request + poll loop
+        for symbol in symbols:
+            asset   = symbol.lstrip("#")
+            now_ts  = int(time.time())
+            from_ts = now_ts - 720 * 60
+
+            change_msg  = "42" + json.dumps(["changeSymbol", {"asset": asset, "period": 60}])
+            history_msg = "42" + json.dumps([
+                "loadHistoryPeriod",
+                {"asset": asset, "period": 60, "from": from_ts, "count": 720},
+            ])
+            await _post(change_msg)
+            await _post(history_msg)
+
+            deadline = time.monotonic() + per_symbol_timeout
+            candles: list[dict] = []
+            pending_binary_event: str | None = None
+
+            while time.monotonic() < deadline and not candles:
+                try:
+                    txt = await _poll(min(8.0, deadline - time.monotonic()))
+                except asyncio.TimeoutError:
+                    break
+                except Exception as e:
+                    logger.warning("Polling error for %s: %s", asset, e)
+                    break
+
+                logger.info("Polling [%s] raw (%d): %s", asset, len(txt), txt[:300])
+                for pkt in _parse_packets(txt):
+                    if pkt in ("2", "3"):   # EIO PING/PONG
+                        continue
+
+                    if pkt.startswith("b"):  # binary attachment (base64)
+                        try:
+                            raw_bytes = _b64.b64decode(pkt[1:] + "==")
+                            ev_name   = pending_binary_event or "updateHistoryPeriod"
+                            parsed    = _candles_from_binary_frames(
+                                [(ev_name, raw_bytes)], count=9999,
+                                symbol=symbol, period=60,
                             )
-                    except Exception as e:
-                        logger.debug("Binary parse error for %s: %s", asset, e)
-                    pending_binary_event = None
-                    continue
+                            if parsed:
+                                candles = parsed
+                                logger.info("HTTP polling: %s → %d candles (binary/%s)",
+                                            asset, len(candles), ev_name)
+                        except Exception as e:
+                            logger.debug("Binary parse error for %s: %s", asset, e)
+                        pending_binary_event = None
+                        continue
 
-                # Socket.IO binary event header: 451-[["eventName", {}]]
-                if pkt.startswith("451-"):
-                    try:
-                        header = json.loads(pkt[4:])
-                        if isinstance(header, list) and header:
-                            pending_binary_event = header[0] if isinstance(header[0], str) else None
-                    except Exception:
-                        pass
-                    continue
+                    if pkt.startswith("451-"):  # binary event header
+                        try:
+                            hdr = json.loads(pkt[4:])
+                            if isinstance(hdr, list) and hdr:
+                                pending_binary_event = hdr[0] if isinstance(hdr[0], str) else None
+                        except Exception:
+                            pass
+                        continue
 
-                # Regular Socket.IO text event: 42["eventName", data]
-                if pkt.startswith("42"):
-                    try:
-                        payload = json.loads(pkt[2:])
-                        if isinstance(payload, list) and len(payload) >= 2:
-                            ev  = payload[0]
-                            dat = payload[1]
-                            if ev in _HISTORY_EVENTS and isinstance(dat, dict):
-                                # Candle data came as inline JSON (non-binary path)
-                                raw = json.dumps(dat).encode()
-                                parsed = _candles_from_binary_frames(
-                                    [(ev, raw)], count=9999,
-                                    symbol=symbol, period=60,
-                                )
-                                if parsed:
-                                    candles = parsed
-                                    logger.info(
-                                        "HTTP polling: %s → %d candles (text/%s)",
-                                        asset, len(candles), ev,
+                    if pkt.startswith("42"):    # text event
+                        try:
+                            payload = json.loads(pkt[2:])
+                            if isinstance(payload, list) and len(payload) >= 2:
+                                ev, dat = payload[0], payload[1]
+                                if ev in _HISTORY_EVENTS and isinstance(dat, dict):
+                                    raw    = json.dumps(dat).encode()
+                                    parsed = _candles_from_binary_frames(
+                                        [(ev, raw)], count=9999,
+                                        symbol=symbol, period=60,
                                     )
-                    except Exception as e:
-                        logger.debug("Text event parse error for %s: %s", asset, e)
+                                    if parsed:
+                                        candles = parsed
+                                        logger.info("HTTP polling: %s → %d candles (text/%s)",
+                                                    asset, len(candles), ev)
+                        except Exception as e:
+                            logger.debug("Text parse error for %s: %s", asset, e)
 
-        if not candles:
-            logger.warning("HTTP polling: no candles received for %s", asset)
-        else:
-            results[symbol] = candles
+            if not candles:
+                logger.warning("HTTP polling: no candles received for %s", asset)
+            else:
+                results[symbol] = candles
 
     logger.info(
         "HTTP polling fallback done: %d/%d pairs got candles",
