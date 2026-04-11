@@ -90,7 +90,7 @@ def get_live_assets() -> dict[str, dict]:
 
 # Default WS endpoint — used when building auth from env var (no file to read url from)
 _DEFAULT_WS_URL = (
-    "wss://events-po.com/socket.io/?EIO=4&transport=websocket"
+    "wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket"
 )
 
 
