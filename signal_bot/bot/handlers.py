@@ -2139,3 +2139,72 @@ async def cmd_stats(message: Message) -> None:
             lines.append(f"  {p['pair_label']}: {p['wins']}W / {p['losses']}L  ({wr})")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("update_ssid"))
+async def cmd_update_ssid(message: Message) -> None:
+    """
+    Admin command: update the WebSocket auth token without redeploying.
+
+    Usage:
+      /update_ssid 42["auth",{"session":"...","isDemo":1,"uid":"..."}]
+
+    How to get the SSID:
+      1. Open pocketoption.com in your browser and log in
+      2. Open DevTools → Network tab → filter by WS
+      3. Click the po.market WebSocket connection
+      4. In Messages tab, find the first message starting with 42["auth",
+      5. Copy that entire string and paste after /update_ssid
+    """
+    if not _is_main_admin(message.from_user.id):
+        return
+
+    from services.po_ws_client import parse_ssid_string, _DEFAULT_WS_URL, WS_AUTH_PATH
+    import json as _json
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip():
+        await message.answer(
+            "📡 <b>Обновление SSID токена</b>\n\n"
+            "Использование:\n"
+            "<code>/update_ssid 42[\"auth\",{\"session\":\"...\",\"uid\":\"...\"}]</code>\n\n"
+            "Как получить токен:\n"
+            "1. Открой pocketoption.com → войди в аккаунт\n"
+            "2. DevTools (F12) → Network → WS\n"
+            "3. Клик на соединение с po.market → Messages\n"
+            "4. Найди первое сообщение начинающееся с <code>42[\"auth\",</code>\n"
+            "5. Скопируй и вставь после /update_ssid",
+            parse_mode="HTML",
+        )
+        return
+
+    ssid_raw = args[1].strip()
+    auth = parse_ssid_string(ssid_raw)
+    if not auth:
+        await message.answer(
+            "❌ Не удалось распознать токен.\n\n"
+            "Проверь формат — должно начинаться с:\n"
+            "<code>42[\"auth\",{\"session\":\"...\"}]</code>\n"
+            "или\n"
+            "<code>{\"session\":\"...\",\"uid\":\"...\"}</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        data = {"ws_url": _DEFAULT_WS_URL, "auth": auth}
+        WS_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(WS_AUTH_PATH, "w") as f:
+            _json.dump(data, f, indent=2)
+        uid = auth.get("uid", "?")
+        logger.info("WS auth updated via /update_ssid by admin %s (uid=%s)", message.from_user.id, uid)
+        await message.answer(
+            f"✅ <b>SSID токен обновлён</b>\n\n"
+            f"uid: <code>{uid}</code>\n"
+            f"Бот переподключится к PO на следующем цикле (~45 сек).\n"
+            f"Браузерный логин больше не нужен.",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("Failed to write WS auth via /update_ssid: %s", e)
+        await message.answer(f"❌ Ошибка записи токена: {e}")

@@ -99,6 +99,7 @@ async def _setup_commands(bot: Bot) -> None:
         BotCommand(command="addadmin",    description="➕ Назначить администратора: /addadmin ID"),
         BotCommand(command="removeadmin", description="➖ Снять администратора: /removeadmin ID"),
         BotCommand(command="admins",      description="👥 Список всех администраторов"),
+        BotCommand(command="update_ssid", description="🔑 Обновить WS токен PocketOption"),
     ]
 
     await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
@@ -132,6 +133,14 @@ async def main() -> None:
     await init_strategy_adaptation()
 
     logger.info("Starting Pocket Option Signal Bot")
+
+    # Apply SSID from env var BEFORE the candle refresher starts so the
+    # WS client immediately has valid credentials without a browser login.
+    from services.po_ws_client import apply_ssid_from_env
+    if apply_ssid_from_env():
+        logger.info("PO_SSID env var applied — WS auth ready without browser login")
+    else:
+        logger.info("PO_SSID not set — will use saved WS auth file or browser login")
 
     # Load OTC pairs instantly from config (no browser needed)
     live_pairs = await pairs_cache.refresh(force=True)

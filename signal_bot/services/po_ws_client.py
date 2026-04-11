@@ -88,6 +88,95 @@ def get_live_assets() -> dict[str, dict]:
     return dict(_live_assets)
 
 
+# Default WS endpoint — used when building auth from env var (no file to read url from)
+_DEFAULT_WS_URL = (
+    "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket"
+)
+
+
+def parse_ssid_string(ssid: str) -> dict | None:
+    """
+    Parse a raw SSID string (copied from browser DevTools) into an auth dict.
+
+    Accepted formats:
+      1. Full Socket.IO message:
+         42["auth",{"session":"...","isDemo":1,"uid":"123"}]
+      2. JSON auth object only:
+         {"session":"...","isDemo":1,"uid":"123"}
+      3. Bare PHP session string:
+         a:4:{s:10:"session_id";s:32:"...";...}
+
+    Returns {"session": ..., "isDemo": ..., "uid": ...} or None on failure.
+    """
+    ssid = ssid.strip().strip('"').strip("'")
+
+    # Format 1 — full Socket.IO message: 42["auth", {...}]
+    if ssid.startswith("42"):
+        try:
+            payload = json.loads(ssid[2:])   # strip leading "42"
+            if isinstance(payload, list) and len(payload) >= 2:
+                auth = payload[1]
+                if isinstance(auth, dict) and "session" in auth:
+                    return auth
+        except Exception:
+            pass
+
+    # Format 2 — bare JSON object
+    if ssid.startswith("{"):
+        try:
+            auth = json.loads(ssid)
+            if isinstance(auth, dict) and "session" in auth:
+                return auth
+        except Exception:
+            pass
+
+    # Format 3 — bare PHP session string (a:4:{...})
+    if ssid.startswith("a:"):
+        return {"session": ssid, "isDemo": 1}
+
+    return None
+
+
+def apply_ssid_from_env() -> bool:
+    """
+    Read PO_SSID env var and, if valid, overwrite po_ws_auth.json so the WS
+    client can connect without needing a browser login.
+
+    Also accepts PO_WS_URL to override the default WebSocket endpoint.
+
+    Returns True if the env var was found and parsed successfully.
+    Call this once at startup before the candle cache refresher starts.
+    """
+    ssid_raw = os.environ.get("PO_SSID", "").strip()
+    if not ssid_raw:
+        return False
+
+    auth = parse_ssid_string(ssid_raw)
+    if not auth:
+        logger.error(
+            "PO_SSID env var is set but could not be parsed — "
+            "expected format: 42[\"auth\",{...}] or {\"session\":\"...\",\"uid\":\"...\"}. "
+            "WS auth file NOT updated."
+        )
+        return False
+
+    ws_url = os.environ.get("PO_WS_URL", _DEFAULT_WS_URL).strip()
+    data   = {"ws_url": ws_url, "auth": auth}
+
+    try:
+        WS_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(WS_AUTH_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+        logger.info(
+            "✅ WS auth written from PO_SSID env var → %s (uid=%s)",
+            WS_AUTH_PATH, auth.get("uid", "?"),
+        )
+        return True
+    except Exception as e:
+        logger.error("Could not write WS auth from PO_SSID: %s", e)
+        return False
+
+
 def load_auth(path: Path | None = None) -> dict | None:
     """Return saved auth dict {ws_url, auth} or None if not yet captured."""
     target = path or WS_AUTH_PATH
