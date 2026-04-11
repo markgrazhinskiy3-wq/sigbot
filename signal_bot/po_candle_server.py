@@ -75,7 +75,7 @@ def parse_ssid(ssid: str) -> dict | None:
         except Exception:
             pass
     if ssid.startswith("a:"):
-        return {"session": ssid, "isDemo": 1}
+        return {"session": ssid, "isDemo": 0}
     return None
 
 

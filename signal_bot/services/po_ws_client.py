@@ -136,7 +136,7 @@ def parse_ssid_string(ssid: str) -> dict | None:
 
     # Format 3 — bare PHP session string (a:4:{...})
     if ssid.startswith("a:"):
-        return {"session": ssid, "isDemo": 1}
+        return {"session": ssid, "isDemo": 0}
 
     return None
 
