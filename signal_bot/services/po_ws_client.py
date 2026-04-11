@@ -141,25 +141,44 @@ def parse_ssid_string(ssid: str) -> dict | None:
     return None
 
 
-def _session_cookie_header(auth_payload: dict) -> str:
+def _parse_php_session(auth_payload: dict) -> dict:
     """
-    Extract ci_session cookie value from a PHP-serialized session string.
+    Extract fields from a PHP-serialised CI session stored in auth_payload["session"].
 
-    PocketOption's api-eu.po.market requires the ci_session cookie on the
-    WebSocket upgrade request (in addition to the 42["auth",...] message).
-    The session_id inside the PHP serialised blob is the cookie value.
-
-    Returns 'ci_session=<id>' string ready to use as Cookie header value,
-    or empty string if the session field is not in PHP format.
+    Returns a dict with any of: session_id, user_agent, ip_address.
+    Returns {} if the session field is missing or not in PHP format.
     """
     import re as _re
     session = auth_payload.get("session", "")
     if not session.startswith("a:"):
-        return ""
-    m = _re.search(r's:10:"session_id";s:\d+:"([^"]+)"', session)
-    if m:
-        return f"ci_session={m.group(1)}"
-    return ""
+        return {}
+    result = {}
+    for key in ("session_id", "user_agent", "ip_address"):
+        pat = rf's:{len(key)}:"{key}";s:\d+:"([^"]+)"'
+        m = _re.search(pat, session)
+        if m:
+            result[key] = m.group(1)
+    return result
+
+
+def _session_cookie_header(auth_payload: dict) -> str:
+    """ci_session=<session_id> ready for use as Cookie header value, or ''."""
+    fields = _parse_php_session(auth_payload)
+    sid = fields.get("session_id", "")
+    return f"ci_session={sid}" if sid else ""
+
+
+def _session_user_agent(auth_payload: dict) -> str:
+    """
+    Return the User-Agent stored inside the PHP session, or a generic fallback.
+    Using the original UA avoids server-side session validation failures (400).
+    """
+    fields = _parse_php_session(auth_payload)
+    return fields.get(
+        "user_agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    )
 
 
 def apply_ssid_from_env() -> bool:
@@ -245,10 +264,7 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
     headers = {
         "Origin":  "https://pocketoption.com",
         "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": _session_user_agent(auth_payload),
     }
     cookie = _session_cookie_header(auth_payload)
     if cookie:
@@ -742,10 +758,7 @@ async def stream_pair(
     headers = {
         "Origin":  "https://pocketoption.com",
         "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": _session_user_agent(auth_payload),
     }
     cookie = _session_cookie_header(auth_payload)
     if cookie:
@@ -917,10 +930,7 @@ async def fetch_payouts_http_polling(timeout: float = 15.0) -> dict[str, int]:
     headers = {
         "Origin":  "https://pocketoption.com",
         "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": _session_user_agent(auth_payload),
     }
     cookie = _session_cookie_header(auth_payload)
     if cookie:
@@ -1075,10 +1085,7 @@ async def fetch_asset_payouts(timeout: float = 12.0) -> dict[str, int]:
     headers = {
         "Origin":  "https://pocketoption.com",
         "Referer": "https://pocketoption.com/en/cabinet/demo-quick-high-low/",
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": _session_user_agent(auth_payload),
     }
     cookie = _session_cookie_header(auth_payload)
     if cookie:
