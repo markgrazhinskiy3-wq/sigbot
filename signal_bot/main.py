@@ -136,11 +136,24 @@ async def main() -> None:
 
     # Apply SSID from env var BEFORE the candle refresher starts so the
     # WS client immediately has valid credentials without a browser login.
-    from services.po_ws_client import apply_ssid_from_env
+    from services.po_ws_client import (
+        apply_ssid_from_env, refresh_session_via_worker, session_refresh_loop,
+    )
     if apply_ssid_from_env():
         logger.info("PO_SSID env var applied — WS auth ready without browser login")
     else:
         logger.info("PO_SSID not set — will use saved WS auth file or browser login")
+
+    # If using Cloudflare Worker proxy: get a fresh CF-IP session so WS auth works.
+    # The PO_SSID session is tied to the user's home IP; CF Worker has a different IP.
+    cf_ok = await refresh_session_via_worker()
+    if cf_ok:
+        logger.info("CF session refresh done — WS auth updated with Cloudflare-IP session")
+    else:
+        logger.info("CF session refresh skipped (not using Cloudflare Worker or no credentials)")
+
+    # Periodically refresh CF session in background (every 2 hours)
+    asyncio.create_task(session_refresh_loop(interval_seconds=7200))
 
     # Load OTC pairs instantly from config (no browser needed)
     live_pairs = await pairs_cache.refresh(force=True)

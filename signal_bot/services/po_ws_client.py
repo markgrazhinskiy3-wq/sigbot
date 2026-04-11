@@ -221,6 +221,88 @@ def apply_ssid_from_env() -> bool:
         return False
 
 
+async def refresh_session_via_worker() -> bool:
+    """
+    If PO_WS_URL points to a Cloudflare Worker, call its /po-login endpoint
+    to get a fresh session bound to Cloudflare's IP, then update po_ws_auth.json.
+
+    This is needed because the PHP session is IP-locked: the session stored in
+    PO_SSID was created from the user's home IP, but WS connections go through
+    Cloudflare's IP.  We re-login from CF's IP to get a matching session.
+
+    Returns True on success.
+    """
+    ws_url = os.environ.get("PO_WS_URL", "").strip()
+    if "workers.dev" not in ws_url and "cloudflare" not in ws_url.lower():
+        return False  # Not using a Cloudflare Worker — skip
+
+    import re as _re
+    m = _re.match(r"(wss?://[^/]+)", ws_url)
+    if not m:
+        return False
+    worker_base = m.group(1).replace("wss://", "https://").replace("ws://", "http://")
+    login_url = f"{worker_base}/po-login"
+
+    po_login    = os.environ.get("PO_LOGIN", "").strip()
+    po_password = os.environ.get("PO_PASSWORD", "").strip()
+    if not po_login or not po_password:
+        logger.warning("CF session refresh: PO_LOGIN or PO_PASSWORD not set — skipping")
+        return False
+
+    try:
+        async with aiohttp.ClientSession() as http:
+            resp = await asyncio.wait_for(
+                http.post(login_url, json={"login": po_login, "password": po_password}),
+                timeout=30.0,
+            )
+            body = await resp.json()
+
+        if "error" in body:
+            logger.error("CF session refresh: Worker login failed: %s", body["error"])
+            return False
+
+        ci_session = body.get("session", "")
+        if not ci_session:
+            logger.error("CF session refresh: Worker returned empty session")
+            return False
+
+        # Load existing auth to keep uid, isDemo, etc.
+        existing = load_auth()
+        if existing:
+            auth = dict(existing["auth"])
+        else:
+            auth = {}
+
+        # Replace session with the fresh CF-IP session (raw cookie value)
+        auth["session"] = ci_session
+        # Remove the PHP-format session fields that would confuse auth
+        auth.pop("sessionToken", None)
+
+        data = {"ws_url": ws_url, "auth": auth}
+        WS_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(WS_AUTH_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+
+        logger.info(
+            "✅ CF session refresh: got fresh session from Cloudflare IP "
+            "(uid=%s, session_len=%d)",
+            auth.get("uid", "?"), len(ci_session),
+        )
+        return True
+
+    except Exception as e:
+        logger.error("CF session refresh failed: %s", e)
+        return False
+
+
+async def session_refresh_loop(interval_seconds: int = 7200) -> None:
+    """Background task: refresh CF session every interval_seconds (default 2h)."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        logger.info("CF session refresh: periodic refresh (interval=%ds)", interval_seconds)
+        await refresh_session_via_worker()
+
+
 def load_auth(path: Path | None = None) -> dict | None:
     """Return saved auth dict {ws_url, auth} or None if not yet captured."""
     target = path or WS_AUTH_PATH

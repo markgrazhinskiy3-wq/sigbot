@@ -1,0 +1,109 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/98af2cc3-0c2c-45a1-b03f-a52a7cc90b7d/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-04-11 16:18:12,997 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 16:18:13,000 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 16:18:13,004 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 16:18:13,002 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 16:18:13,002 [INFO] __main__: Loading admin cache...
+2026-04-11 16:18:13,003 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 16:18:13,003 [INFO] __main__: Loading user language preferences...
+2026-04-11 16:18:13,004 [INFO] __main__: Loaded language preferences for 52 user(s)
+2026-04-11 16:18:13,004 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 16:18:13,004 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 16:18:13,015 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=?)
+2026-04-11 16:18:13,015 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 16:18:13,015 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 16:18:13,015 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 16:18:13,015 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 16:18:13,041 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 16:18:13,042 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 16:18:13,043 [INFO] services.po_ws_client: Direct WS: connecting to wss://broad-mountain-694eposigbot.markgrazhinskiy3.workers.d
+2026-04-11 16:18:13,682 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 16:18:13,682 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 16:18:13,683 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 16:18:13,683 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 16:18:13,685 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 16:18:13,686 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 16:18:13,836 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 16:18:14,078 [WARNING] services.po_ws_client: Direct WS: reader got close/error: 8
+2026-04-11 16:18:14,079 [ERROR] services.po_ws_client: fetch_all_pairs failed: Server closed connection during auth
+2026-04-11 16:18:14,079 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 16:18:16,085 [INFO] __main__: Playwright chromium ready
+2026-04-11 16:18:16,086 [INFO] services.pocket_browser: Monitor WS auth is 0.3h old — skipping browser (payouts via HTTP polling)
+2026-04-11 16:18:16,086 [INFO] __main__: Monitor WS auth done
+2026-04-11 16:18:59,082 [INFO] services.po_ws_client: Direct WS: connecting to wss://broad-mountain-694eposigbot.markgrazhinskiy3.workers.d
+2026-04-11 16:19:00,126 [WARNING] services.po_ws_client: Direct WS: reader got close/error: 8
+2026-04-11 16:19:00,126 [ERROR] services.po_ws_client: fetch_all_pairs failed: Server closed connection during auth
+2026-04-11 16:19:00,499 [INFO] services.pocket_browser: Browser launched (with payout response interceptor)
+2026-04-11 16:19:20,537 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 16:19:40,544 [WARNING] services.pocket_browser: Cookie login error: Page.goto: Timeout 20000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/cabinet/demo-quick-high-low/", waiting until "domcontentloaded"
+2026-04-11 16:19:40,544 [INFO] services.pocket_browser: Logging into Pocket Option
+  File "/usr/local/lib/python3.12/site-packages/playwright/async_api/_generated.py", line 8969, in goto
+    await self._impl_obj.goto(
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_page.py", line 553, in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_frame.py", line 145, in goto
+    await self._channel.send("goto", locals_to_params(locals()))
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 59, in send
+2026-04-11 16:20:10,546 [ERROR] services.pocket_browser: get_candles failed: Page.goto: Timeout 30000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 2043, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 449, in _ensure_logged_in
+    await _login(page)
+  File "/app/signal_bot/services/pocket_browser.py", line 244, in _login
+    await page.goto(config.PO_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 520, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Page.goto: Timeout 30000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+2026-04-11 16:20:10,551 [ERROR] services.candle_cache: Browser cache refresh failed for #EURJPY_otc: Page.goto: Timeout 30000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+2026-04-11 16:20:13,686 [INFO] services.auto_signal_service: Live WR refresh task started (interval=600s)
+2026-04-11 16:20:30,578 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 16:20:50,584 [WARNING] services.pocket_browser: Cookie login error: Page.goto: Timeout 20000ms exceeded.
+Call log:
+navigating to "https://pocketoption.com/en/cabinet/demo-quick-high-low/", waiting until "domcontentloaded"
+2026-04-11 16:20:50,584 [INFO] services.pocket_browser: Logging into Pocket Option
+Call log:
+    await page.goto(config.PO_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+  File "/usr/local/lib/python3.12/site-packages/playwright/async_api/_generated.py", line 8969, in goto
+    await self._impl_obj.goto(
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 449, in _ensure_logged_in
+  File "/app/signal_bot/services/pocket_browser.py", line 2043, in _get_candles_impl
+2026-04-11 16:21:14,317 [ERROR] services.candle_cache: Browser cache refresh failed for #AUDUSD_otc: Page.goto: net::ERR_CONNECTION_TIMED_OUT at https://pocketoption.com/en/login
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_page.py", line 553, in goto
+    await _ensure_logged_in(context, page)
+    await _login(page)
+playwright._impl._errors.Error: Page.goto: net::ERR_CONNECTION_TIMED_OUT at https://pocketoption.com/en/login
+  File "/app/signal_bot/services/pocket_browser.py", line 244, in _login
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 59, in send
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Call log:
+Call log:
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    return await self._connection.wrap_api_call(
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 520, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+navigating to "https://pocketoption.com/en/login", waiting until "domcontentloaded"
+2026-04-11 16:21:14,313 [ERROR] services.pocket_browser: get_candles failed: Page.goto: net::ERR_CONNECTION_TIMED_OUT at https://pocketoption.com/en/login
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_frame.py", line 145, in goto
+    await self._channel.send("goto", locals_to_params(locals()))
+2026-04-11 16:21:34,344 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 16:21:34,789 [WARNING] services.pocket_browser: Cookie login error: Page.goto: net::ERR_CONNECTION_TIMED_OUT at https://pocketoption.com/en/cabinet/demo-quick-high-low/
+Call log:
+navigating to "https://pocketoption.com/en/cabinet/demo-quick-high-low/", waiting until "domcontentloaded"
