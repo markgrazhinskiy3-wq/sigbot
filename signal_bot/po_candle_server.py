@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger("candle-server")
 
 PO_SSID     = os.environ.get("PO_SSID", "").strip()
-PO_WS_URL   = os.environ.get("PO_WS_URL", "wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket").strip()
+PO_WS_URL   = os.environ.get("PO_WS_URL", "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket").strip()
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8765"))
 SESSION_FILE = os.path.join(os.path.dirname(__file__), "po_session.json")
 
@@ -75,7 +75,7 @@ def parse_ssid(ssid: str) -> dict | None:
         except Exception:
             pass
     if ssid.startswith("a:"):
-        return {"session": ssid, "isDemo": 0}
+        return {"session": ssid, "isDemo": 1}
     return None
 
 

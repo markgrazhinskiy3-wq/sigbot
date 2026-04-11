@@ -90,7 +90,7 @@ def get_live_assets() -> dict[str, dict]:
 
 # Default WS endpoint — used when building auth from env var (no file to read url from)
 _DEFAULT_WS_URL = (
-    "wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket"
+    "wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket"
 )
 
 
@@ -136,7 +136,7 @@ def parse_ssid_string(ssid: str) -> dict | None:
 
     # Format 3 — bare PHP session string (a:4:{...})
     if ssid.startswith("a:"):
-        return {"session": ssid, "isDemo": 0}
+        return {"session": ssid, "isDemo": 1}
 
     return None
 
