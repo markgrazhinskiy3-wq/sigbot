@@ -327,44 +327,215 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
                 timeout=5.0,
             )
 
-            # Step 4: upgrade to WebSocket with the established sid
+            # Step 4a: try WebSocket upgrade with the established sid
             ws_url_with_sid = f"{ws_url}&sid={sid}"
-            async with http.ws_connect(
-                ws_url_with_sid,
-                headers=headers,
-                heartbeat=None,
-                receive_timeout=None,
-                autoclose=False,
-                autoping=False,
-            ) as ws:
-                queue: asyncio.Queue[Any] = asyncio.Queue()
-                reader_task = asyncio.create_task(_reader(ws, queue))
-                ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
+            ws_ok = False
+            try:
+                async with http.ws_connect(
+                    ws_url_with_sid,
+                    headers=headers,
+                    heartbeat=None,
+                    receive_timeout=None,
+                    autoclose=False,
+                    autoping=False,
+                ) as ws:
+                    ws_ok = True
+                    queue: asyncio.Queue[Any] = asyncio.Queue()
+                    reader_task = asyncio.create_task(_reader(ws, queue))
+                    ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
+                    try:
+                        ping_interval = await _handshake(ws, auth_payload, queue)
+                        ping_task.cancel()
+                        ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
+                        for symbol in symbols:
+                            asset = symbol.lstrip("#")
+                            candles = await _fetch_symbol(ws, asset, queue)
+                            if candles:
+                                results[symbol] = candles
+                                logger.info("Direct WS: %s → %d candles", symbol, len(candles))
+                            else:
+                                logger.warning("Direct WS: no candles for %s", symbol)
+                    finally:
+                        reader_task.cancel()
+                        ping_task.cancel()
+            except Exception as ws_err:
+                if ws_ok:
+                    raise  # WS connected but something else failed — propagate
+                logger.warning(
+                    "WS upgrade failed (%s) — falling back to HTTP polling for candles", ws_err
+                )
 
-                try:
-                    ping_interval = await _handshake(ws, auth_payload, queue)
-                    ping_task.cancel()
-                    ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
-
-                    for symbol in symbols:
-                        asset = symbol.lstrip("#")
-                        candles = await _fetch_symbol(ws, asset, queue)
-                        if candles:
-                            results[symbol] = candles
-                            logger.info(
-                                "Direct WS: %s → %d candles", symbol, len(candles)
-                            )
-                        else:
-                            logger.warning("Direct WS: no candles for %s", symbol)
-                finally:
-                    reader_task.cancel()
-                    ping_task.cancel()
+            # Step 4b: HTTP polling fallback (used when WebSocket upgrade is blocked)
+            if not ws_ok and not results:
+                results = await _fetch_candles_via_polling(
+                    http, http_base, sid, auth_payload, symbols, headers
+                )
 
     except asyncio.CancelledError:
         raise
     except Exception as e:
         logger.error("fetch_all_pairs failed: %s", e)
 
+    return results
+
+
+async def _fetch_candles_via_polling(
+    http: aiohttp.ClientSession,
+    http_base: str,
+    sid: str,
+    auth_payload: dict,
+    symbols: list[str],
+    headers: dict,
+    per_symbol_timeout: float = 15.0,
+) -> dict[str, list[dict]]:
+    """
+    HTTP long-polling fallback for candle data.
+
+    Used when WebSocket upgrade to api-eu.po.market is blocked (returns 400)
+    while HTTP polling still works (EIO handshake returns 200).
+
+    Binary event attachments (base64 prefixed with 'b') contain the same
+    JSON payload that _candles_from_binary_frames expects.
+    """
+    import base64 as _b64
+    results: dict[str, list[dict]] = {}
+    pt     = {"EIO": "4", "transport": "polling", "sid": sid}
+    ct_hdr = {**headers, "Content-Type": "text/plain"}
+
+    async def _post(data: str) -> None:
+        await asyncio.wait_for(
+            http.post(http_base, params=pt, data=data, headers=ct_hdr),
+            timeout=5.0,
+        )
+
+    async def _poll(t: float = 8.0) -> str:
+        r = await asyncio.wait_for(
+            http.get(http_base, params=pt, headers=headers),
+            timeout=t + 2,
+        )
+        return await r.text()
+
+    def _parse_packets(text: str) -> list[str]:
+        """Split EIO4 polling response into individual packets (separated by \x1e)."""
+        if not text:
+            return []
+        # EIO4: length-prefixed packets OR \x1e-separated packets
+        if "\x1e" in text:
+            return [p for p in text.split("\x1e") if p]
+        # Single packet (possibly length-prefixed: "NNNpacket")
+        # Strip leading decimal length prefix if present
+        stripped = text.lstrip("0123456789")
+        return [stripped] if stripped else []
+
+    # Send auth
+    auth_msg = "42" + json.dumps(["auth", auth_payload])
+    await _post(auth_msg)
+
+    # Drain auth ACK (a few polls)
+    for _ in range(3):
+        try:
+            ack = await _poll(5.0)
+            logger.debug("Polling auth ACK: %s", ack[:120])
+            if "auth" in ack.lower():
+                break
+        except asyncio.TimeoutError:
+            break
+
+    logger.info("HTTP polling fallback: fetching %d symbols", len(symbols))
+
+    for symbol in symbols:
+        asset = symbol.lstrip("#")
+        now_ts  = int(time.time())
+        from_ts = now_ts - 720 * 60  # 720 one-minute bars back
+
+        change_msg  = "42" + json.dumps(["changeSymbol", {"asset": asset, "period": 60}])
+        history_msg = "42" + json.dumps([
+            "loadHistoryPeriod",
+            {"asset": asset, "period": 60, "from": from_ts, "count": 720},
+        ])
+        await _post(change_msg)
+        await _post(history_msg)
+
+        deadline = time.monotonic() + per_symbol_timeout
+        candles: list[dict] = []
+        pending_binary_event: str | None = None  # event name waiting for binary blob
+
+        while time.monotonic() < deadline and not candles:
+            try:
+                txt = await _poll(min(8.0, deadline - time.monotonic()))
+            except asyncio.TimeoutError:
+                break
+            except Exception as e:
+                logger.debug("Polling error for %s: %s", asset, e)
+                break
+
+            for pkt in _parse_packets(txt):
+                # Engine.IO PONG (heartbeat reply) — ignore
+                if pkt in ("3", "2"):
+                    continue
+
+                # Binary attachment: b<base64>
+                if pkt.startswith("b"):
+                    try:
+                        raw_bytes = _b64.b64decode(pkt[1:] + "==")  # pad for safety
+                        ev_name = pending_binary_event or "updateHistoryPeriod"
+                        parsed = _candles_from_binary_frames(
+                            [(ev_name, raw_bytes)], count=9999,
+                            symbol=symbol, period=60,
+                        )
+                        if parsed:
+                            candles = parsed
+                            logger.info(
+                                "HTTP polling: %s → %d candles (binary/%s)",
+                                asset, len(candles), ev_name,
+                            )
+                    except Exception as e:
+                        logger.debug("Binary parse error for %s: %s", asset, e)
+                    pending_binary_event = None
+                    continue
+
+                # Socket.IO binary event header: 451-[["eventName", {}]]
+                if pkt.startswith("451-"):
+                    try:
+                        header = json.loads(pkt[4:])
+                        if isinstance(header, list) and header:
+                            pending_binary_event = header[0] if isinstance(header[0], str) else None
+                    except Exception:
+                        pass
+                    continue
+
+                # Regular Socket.IO text event: 42["eventName", data]
+                if pkt.startswith("42"):
+                    try:
+                        payload = json.loads(pkt[2:])
+                        if isinstance(payload, list) and len(payload) >= 2:
+                            ev  = payload[0]
+                            dat = payload[1]
+                            if ev in _HISTORY_EVENTS and isinstance(dat, dict):
+                                # Candle data came as inline JSON (non-binary path)
+                                raw = json.dumps(dat).encode()
+                                parsed = _candles_from_binary_frames(
+                                    [(ev, raw)], count=9999,
+                                    symbol=symbol, period=60,
+                                )
+                                if parsed:
+                                    candles = parsed
+                                    logger.info(
+                                        "HTTP polling: %s → %d candles (text/%s)",
+                                        asset, len(candles), ev,
+                                    )
+                    except Exception as e:
+                        logger.debug("Text event parse error for %s: %s", asset, e)
+
+        if not candles:
+            logger.warning("HTTP polling: no candles received for %s", asset)
+        else:
+            results[symbol] = candles
+
+    logger.info(
+        "HTTP polling fallback done: %d/%d pairs got candles",
+        len(results), len(symbols),
+    )
     return results
 
 
