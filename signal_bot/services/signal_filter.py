@@ -248,8 +248,8 @@ class SignalFilter:
         passed.append("STRATEGY_SESSION")
 
         # ── Filter 5: STRATEGY_EXPIRY ─────────────────────────────────────────
-        _ONE_MIN  = {"three_candle_reversal", "stoch_snap"}
-        _TWO_MIN  = {"otc_trend_confirm"}
+        _ONE_MIN  = {"three_candle_reversal", "stoch_snap", "ema_micro_cross"}
+        _TWO_MIN  = {"otc_trend_confirm", "double_bottom_top"}
         if strategy in _ONE_MIN and expiry != "1m":
             return _reject("STRATEGY_EXPIRY",
                            f"{strategy} только 1m, получен {expiry}")

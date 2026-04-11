@@ -4,9 +4,10 @@ Auto-signal broadcaster — two-phase flow:
   Phase 2 (signal):    Actual BUY / SELL after re-checking on fresh candles
 
 All outgoing signals pass through SignalFilter (15 layers) before Phase 1.
-Only three approved strategies are sent: three_candle_reversal, stoch_snap,
-otc_trend_confirm. Signals from ema_micro_cross / rsi_bb_scalp / double_bottom_top
-are still calculated for statistical purposes but silently dropped.
+Approved strategies: ema_micro_cross, three_candle_reversal, stoch_snap, otc_trend_confirm.
+Signals from rsi_bb_scalp / double_bottom_top are calculated but silently dropped.
+
+AUTOSIGNALS_ENABLED = False → all auto-signals are suppressed (manual /signal still works).
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ _auto_enabled: dict[int, bool] = {}
 _pair_cooldown: dict[str, float] = {}
 COOLDOWN_SEC          = 300   # 5 minutes — minimum gap between signals on same pair
 
-AUTO_EXPIRY_SEC       = 120   # 2-minute option
+AUTOSIGNALS_ENABLED   = False  # set to True to re-enable auto-signal broadcasting
 SCAN_INTERVAL_SEC     = 60    # scan all pairs every minute
 MIN_CONFIDENCE        = 55    # raw engine confidence floor (filter adds its own checks)
 PRE_ALERT_WAIT_MAX    = 55    # max seconds to wait for a fresh cache refresh
@@ -92,8 +93,8 @@ async def auto_signal_loop(bot) -> None:
     from db.database              import list_approved
 
     logger.info(
-        "Auto-signal broadcaster started (expiry=%ds, min_conf=%d, pre_alert_max=%ds)",
-        AUTO_EXPIRY_SEC, MIN_CONFIDENCE, PRE_ALERT_WAIT_MAX,
+        "Auto-signal broadcaster started (expiry=1m/2m per strategy, min_conf=%d, pre_alert_max=%ds, enabled=%s)",
+        MIN_CONFIDENCE, PRE_ALERT_WAIT_MAX, AUTOSIGNALS_ENABLED,
     )
 
     # Restore auto-signals preferences from DB
@@ -141,6 +142,9 @@ async def _scan_and_broadcast(
     list_approved,
     get_candles,
 ) -> None:
+    if not AUTOSIGNALS_ENABLED:
+        return
+
     approved_users = await list_approved()
     recipients = [u["user_id"] for u in approved_users if is_auto_enabled(u["user_id"])]
     if not recipients:
@@ -217,6 +221,9 @@ async def _scan_and_broadcast(
             session, len(recipients),
         )
 
+        # Derive expiry_sec from the engine's hint — honours 1m vs 2m per strategy
+        expiry_sec = 60 if expiry == "1m" else 120
+
         # Launch pre-alert → wait → signal as background task
         asyncio.create_task(
             _fire_pre_alert_then_signal(
@@ -225,6 +232,7 @@ async def _scan_and_broadcast(
                 pair_label=pair_label,
                 symbol=symbol,
                 filter_result=filter_result,
+                expiry_sec=expiry_sec,
                 calculate_signal=calculate_signal,
                 format_signal_message=format_signal_message,
                 SignalResponse=SignalResponse,
@@ -244,6 +252,7 @@ async def _fire_pre_alert_then_signal(
     pair_label: str,
     symbol: str,
     filter_result: dict,
+    expiry_sec: int,
     calculate_signal,
     format_signal_message,
     SignalResponse,
@@ -306,7 +315,7 @@ async def _fire_pre_alert_then_signal(
                         confidence=fresh.confidence,
                         details=fresh.details,
                         pair=pair_label,
-                        expiration_sec=AUTO_EXPIRY_SEC,
+                        expiration_sec=expiry_sec,
                         symbol=symbol,
                     )
         except Exception as exc:
@@ -359,7 +368,7 @@ async def _fire_pre_alert_then_signal(
                 text,
                 parse_mode="HTML",
                 reply_markup=signal_result_keyboard(
-                    symbol, AUTO_EXPIRY_SEC, lang=lang
+                    symbol, expiry_sec, lang=lang
                 ),
             )
 
@@ -374,7 +383,7 @@ async def _fire_pre_alert_then_signal(
                         direction      = signal.direction,
                         confidence     = signal.confidence,   # stars (0-5)
                         strategy       = strategy,
-                        expiration_sec = AUTO_EXPIRY_SEC,
+                        expiration_sec = expiry_sec,
                         signal_price   = signal_price,
                         market_mode    = market_mode,
                         confidence_raw = conf_raw_out,
@@ -388,7 +397,7 @@ async def _fire_pre_alert_then_signal(
                         pair_label     = pair_label,
                         direction      = signal.direction,
                         strategy       = strategy,
-                        expiration_sec = AUTO_EXPIRY_SEC,
+                        expiration_sec = expiry_sec,
                         signal_price   = signal_price,
                     ))
                     asyncio.create_task(analytics_logger.log_signal(
@@ -396,7 +405,7 @@ async def _fire_pre_alert_then_signal(
                         pair        = pair_label,
                         symbol      = symbol,
                         direction   = signal.direction,
-                        expiry      = "2m" if AUTO_EXPIRY_SEC >= 120 else "1m",
+                        expiry      = "2m" if expiry_sec >= 120 else "1m",
                         entry_price = signal_price,
                         details     = signal.details,
                     ))
