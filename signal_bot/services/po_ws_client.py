@@ -272,25 +272,77 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
 
     results: dict[str, list[dict]] = {}
 
+    # ── EIO handshake: HTTP polling → get SID → WebSocket upgrade ──────────
+    # Socket.IO requires a polling handshake before WebSocket upgrade.
+    # Without SID the server returns 400 on the WS upgrade request.
+    http_base = (
+        ws_url.replace("wss://", "https://").replace("ws://", "http://")
+             .split("?")[0]
+    )
     try:
         async with aiohttp.ClientSession() as http:
+            # Step 1: GET polling handshake → sid
+            try:
+                r = await asyncio.wait_for(
+                    http.get(http_base,
+                             params={"EIO": "4", "transport": "polling"},
+                             headers=headers),
+                    timeout=10.0,
+                )
+                body = await r.text()
+                logger.info("EIO handshake: status=%d body=%s", r.status, body[:120])
+            except Exception as e:
+                logger.error("fetch_all_pairs: EIO polling handshake failed: %s", e)
+                return results
+
+            if r.status != 200 or not body.startswith("0"):
+                logger.error(
+                    "fetch_all_pairs: unexpected handshake response status=%d body=%s",
+                    r.status, body[:200],
+                )
+                return results
+
+            import re as _re
+            sid_m = _re.search(r'"sid"\s*:\s*"([^"]+)"', body)
+            if not sid_m:
+                logger.error("fetch_all_pairs: no sid in handshake body: %s", body[:200])
+                return results
+            sid = sid_m.group(1)
+            logger.info("EIO handshake: got sid=%s", sid)
+
+            # Step 2: POST "40" (namespace connect)
+            await asyncio.wait_for(
+                http.post(http_base,
+                          params={"EIO": "4", "transport": "polling", "sid": sid},
+                          data="40",
+                          headers={**headers, "Content-Type": "text/plain"}),
+                timeout=5.0,
+            )
+
+            # Step 3: drain the connect ACK
+            await asyncio.wait_for(
+                http.get(http_base,
+                         params={"EIO": "4", "transport": "polling", "sid": sid},
+                         headers=headers),
+                timeout=5.0,
+            )
+
+            # Step 4: upgrade to WebSocket with the established sid
+            ws_url_with_sid = f"{ws_url}&sid={sid}"
             async with http.ws_connect(
-                ws_url,
+                ws_url_with_sid,
                 headers=headers,
-                heartbeat=None,       # manual ping/pong below
-                receive_timeout=None, # no per-receive timeout; we manage via queue
+                heartbeat=None,
+                receive_timeout=None,
                 autoclose=False,
                 autoping=False,
             ) as ws:
-                # message queue — reader task fills it, fetch_symbol drains it
                 queue: asyncio.Queue[Any] = asyncio.Queue()
-
-                reader_task  = asyncio.create_task(_reader(ws, queue))
-                ping_task    = asyncio.create_task(_keepalive(ws, 25.0))  # default
+                reader_task = asyncio.create_task(_reader(ws, queue))
+                ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
 
                 try:
                     ping_interval = await _handshake(ws, auth_payload, queue)
-                    # update keepalive with the actual server interval
                     ping_task.cancel()
                     ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
 
