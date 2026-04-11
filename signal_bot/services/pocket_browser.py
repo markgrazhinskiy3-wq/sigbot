@@ -201,6 +201,13 @@ async def _get_context() -> BrowserContext:
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--disable-extensions",
+                "--disable-plugins-discovery",
+                "--disable-default-apps",
+                "--no-first-run",
+                "--disable-gpu",
+                "--window-size=1440,900",
             ],
         )
         _context = await _browser.new_context(
@@ -210,10 +217,21 @@ async def _get_context() -> BrowserContext:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Safari/537.36"
             ),
+            locale="ru-RU",
+            timezone_id="Europe/Moscow",
+            extra_http_headers={
+                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            },
         )
-        await _context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        await _context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['ru-RU', 'ru', 'en-US', 'en']});
+            window.chrome = {runtime: {}};
+            Object.defineProperty(navigator, 'permissions', {
+                get: () => ({query: () => Promise.resolve({state: 'granted'})})
+            });
+        """)
         # Intercept HTTP responses to capture live payout data automatically
         _context.on("response", _on_browser_response)
         logger.info("Browser launched (with payout response interceptor)")
@@ -347,6 +365,17 @@ async def _login(page: Page) -> None:
         debug_path = str(SCREENSHOTS_DIR / "login_debug_fail.png")
         await page.screenshot(path=debug_path)
         _login_fail_count += 1
+        # Log visible page text so we can see if it's captcha or a wrong-password error
+        try:
+            body_text = await page.inner_text("body")
+            # Trim and keep first 500 chars to avoid flooding logs
+            snippet = " ".join(body_text.split())[:500]
+            logger.error("Login page content after failure: %s", snippet)
+            has_captcha = any(w in body_text.lower() for w in ("captcha", "recaptcha", "cf-challenge", "robot", "human"))
+            if has_captcha:
+                logger.error("⚠️  CAPTCHA detected on login page — Railway IP is being challenged")
+        except Exception:
+            pass
         logger.error(
             "Login failed, URL=%s (attempt %d/%d). Debug screenshot: %s",
             current_url, _login_fail_count, _MAX_LOGIN_FAILS, debug_path,
