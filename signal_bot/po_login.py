@@ -53,41 +53,44 @@ async def main() -> None:
         )
         page = await context.new_page()
 
-        # Step 1: open login page
-        logger.info("Opening login page...")
+        # Navigate — ignore timeout, page may partially load due to blocked CDN resources
+        logger.info("Opening login page (ignoring timeout)...")
         try:
-            await page.goto("https://pocketoption.com/en/login", timeout=60000)
+            await page.goto(
+                "https://pocketoption.com/en/login",
+                timeout=15000,
+                wait_until="commit",   # just wait for first server response
+            )
         except Exception as e:
-            logger.error("Page load failed: %s", e)
-            await page.screenshot(path=SCREENSHOT)
-            logger.info("Screenshot: %s", SCREENSHOT)
-            await browser.close()
-            sys.exit(1)
+            logger.info("goto raised (expected if CDN slow): %s", type(e).__name__)
 
-        await asyncio.sleep(2)
+        # Wait for DOM to settle
+        await asyncio.sleep(5)
         await page.screenshot(path=SCREENSHOT)
-        logger.info("Page loaded. Screenshot: %s", SCREENSHOT)
+        logger.info("Screenshot saved: %s", SCREENSHOT)
 
-        # Step 2: find and fill email
+        # Find email field
         email_input = None
         for sel in ['input[name="email"]', 'input[type="email"]', '#email']:
             try:
-                el = await page.wait_for_selector(sel, timeout=5000)
+                el = await page.wait_for_selector(sel, timeout=8000)
                 if el:
                     email_input = el
+                    logger.info("Found email field: %s", sel)
                     break
             except Exception:
                 pass
 
         if not email_input:
-            logger.error("Email input not found — check screenshot: %s", SCREENSHOT)
+            logger.error("Login form not found — PO may be blocking this IP for browser access")
+            logger.error("Check screenshot: %s", SCREENSHOT)
             await browser.close()
             sys.exit(1)
 
+        # Fill email and password
         await email_input.fill(PO_LOGIN)
         logger.info("Email filled")
 
-        # Step 3: fill password
         pw_input = None
         for sel in ['input[name="password"]', 'input[type="password"]', '#password']:
             try:
@@ -99,7 +102,7 @@ async def main() -> None:
                 pass
 
         if not pw_input:
-            logger.error("Password input not found")
+            logger.error("Password field not found")
             await browser.close()
             sys.exit(1)
 
@@ -108,56 +111,50 @@ async def main() -> None:
 
         await asyncio.sleep(1)
         await page.screenshot(path=SCREENSHOT)
+        logger.info("Screenshot before submit: %s", SCREENSHOT)
 
-        # Step 4: submit form
+        # Submit
         submitted = False
-        for sel in ['button[type="submit"]', 'input[type="submit"]', 'form button', '.btn-primary']:
+        for sel in ['button[type="submit"]', 'input[type="submit"]', 'form button', '.btn-primary', 'button']:
             try:
                 btn = await page.query_selector(sel)
                 if btn:
                     await btn.click()
                     submitted = True
-                    logger.info("Clicked submit button: %s", sel)
+                    logger.info("Clicked: %s", sel)
                     break
             except Exception:
                 pass
-
         if not submitted:
-            logger.info("Submit button not found — pressing Enter")
             await page.keyboard.press("Enter")
+            logger.info("Pressed Enter")
 
-        # Step 5: wait for redirect
-        logger.info("Waiting for redirect to cabinet...")
-        try:
-            await page.wait_for_url("**/cabinet/**", timeout=30000)
-            logger.info("Redirect OK — login successful!")
-        except Exception:
-            await page.screenshot(path=SCREENSHOT)
-            logger.warning("No redirect to cabinet in 30s — check screenshot: %s", SCREENSHOT)
+        # Wait for redirect or cookies to appear
+        logger.info("Waiting 20s for login to complete...")
+        await asyncio.sleep(20)
+        await page.screenshot(path=SCREENSHOT)
+        logger.info("Post-login screenshot: %s", SCREENSHOT)
+        logger.info("Current URL: %s", page.url)
 
-        await asyncio.sleep(3)
-
-        # Step 6: extract ci_session cookie
+        # Get ci_session cookie
         cookies = await context.cookies()
         ci_session = next((c["value"] for c in cookies if c["name"] == "ci_session"), "")
 
-        if not ci_session:
-            logger.error("ci_session cookie not found — login failed")
-            await page.screenshot(path=SCREENSHOT)
-            logger.info("Check screenshot: %s", SCREENSHOT)
-            await browser.close()
-            sys.exit(1)
-
-        logger.info("ci_session cookie captured (len=%d)", len(ci_session))
         await browser.close()
 
+    if not ci_session:
+        logger.error("ci_session cookie not found after login")
+        logger.error("Screenshot saved to: %s — check it to see what happened", SCREENSHOT)
+        sys.exit(1)
+
+    logger.info("ci_session captured! length=%d", len(ci_session))
     auth = {"session": ci_session, "isDemo": 1}
+
     with open(SESSION_FILE, "w") as f:
         json.dump(auth, f, indent=2)
 
     logger.info("Session saved → %s", SESSION_FILE)
-    logger.info("")
-    logger.info("Now run: python3 /root/po_candle_server.py")
+    logger.info("Done! Now run: python3 /root/po_candle_server.py")
 
 
 if __name__ == "__main__":
