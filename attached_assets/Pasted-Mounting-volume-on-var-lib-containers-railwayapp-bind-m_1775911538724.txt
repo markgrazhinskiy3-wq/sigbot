@@ -1,0 +1,88 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/e77daae4-940e-4b95-ba0a-4b8337b91496/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-04-11 12:42:46,093 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 12:42:46,095 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 12:42:46,097 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 12:42:46,098 [INFO] __main__: Loading admin cache...
+2026-04-11 12:42:46,098 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 12:42:46,098 [INFO] __main__: Loading user language preferences...
+2026-04-11 12:42:46,099 [INFO] __main__: Loaded language preferences for 52 user(s)
+2026-04-11 12:42:46,100 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 12:42:46,100 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 12:42:46,100 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 12:42:46,108 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 12:42:46,108 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 12:42:46,108 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 12:42:46,143 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 12:42:46,143 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 12:42:46,901 [INFO] __main__: Bot command menu registered (4 user + 19 admin commands)
+2026-04-11 12:42:46,901 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 12:42:46,902 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 12:42:46,902 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 12:42:46,905 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 12:42:46,905 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 12:42:47,048 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 12:42:48,525 [INFO] __main__: Playwright chromium ready
+2026-04-11 12:42:48,525 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-04-11 12:42:48,525 [INFO] __main__: Monitor WS auth done
+2026-04-11 12:43:16,744 [ERROR] services.po_ws_client: fetch_all_pairs failed: Connection timeout to host wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket
+2026-04-11 12:43:16,744 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 12:44:32,739 [ERROR] services.po_ws_client: fetch_all_pairs failed: Connection timeout to host wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket
+2026-04-11 12:44:33,062 [INFO] services.pocket_browser: Browser launched (with payout response interceptor)
+2026-04-11 12:44:35,720 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 12:44:38,253 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
+2026-04-11 12:44:38,254 [INFO] services.pocket_browser: Logging into Pocket Option
+2026-04-11 12:44:41,509 [INFO] services.pocket_browser: Login page URL: https://pocketoption.com/en/login
+2026-04-11 12:44:42,608 [INFO] services.pocket_browser: Email filled via selector: input[name="email"]
+2026-04-11 12:44:43,924 [INFO] services.pocket_browser: Password filled via selector: input[name="password"]
+2026-04-11 12:44:44,569 [INFO] services.pocket_browser: Submit clicked via selector: button[type="submit"]
+2026-04-11 12:44:46,907 [INFO] services.auto_signal_service: Live WR refresh task started (interval=600s)
+2026-04-11 12:44:47,573 [INFO] services.pocket_browser: Post-login URL: https://pocketoption.com/en/login
+2026-04-11 12:44:47,656 [ERROR] services.pocket_browser: Login failed, URL=https://pocketoption.com/en/login. Debug screenshot: /app/signal_bot/screenshots/login_debug_fail.png
+2026-04-11 12:44:47,656 [ERROR] services.pocket_browser: get_candles failed: Login failed — check credentials or captcha
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 1972, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 378, in _ensure_logged_in
+    await _login(page)
+  File "/app/signal_bot/services/pocket_browser.py", line 335, in _login
+    raise RuntimeError("Login failed — check credentials or captcha")
+RuntimeError: Login failed — check credentials or captcha
+2026-04-11 12:44:47,663 [ERROR] services.candle_cache: Browser cache refresh failed for #EURJPY_otc: Login failed — check credentials or captcha
+2026-04-11 12:44:49,201 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 12:44:51,726 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
+2026-04-11 12:44:51,726 [INFO] services.pocket_browser: Logging into Pocket Option
+2026-04-11 12:44:55,060 [INFO] services.pocket_browser: Login page URL: https://pocketoption.com/en/login
+2026-04-11 12:44:56,156 [INFO] services.pocket_browser: Email filled via selector: input[name="email"]
+2026-04-11 12:44:57,325 [INFO] services.pocket_browser: Password filled via selector: input[name="password"]
+2026-04-11 12:44:57,987 [INFO] services.pocket_browser: Submit clicked via selector: button[type="submit"]
+2026-04-11 12:45:00,994 [INFO] services.pocket_browser: Post-login URL: https://pocketoption.com/en/login
+2026-04-11 12:45:01,097 [ERROR] services.pocket_browser: Login failed, URL=https://pocketoption.com/en/login. Debug screenshot: /app/signal_bot/screenshots/login_debug_fail.png
+2026-04-11 12:45:01,097 [ERROR] services.pocket_browser: get_candles failed: Login failed — check credentials or captcha
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 1972, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 378, in _ensure_logged_in
+    await _login(page)
+  File "/app/signal_bot/services/pocket_browser.py", line 335, in _login
+    raise RuntimeError("Login failed — check credentials or captcha")
+RuntimeError: Login failed — check credentials or captcha
+2026-04-11 12:45:01,105 [ERROR] services.candle_cache: Browser cache refresh failed for #AUDUSD_otc: Login failed — check credentials or captcha
+2026-04-11 12:45:02,658 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 12:45:05,232 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
+2026-04-11 12:45:05,232 [INFO] services.pocket_browser: Logging into Pocket Option
+2026-04-11 12:45:08,493 [INFO] services.pocket_browser: Login page URL: https://pocketoption.com/en/login
+2026-04-11 12:45:09,584 [INFO] services.pocket_browser: Email filled via selector: input[name="email"]
+2026-04-11 12:45:10,765 [INFO] services.pocket_browser: Password filled via selector: input[name="password"]
+2026-04-11 12:45:11,450 [INFO] services.pocket_browser: Submit clicked via selector: button[type="submit"]
+2026-04-11 12:45:14,456 [INFO] services.pocket_browser: Post-login URL: https://pocketoption.com/en/login
+RuntimeError: Login failed — check credentials or captcha
+    await _ensure_logged_in(context, page)
+2026-04-11 12:45:14,553 [ERROR] services.candle_cache: Browser cache refresh failed for #AUDCAD_otc: Login failed — check credentials or captcha
+2026-04-11 12:45:14,545 [ERROR] services.pocket_browser: Login failed, URL=https://pocketoption.com/en/login. Debug screenshot: /app/signal_bot/screenshots/login_debug_fail.png
+  File "/app/signal_bot/services/pocket_browser.py", line 335, in _login
+Traceback (most recent call last):
+    raise RuntimeError("Login failed — check credentials or captcha")
+2026-04-11 12:45:16,192 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 12:45:18,666 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
