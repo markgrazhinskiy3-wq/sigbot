@@ -177,10 +177,14 @@ class SignalFilter:
         # Last trade time (global)
         self._last_trade_time: float = 0.0
 
-        # Live WR cache: {strategy: live_wr_pct} — updated periodically from DB
-        # Only entries with >= 10 resolved trades are included (see database.py)
+        # Live WR cache — strategy level: {strategy: wr_pct}, min 10 trades
         self._live_wr: dict[str, float] = {}
-        self._live_wr_updated_at: float = 0.0  # unix timestamp of last update
+        self._live_wr_updated_at: float = 0.0
+
+        # Live WR cache — pair×strategy level: {"pair|strategy": wr_pct}, min 5 trades
+        # More specific than strategy-level; used when available (fewer trades needed)
+        self._live_pair_wr: dict[str, float] = {}
+        self._live_pair_wr_updated_at: float = 0.0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -377,20 +381,35 @@ class SignalFilter:
 
     def update_live_wr(self, wr_dict: dict[str, float]) -> None:
         """
-        Update the live WR cache from DB data (call periodically, e.g. every 10 min).
+        Update the strategy-level live WR cache (called periodically, e.g. every 10 min).
         wr_dict: {strategy_name: wr_pct} — only strategies with >= 10 resolved trades.
-        Entries not in wr_dict are removed (strategy lost enough data to be reliable).
         """
         self._live_wr = dict(wr_dict)
         self._live_wr_updated_at = time.time()
         logger.info(
-            "📊 Live WR cache updated: %s",
+            "📊 Live WR (strategy) updated: %s",
             {k: f"{v:.1f}%" for k, v in wr_dict.items()} or "empty"
         )
 
+    def update_live_pair_wr(self, pair_wr_dict: dict[str, float]) -> None:
+        """
+        Update the pair×strategy live WR cache (called periodically, e.g. every 10 min).
+        pair_wr_dict: {"pair|strategy": wr_pct} — only combos with >= 5 resolved trades.
+        This is the most specific WR data available — used as primary source when present.
+        """
+        self._live_pair_wr = dict(pair_wr_dict)
+        self._live_pair_wr_updated_at = time.time()
+        logger.info(
+            "📊 Live WR (pair×strategy) updated: %d combos",
+            len(pair_wr_dict),
+        )
+
     def get_live_wr(self) -> dict[str, float]:
-        """Return current live WR cache (for inspection/debug)."""
-        return dict(self._live_wr)
+        """Return current live WR caches (for inspection/debug)."""
+        return {
+            "strategy_level": dict(self._live_wr),
+            "pair_strategy_level": dict(self._live_pair_wr),
+        }
 
     def reset_daily(self) -> None:
         """Reset daily counters (call at midnight)."""
@@ -466,16 +485,40 @@ class SignalFilter:
 
         static_wr  = self.config["strategy_wr"].get(strategy, 55.0)
 
-        # ── Adaptive WR blend: live DB data overrides static when sufficient ──
-        live_wr = self._live_wr.get(strategy)
-        if live_wr is not None:
-            # 60% live + 40% static — live data has majority say but config anchors it
-            effective_wr = live_wr * 0.60 + static_wr * 0.40
+        # ── Three-level adaptive WR hierarchy ─────────────────────────────────
+        #
+        # Level 1 — pair×strategy (most specific, ≥5 trades):
+        #   "EUR/CHF OTC|ema_micro_cross" → 74.0%
+        #   If available: 70% pair-specific live + 30% static
+        #
+        # Level 2 — strategy-only (≥10 trades):
+        #   "ema_micro_cross" → 69.0%
+        #   If available: 60% strategy live + 40% static
+        #
+        # Level 3 — static from config (always available, no DB needed)
+        #
+        # Priority: Level 1 > Level 2 > Level 3
+        #
+        pair_strat_key = f"{pair}|{strategy}"
+        pair_live_wr   = self._live_pair_wr.get(pair_strat_key)
+        strat_live_wr  = self._live_wr.get(strategy)
+
+        if pair_live_wr is not None:
+            # Level 1: pair×strategy specific — most accurate
+            effective_wr = pair_live_wr * 0.70 + static_wr * 0.30
             logger.debug(
-                "Adaptive WR for %s: static=%.1f live=%.1f → effective=%.1f",
-                strategy, static_wr, live_wr, effective_wr,
+                "Adaptive WR L1 (pair×strat) %s: static=%.1f pair_live=%.1f → effective=%.1f",
+                pair_strat_key, static_wr, pair_live_wr, effective_wr,
+            )
+        elif strat_live_wr is not None:
+            # Level 2: strategy-level live — less specific but still real data
+            effective_wr = strat_live_wr * 0.60 + static_wr * 0.40
+            logger.debug(
+                "Adaptive WR L2 (strategy) %s: static=%.1f live=%.1f → effective=%.1f",
+                strategy, static_wr, strat_live_wr, effective_wr,
             )
         else:
+            # Level 3: no live data yet — fall back to static config
             effective_wr = static_wr
 
         pair_mult  = self.config["pair_multiplier"].get(pair, 1.0)

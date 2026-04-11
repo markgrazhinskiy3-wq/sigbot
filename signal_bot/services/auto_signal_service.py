@@ -415,12 +415,14 @@ _LIVE_WR_REFRESH_SEC = 600  # 10 minutes
 
 async def _live_wr_refresh_loop() -> None:
     """
-    Background task: every 10 minutes, query the DB for live per-strategy WR
-    (last 40 resolved trades, min 10 to be counted) and push it into
-    SignalFilter's adaptive WR cache. This makes the confidence recalculation
-    reflect real recent performance instead of only the hardcoded config values.
+    Background task: every 10 minutes, refresh two WR caches in SignalFilter:
+      1. Strategy-level WR  (last 40 trades, min 10) — broad fallback
+      2. Pair×strategy WR   (all history, min 5)     — most specific, highest priority
+
+    Together these implement a three-level hierarchy in _recalculate_confidence:
+      pair×strategy → strategy → static config
     """
-    from db.database import get_all_strategies_live_wr
+    from db.database import get_all_strategies_live_wr, get_all_pair_strategy_live_wr
 
     _all_tracked_strategies = list(
         _signal_filter.config.get("strategy_wr", {}).keys()
@@ -431,6 +433,7 @@ async def _live_wr_refresh_loop() -> None:
     while True:
         await asyncio.sleep(_LIVE_WR_REFRESH_SEC)
         try:
+            # Level 2: strategy-level WR
             live_wr = await get_all_strategies_live_wr(
                 strategies=_all_tracked_strategies,
                 n_trades=40,
@@ -438,7 +441,14 @@ async def _live_wr_refresh_loop() -> None:
             )
             _signal_filter.update_live_wr(live_wr)
         except Exception as exc:
-            logger.warning("Live WR refresh failed (non-critical): %s", exc)
+            logger.warning("Live WR (strategy) refresh failed: %s", exc)
+
+        try:
+            # Level 1: pair×strategy WR — most specific
+            pair_wr = await get_all_pair_strategy_live_wr(min_trades=5)
+            _signal_filter.update_live_pair_wr(pair_wr)
+        except Exception as exc:
+            logger.warning("Live WR (pair×strategy) refresh failed: %s", exc)
 
 
 # ── Session detection ─────────────────────────────────────────────────────────

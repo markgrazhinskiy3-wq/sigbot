@@ -809,3 +809,43 @@ async def get_all_strategies_live_wr(
         if wr is not None and count >= min_trades:
             result[strat] = wr
     return result
+
+
+async def get_all_pair_strategy_live_wr(
+    min_trades: int = 5,
+) -> dict[str, float]:
+    """
+    Return live WR for every (pair, strategy) combination that has at least
+    `min_trades` resolved outcomes. Uses all history (no row limit) so the
+    matrix stays accurate even with many pairs.
+
+    Returns dict with keys "pair|strategy", e.g. "EUR/CHF OTC|ema_micro_cross" → 72.3
+    Lower min_trades than strategy-level (5 vs 10) because pair×strategy combos
+    accumulate data more slowly.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT
+                pair_label,
+                strategy,
+                SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) AS losses
+            FROM signal_outcomes
+            WHERE outcome IN ('win', 'loss')
+              AND pair_label IS NOT NULL
+              AND strategy   IS NOT NULL
+            GROUP BY pair_label, strategy
+            HAVING (wins + losses) >= ?
+            """,
+            (min_trades,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    result: dict[str, float] = {}
+    for pair_label, strategy, wins, losses in rows:
+        total = (wins or 0) + (losses or 0)
+        if total > 0:
+            wr = round((wins or 0) / total * 100, 1)
+            result[f"{pair_label}|{strategy}"] = wr
+    return result
