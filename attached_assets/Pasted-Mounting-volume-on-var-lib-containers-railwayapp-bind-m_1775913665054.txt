@@ -1,0 +1,116 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/c4443659-b17d-4418-86ae-8e6c08cb70cb/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-04-11 13:19:33,599 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 13:19:33,602 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 13:19:33,604 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 13:19:33,604 [INFO] __main__: Loading admin cache...
+2026-04-11 13:19:33,605 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 13:19:33,605 [INFO] __main__: Loading user language preferences...
+2026-04-11 13:19:33,605 [INFO] __main__: Loaded language preferences for 52 user(s)
+2026-04-11 13:19:33,605 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 13:19:33,605 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 13:19:33,605 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 13:19:33,614 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=?)
+2026-04-11 13:19:33,614 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 13:19:33,614 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 13:19:33,614 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 13:19:33,614 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 13:19:33,636 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 13:19:33,636 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 13:19:34,280 [ERROR] services.po_ws_client: fetch_all_pairs failed: 400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke'
+2026-04-11 13:19:34,281 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 13:19:34,751 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 13:19:34,752 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 13:19:34,752 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 13:19:34,753 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 13:19:34,757 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 13:19:34,758 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 13:19:34,898 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 13:19:37,294 [INFO] services.pocket_browser: Monitor WS auth is 0.2h old — skipping browser (payouts via HTTP polling)
+2026-04-11 13:19:37,294 [INFO] __main__: Monitor WS auth done
+2026-04-11 13:19:37,294 [INFO] __main__: Playwright chromium ready
+2026-04-11 13:20:19,938 [ERROR] services.po_ws_client: fetch_all_pairs failed: 400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke'
+2026-04-11 13:20:20,270 [INFO] services.pocket_browser: Browser launched (with payout response interceptor)
+2026-04-11 13:20:22,704 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 13:20:25,185 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
+2026-04-11 13:20:25,185 [INFO] services.pocket_browser: Logging into Pocket Option
+2026-04-11 13:20:25,763 [INFO] aiogram.event: Update id=197957620 is handled. Duration 742 ms by bot id=8628355572
+2026-04-11 13:20:28,470 [INFO] services.pocket_browser: Login page URL: https://pocketoption.com/en/login
+2026-04-11 13:20:29,592 [INFO] services.pocket_browser: Email filled via selector: input[name="email"]
+2026-04-11 13:20:30,779 [INFO] services.pocket_browser: Password filled via selector: input[name="password"]
+2026-04-11 13:20:31,420 [INFO] services.pocket_browser: Submit clicked via selector: button[type="submit"]
+2026-04-11 13:20:34,425 [INFO] services.pocket_browser: Post-login URL: https://pocketoption.com/en/login
+2026-04-11 13:20:34,523 [ERROR] services.pocket_browser: Login failed, URL=https://pocketoption.com/en/login (attempt 1/2). Debug screenshot: /app/signal_bot/screenshots/login_debug_fail.png
+2026-04-11 13:20:34,523 [ERROR] services.pocket_browser: get_candles failed: Login failed — check credentials or captcha
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 420, in _ensure_logged_in
+    await _login(page)
+  File "/app/signal_bot/services/pocket_browser.py", line 361, in _login
+    raise RuntimeError("Login failed — check credentials or captcha")
+RuntimeError: Login failed — check credentials or captcha
+2026-04-11 13:20:34,533 [ERROR] services.candle_cache: Browser cache refresh failed for #EURJPY_otc: Login failed — check credentials or captcha
+2026-04-11 13:20:36,166 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
+2026-04-11 13:20:38,721 [WARNING] services.pocket_browser: Cookie login failed (URL: https://pocketoption.com/en/login) — cookies may be expired
+2026-04-11 13:20:38,721 [INFO] services.pocket_browser: Logging into Pocket Option
+2026-04-11 13:20:41,990 [INFO] services.pocket_browser: Login page URL: https://pocketoption.com/en/login
+2026-04-11 13:20:43,080 [INFO] services.pocket_browser: Email filled via selector: input[name="email"]
+2026-04-11 13:20:44,931 [INFO] services.pocket_browser: Submit clicked via selector: button[type="submit"]
+2026-04-11 13:20:47,936 [INFO] services.pocket_browser: Post-login URL: https://pocketoption.com/en/login
+2026-04-11 13:20:48,019 [WARNING] services.pocket_browser: ⛔ Login cooldown activated — 2 consecutive failures. Browser login paused for 15 min. WS path still active.
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+  File "/app/signal_bot/services/pocket_browser.py", line 420, in _ensure_logged_in
+    await _login(page)
+  File "/app/signal_bot/services/pocket_browser.py", line 361, in _login
+    raise RuntimeError("Login failed — check credentials or captcha")
+RuntimeError: Login failed — check credentials or captcha
+2026-04-11 13:20:48,055 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+    raise RuntimeError(
+RuntimeError: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,057 [ERROR] services.candle_cache: Browser cache refresh failed for #AUDCAD_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,082 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+Traceback (most recent call last):
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+    raise RuntimeError(
+RuntimeError: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,085 [ERROR] services.candle_cache: Browser cache refresh failed for #AUDNZD_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+    raise RuntimeError(
+RuntimeError: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,116 [ERROR] services.candle_cache: Browser cache refresh failed for #AEDCNY_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,143 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+RuntimeError: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,145 [ERROR] services.candle_cache: Browser cache refresh failed for #BHDCNY_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+    raise RuntimeError(
+2026-04-11 13:20:48,171 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+Traceback (most recent call last):
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+2026-04-11 13:20:48,173 [ERROR] services.candle_cache: Browser cache refresh failed for #AEDUSD_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,207 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+    raise RuntimeError(
+2026-04-11 13:20:48,211 [ERROR] services.candle_cache: Browser cache refresh failed for #KESUSD_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+Traceback (most recent call last):
+  File "/app/signal_bot/services/pocket_browser.py", line 2014, in _get_candles_impl
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in
+    raise RuntimeError(
+RuntimeError: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,235 [ERROR] services.candle_cache: Browser cache refresh failed for #CADJPY_otc: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+2026-04-11 13:20:48,255 [ERROR] services.pocket_browser: get_candles failed: Browser login in cooldown (15 min remaining). Waiting for WS path to recover or cooldown to expire.
+    await _ensure_logged_in(context, page)
+  File "/app/signal_bot/services/pocket_browser.py", line 410, in _ensure_logged_in

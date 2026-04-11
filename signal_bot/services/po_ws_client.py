@@ -141,6 +141,27 @@ def parse_ssid_string(ssid: str) -> dict | None:
     return None
 
 
+def _session_cookie_header(auth_payload: dict) -> str:
+    """
+    Extract ci_session cookie value from a PHP-serialized session string.
+
+    PocketOption's api-eu.po.market requires the ci_session cookie on the
+    WebSocket upgrade request (in addition to the 42["auth",...] message).
+    The session_id inside the PHP serialised blob is the cookie value.
+
+    Returns 'ci_session=<id>' string ready to use as Cookie header value,
+    or empty string if the session field is not in PHP format.
+    """
+    import re as _re
+    session = auth_payload.get("session", "")
+    if not session.startswith("a:"):
+        return ""
+    m = _re.search(r's:10:"session_id";s:\d+:"([^"]+)"', session)
+    if m:
+        return f"ci_session={m.group(1)}"
+    return ""
+
+
 def apply_ssid_from_env() -> bool:
     """
     Read PO_SSID env var and, if valid, overwrite po_ws_auth.json so the WS
@@ -229,6 +250,9 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
             "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         ),
     }
+    cookie = _session_cookie_header(auth_payload)
+    if cookie:
+        headers["Cookie"] = cookie
 
     results: dict[str, list[dict]] = {}
 
@@ -723,6 +747,9 @@ async def stream_pair(
             "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         ),
     }
+    cookie = _session_cookie_header(auth_payload)
+    if cookie:
+        headers["Cookie"] = cookie
 
     start_time = time.monotonic()
 
@@ -895,6 +922,9 @@ async def fetch_payouts_http_polling(timeout: float = 15.0) -> dict[str, int]:
             "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         ),
     }
+    cookie = _session_cookie_header(auth_payload)
+    if cookie:
+        headers["Cookie"] = cookie
 
     payouts: dict[str, int] = {}
     seen_events: set[str]   = set()
@@ -1050,6 +1080,9 @@ async def fetch_asset_payouts(timeout: float = 12.0) -> dict[str, int]:
             "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         ),
     }
+    cookie = _session_cookie_header(auth_payload)
+    if cookie:
+        headers["Cookie"] = cookie
 
     payouts: dict[str, int] = {}
     seen_events: set[str]   = set()
