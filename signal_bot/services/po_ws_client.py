@@ -272,104 +272,39 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
 
     results: dict[str, list[dict]] = {}
 
-    # ── EIO handshake: HTTP polling → get SID → WebSocket upgrade ──────────
-    # Socket.IO requires a polling handshake before WebSocket upgrade.
-    # Without SID the server returns 400 on the WS upgrade request.
-    http_base = (
-        ws_url.replace("wss://", "https://").replace("ws://", "http://")
-             .split("?")[0]
-    )
+    # ── Direct WebSocket (no prior HTTP handshake / SID) ────────────────────
+    # We connect straight to the WS endpoint.  The server sends its own
+    # EIO OPEN ("0{...}") as the first frame; _handshake() handles it.
+    # This avoids the HTTP-polling "upgrade flow" that api-eu.po.market blocks.
     try:
         async with aiohttp.ClientSession() as http:
-            # Step 1: GET polling handshake → sid
-            try:
-                r = await asyncio.wait_for(
-                    http.get(http_base,
-                             params={"EIO": "4", "transport": "polling"},
-                             headers=headers),
-                    timeout=10.0,
-                )
-                body = await r.text()
-                logger.info("EIO handshake: status=%d body=%s", r.status, body[:120])
-            except Exception as e:
-                logger.error("fetch_all_pairs: EIO polling handshake failed: %s", e)
-                return results
-
-            if r.status != 200 or not body.startswith("0"):
-                logger.error(
-                    "fetch_all_pairs: unexpected handshake response status=%d body=%s",
-                    r.status, body[:200],
-                )
-                return results
-
-            import re as _re
-            sid_m = _re.search(r'"sid"\s*:\s*"([^"]+)"', body)
-            if not sid_m:
-                logger.error("fetch_all_pairs: no sid in handshake body: %s", body[:200])
-                return results
-            sid = sid_m.group(1)
-            logger.info("EIO handshake: got sid=%s", sid)
-
-            # Step 2: POST "40" (namespace connect)
-            await asyncio.wait_for(
-                http.post(http_base,
-                          params={"EIO": "4", "transport": "polling", "sid": sid},
-                          data="40",
-                          headers={**headers, "Content-Type": "text/plain"}),
-                timeout=5.0,
-            )
-
-            # Step 3: drain the connect ACK
-            await asyncio.wait_for(
-                http.get(http_base,
-                         params={"EIO": "4", "transport": "polling", "sid": sid},
-                         headers=headers),
-                timeout=5.0,
-            )
-
-            # Step 4a: try WebSocket upgrade with the established sid
-            ws_url_with_sid = f"{ws_url}&sid={sid}"
-            ws_ok = False
-            try:
-                async with http.ws_connect(
-                    ws_url_with_sid,
-                    headers=headers,
-                    heartbeat=None,
-                    receive_timeout=None,
-                    autoclose=False,
-                    autoping=False,
-                ) as ws:
-                    ws_ok = True
-                    queue: asyncio.Queue[Any] = asyncio.Queue()
-                    reader_task = asyncio.create_task(_reader(ws, queue))
-                    ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
-                    try:
-                        ping_interval = await _handshake(ws, auth_payload, queue)
-                        ping_task.cancel()
-                        ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
-                        for symbol in symbols:
-                            asset = symbol.lstrip("#")
-                            candles = await _fetch_symbol(ws, asset, queue)
-                            if candles:
-                                results[symbol] = candles
-                                logger.info("Direct WS: %s → %d candles", symbol, len(candles))
-                            else:
-                                logger.warning("Direct WS: no candles for %s", symbol)
-                    finally:
-                        reader_task.cancel()
-                        ping_task.cancel()
-            except Exception as ws_err:
-                if ws_ok:
-                    raise  # WS connected but something else failed — propagate
-                logger.warning(
-                    "WS upgrade failed (%s) — falling back to HTTP polling for candles", ws_err
-                )
-
-            # Step 4b: HTTP polling fallback (used when WebSocket upgrade is blocked)
-            if not ws_ok and not results:
-                results = await _fetch_candles_via_polling(
-                    http, http_base, sid, auth_payload, symbols, headers
-                )
+            logger.info("Direct WS: connecting to %s", ws_url[:60])
+            async with http.ws_connect(
+                ws_url,
+                headers=headers,
+                heartbeat=None,
+                receive_timeout=None,
+                autoclose=False,
+                autoping=False,
+            ) as ws:
+                queue: asyncio.Queue[Any] = asyncio.Queue()
+                reader_task = asyncio.create_task(_reader(ws, queue))
+                ping_task   = asyncio.create_task(_keepalive(ws, 25.0))
+                try:
+                    ping_interval = await _handshake(ws, auth_payload, queue)
+                    ping_task.cancel()
+                    ping_task = asyncio.create_task(_keepalive(ws, ping_interval))
+                    for symbol in symbols:
+                        asset = symbol.lstrip("#")
+                        candles = await _fetch_symbol(ws, asset, queue)
+                        if candles:
+                            results[symbol] = candles
+                            logger.info("Direct WS: %s → %d candles", symbol, len(candles))
+                        else:
+                            logger.warning("Direct WS: no candles for %s", symbol)
+                finally:
+                    reader_task.cancel()
+                    ping_task.cancel()
 
     except asyncio.CancelledError:
         raise
