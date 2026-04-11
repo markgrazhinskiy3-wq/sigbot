@@ -39,6 +39,7 @@ logger = logging.getLogger("candle-server")
 PO_SSID     = os.environ.get("PO_SSID", "").strip()
 PO_WS_URL   = os.environ.get("PO_WS_URL", "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket").strip()
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8765"))
+SESSION_FILE = os.path.join(os.path.dirname(__file__), "po_session.json")
 
 PAIRS = [
     "#EURUSD_otc", "#EURGBP_otc", "#EURJPY_otc", "#GBPJPY_otc",
@@ -327,14 +328,29 @@ async def handle_status(request: web.Request) -> web.Response:
 
 
 async def main() -> None:
-    if not PO_SSID:
-        logger.error("PO_SSID is not set! Set it as env var:")
-        logger.error("  PO_SSID='a:4:{...}' python3 po_candle_server.py")
-        return
+    auth = None
 
-    auth = parse_ssid(PO_SSID)
+    # Priority 1: po_session.json (created by po_login.py — bound to VPS IP)
+    if os.path.exists(SESSION_FILE):
+        try:
+            with open(SESSION_FILE) as f:
+                auth = json.load(f)
+            logger.info("Loaded session from %s (uid=%s)", SESSION_FILE, auth.get("uid", "?"))
+        except Exception as e:
+            logger.warning("Could not read %s: %s", SESSION_FILE, e)
+            auth = None
+
+    # Priority 2: PO_SSID env var
+    if not auth and PO_SSID:
+        auth = parse_ssid(PO_SSID)
+        if auth:
+            logger.info("Using PO_SSID from env var")
+        else:
+            logger.error("Could not parse PO_SSID env var")
+
     if not auth:
-        logger.error("Could not parse PO_SSID — use the value from Railway env vars")
+        logger.error("No session found. Run po_login.py first:")
+        logger.error("  PO_LOGIN='you@email.com' PO_PASSWORD='pass' python3 po_login.py")
         return
 
     logger.info("Starting candle server on port %d", SERVER_PORT)
