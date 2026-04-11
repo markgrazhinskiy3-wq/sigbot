@@ -1,0 +1,113 @@
+2026-04-11 13:55:15,437 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 13:55:15,437 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 13:55:15,451 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=?)
+2026-04-11 13:55:15,451 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 13:55:15,451 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 13:55:15,451 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 13:55:15,451 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 13:55:15,476 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 13:55:15,476 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/807c8ac7-4e67-457d-a083-e3ac4d2118c1/vol_tsz4cu73169rtlpp
+Starting Container
+2026-04-11 13:55:16,138 [INFO] services.po_ws_client: EIO handshake: status=200 body=0{"sid":"k5BL8JdAuFJfBsx5q-tG","upgrades":["websocket"],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}
+2026-04-11 13:55:16,138 [INFO] services.po_ws_client: EIO handshake: got sid=k5BL8JdAuFJfBsx5q-tG
+2026-04-11 13:55:16,224 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 13:55:16,224 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 13:55:16,225 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 13:55:16,225 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 13:55:16,227 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 13:55:16,228 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 13:55:16,389 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 13:55:16,645 [WARNING] services.po_ws_client: WS upgrade failed (400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke&sid=k5BL8JdAuFJfBsx5q-tG') — falling back to HTTP polling for candles
+2026-04-11 13:55:16,948 [INFO] services.po_ws_client: Polling auth ACK raw: {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:17,693 [INFO] __main__: Playwright chromium ready
+2026-04-11 13:55:17,693 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-04-11 13:55:17,693 [INFO] __main__: Monitor WS auth done
+2026-04-11 13:55:23,954 [INFO] services.po_ws_client: HTTP polling fallback: fetching 20 symbols
+2026-04-11 13:55:24,985 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:25,138 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:25,292 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (0): 
+2026-04-11 13:55:25,601 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:25,754 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:25,952 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,106 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,258 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,521 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,674 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,826 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:26,978 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,130 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,282 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,435 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,588 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,740 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:27,958 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:28,110 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:28,263 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:28,430 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:28,582 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:28,734 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,001 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,153 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,305 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,516 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,670 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:29,823 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,006 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,159 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,485 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,637 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,789 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:30,968 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:31,120 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:31,272 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:31,472 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:31,624 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:31,776 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,051 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,202 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,355 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,508 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,661 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,813 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:32,976 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:33,128 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:33,281 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:33,435 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:33,587 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:33,739 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,044 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,197 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,349 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,553 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,706 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:34,858 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,017 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,170 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,323 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,562 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,714 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:35,866 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,019 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,181 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,363 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,516 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,669 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:36,821 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,035 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,187 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,338 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,532 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,684 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:37,836 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,046 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,198 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,350 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,502 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,655 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:38,807 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:39,009 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:39,161 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:39,416 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:39,567 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}
+2026-04-11 13:55:39,720 [INFO] services.po_ws_client: Polling [EURJPY_otc] raw (41): {"code":1,"message":"Session ID unknown"}

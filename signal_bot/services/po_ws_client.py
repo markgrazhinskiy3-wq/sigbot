@@ -382,7 +382,7 @@ async def fetch_all_pairs(symbols: list[str]) -> dict[str, list[dict]]:
 async def _fetch_candles_via_polling(
     http: aiohttp.ClientSession,
     http_base: str,
-    sid: str,
+    _sid_unused: str,          # kept for call-site compat, ignored
     auth_payload: dict,
     symbols: list[str],
     headers: dict,
@@ -391,15 +391,46 @@ async def _fetch_candles_via_polling(
     """
     HTTP long-polling fallback for candle data.
 
-    Used when WebSocket upgrade to api-eu.po.market is blocked (returns 400)
-    while HTTP polling still works (EIO handshake returns 200).
-
-    Binary event attachments (base64 prefixed with 'b') contain the same
-    JSON payload that _candles_from_binary_frames expects.
+    Opens a FRESH EIO polling session (new SID, no WebSocket upgrade attempt)
+    so the SID is not invalidated by the failed WS upgrade.
     """
     import base64 as _b64
+    import re as _re2
     results: dict[str, list[dict]] = {}
-    pt     = {"EIO": "4", "transport": "polling", "sid": sid}
+
+    def _parse_packets(text: str) -> list[str]:
+        if not text:
+            return []
+        if "\x1e" in text:
+            return [p for p in text.split("\x1e") if p]
+        stripped = text.lstrip("0123456789")
+        return [stripped] if stripped else []
+
+    # ── Fresh EIO handshake (no WS upgrade attempt) ─────────────────────────
+    try:
+        r = await asyncio.wait_for(
+            http.get(http_base, params={"EIO": "4", "transport": "polling"},
+                     headers=headers),
+            timeout=10.0,
+        )
+        body = await r.text()
+        logger.info("Polling fresh handshake: status=%d body=%s", r.status, body[:120])
+    except Exception as e:
+        logger.error("Polling fresh handshake failed: %s", e)
+        return results
+
+    if r.status != 200 or not body.startswith("0"):
+        logger.error("Polling fresh handshake unexpected: status=%d body=%s", r.status, body[:120])
+        return results
+
+    sid_m = _re2.search(r'"sid"\s*:\s*"([^"]+)"', body)
+    if not sid_m:
+        logger.error("Polling fresh handshake: no sid")
+        return results
+    fresh_sid = sid_m.group(1)
+    logger.info("Polling fresh SID: %s", fresh_sid)
+
+    pt     = {"EIO": "4", "transport": "polling", "sid": fresh_sid}
     ct_hdr = {**headers, "Content-Type": "text/plain"}
 
     async def _post(data: str) -> None:
@@ -409,25 +440,18 @@ async def _fetch_candles_via_polling(
         )
 
     async def _poll(t: float = 8.0) -> str:
-        r = await asyncio.wait_for(
+        r2 = await asyncio.wait_for(
             http.get(http_base, params=pt, headers=headers),
             timeout=t + 2,
         )
-        return await r.text()
+        return await r2.text()
 
-    def _parse_packets(text: str) -> list[str]:
-        """Split EIO4 polling response into individual packets (separated by \x1e)."""
-        if not text:
-            return []
-        # EIO4: length-prefixed packets OR \x1e-separated packets
-        if "\x1e" in text:
-            return [p for p in text.split("\x1e") if p]
-        # Single packet (possibly length-prefixed: "NNNpacket")
-        # Strip leading decimal length prefix if present
-        stripped = text.lstrip("0123456789")
-        return [stripped] if stripped else []
+    # ── Namespace connect ────────────────────────────────────────────────────
+    await _post("40")
+    ack = await _poll(5.0)
+    logger.info("Polling CONNECT ACK: %s", ack[:120])
 
-    # Send auth
+    # ── Auth ─────────────────────────────────────────────────────────────────
     auth_msg = "42" + json.dumps(["auth", auth_payload])
     await _post(auth_msg)
 
@@ -435,8 +459,8 @@ async def _fetch_candles_via_polling(
     for _ in range(3):
         try:
             ack = await _poll(5.0)
-            logger.info("Polling auth ACK raw: %s", ack[:300])
-            if "auth" in ack.lower():
+            logger.info("Polling auth ACK: %s", ack[:200])
+            if "auth" in ack.lower() or "success" in ack.lower():
                 break
         except asyncio.TimeoutError:
             break
