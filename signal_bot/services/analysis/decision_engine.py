@@ -507,16 +507,19 @@ def run_decision_engine(
         conf_raw = max(0.0, min(100.0, conf_raw))
 
     # ── Threshold check ────────────────────────────────────────────────────────
-    # Hard floor raised from 55 → 62 (Apr 2026 data: 65-70% bucket = 50% WR,
-    # confidence calibration is broken in mid-range).
-    # After 2 consecutive losses: threshold raises to 70.
-    # 2m strategies: require ≥ 68 (53.8% WR at current threshold → needs higher bar).
+    # Base floors (engine level — keeps /signal working for manual analysis):
+    #   normal:  57  (small raise from original 55)
+    #   2m:      62  (raised from 55: 53.8% WR at lower threshold)
+    #   raised (after 2 losses): 70
+    #
+    # NOTE: Stricter filtering (62+ global, stoch_snap 70+) is enforced by
+    # SignalFilter for auto-signals. Manual /signal uses the engine floor only.
     if raised_threshold:
         min_threshold = 70
     elif best.strategy_name in _TWO_MIN_STRATEGIES:
-        min_threshold = 68   # 2m: raised from 55; 53.8% WR below 68 = coin flip
+        min_threshold = 62   # 2m: modest raise; 53.8% WR at old floor
     else:
-        min_threshold = 62   # raised from 55 — avoid broken 55-62 calibration band
+        min_threshold = 57   # 1m: small raise from 55
 
     # ── NEUTRAL context penalty: +5 when no directional confirmation ──────────
     # Data: NEUTRAL session = 46.6% WR vs 52% in BULL/BEAR session.
@@ -527,7 +530,7 @@ def run_decision_engine(
         (direction == "SELL" and (ctx_dn_1m or ctx_macro_dn))
     )
     if not ctx_supports_signal:
-        min_threshold += 5   # need 67/73 instead of 62/68 in true neutral conditions
+        min_threshold += 5   # need 62/67 instead of 57/62 in true neutral conditions
 
     if conf_raw < min_threshold:
         return _no_signal(
