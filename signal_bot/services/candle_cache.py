@@ -184,6 +184,48 @@ async def _refresh_all_via_ws(symbols: list[str]) -> tuple[int, list[str]]:
         return 0, list(symbols)
 
 
+_api_server_ok_logged = False
+
+
+async def _refresh_from_api_server() -> int:
+    """
+    Pull candles from the external API server (set CANDLE_API_URL env var).
+    This is populated by po_forwarder.py running on the user's home machine.
+    Returns number of symbols updated.
+    """
+    global _api_server_ok_logged
+    api_url = os.environ.get("CANDLE_API_URL", "").strip().rstrip("/")
+    if not api_url:
+        return 0
+
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as http:
+            async with http.get(f"{api_url}/api/candles", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    logger.warning("API server candles fetch: status=%d", resp.status)
+                    return 0
+                data: dict = await resp.json()
+
+        updated = 0
+        max_age = CACHE_TTL * 2  # accept if not too old
+        for symbol, entry in data.items():
+            age = entry.get("age_seconds", 9999)
+            candles = entry.get("candles", [])
+            if candles and age < max_age:
+                store_merge(symbol, candles)
+                updated += 1
+
+        if updated > 0 and not _api_server_ok_logged:
+            logger.info("API server candles: %d symbols loaded from %s", updated, api_url)
+            _api_server_ok_logged = True
+        return updated
+
+    except Exception as e:
+        logger.debug("API server candles fetch failed: %s", e)
+        return 0
+
+
 async def _refresh_one_browser(symbol: str) -> bool:
     """Fallback: fetch candles via browser (used until WS auth is captured)."""
     from services.pocket_browser import _get_candles_impl, _get_lock
@@ -263,23 +305,32 @@ async def _refresher_loop(pairs: list[str]) -> None:
 
         if ws_available():
             ok, fallback = await _refresh_all_via_ws(pairs)
-            # Browser fallback for pairs with insufficient candles from WS
+            # Try API server for any symbols WS couldn't provide
+            if fallback:
+                api_ok = await _refresh_from_api_server()
+                if api_ok:
+                    fallback = [s for s in fallback if not _cache.get(s)]
+            # Browser fallback last resort
             for sym in fallback:
                 if await _refresh_one_browser(sym):
                     ok += 1
             elapsed = round(time.time() - cycle_start, 1)
             logger.info(
-                "Cache refresh: %d/%d pairs (WS+fallback) in %.1fs",
+                "Cache refresh: %d/%d pairs (WS+API+browser) in %.1fs",
                 ok, len(pairs), elapsed,
             )
         else:
-            ok = 0
-            for symbol in pairs:
-                if await _refresh_one_browser(symbol):
-                    ok += 1
+            # No WS auth — try API server first (fast), then browser
+            ok = await _refresh_from_api_server()
+            if ok < len(pairs):
+                for symbol in pairs:
+                    if _cache.get(symbol):
+                        continue  # Already from API server
+                    if await _refresh_one_browser(symbol):
+                        ok += 1
             elapsed = round(time.time() - cycle_start, 1)
             logger.info(
-                "Browser cache refresh: %d/%d pairs in %.1fs", ok, len(pairs), elapsed
+                "Cache refresh: %d/%d pairs (API+browser) in %.1fs", ok, len(pairs), elapsed
             )
 
 
