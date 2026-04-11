@@ -26,6 +26,19 @@ _browser_lock: asyncio.Lock | None = None
 _browser_payouts: dict[str, int] = {}
 _browser_payouts_ts: float = 0.0
 
+# ── Login failure backoff ─────────────────────────────────────────────────────
+# After MAX_LOGIN_FAILS consecutive failures we enter a cooldown period during
+# which browser login is not attempted at all. This prevents hammering PO's
+# login page (which triggers CAPTCHA / IP-level blocks).
+#
+# On each WS cycle the WS path is still attempted — if WS recovers, everything
+# resumes automatically without any browser involvement.
+_login_fail_count: int = 0
+_login_cooldown_until: float = 0.0   # unix timestamp; 0 = not in cooldown
+
+_MAX_LOGIN_FAILS = 2              # consecutive failures before cooldown
+_LOGIN_COOLDOWN_SEC = 15 * 60     # 15 minutes cooldown before retrying
+
 
 def get_browser_payouts() -> dict[str, int]:
     """Return live payouts captured from browser HTTP responses. {} if none yet."""
@@ -208,6 +221,7 @@ async def _get_context() -> BrowserContext:
 
 
 async def _login(page: Page) -> None:
+    global _login_fail_count, _login_cooldown_until
     logger.info("Logging into Pocket Option")
     await page.goto(config.PO_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
     await page.wait_for_timeout(3000)
@@ -329,11 +343,26 @@ async def _login(page: Page) -> None:
     is_fail = any(ind in current_url for ind in fail_indicators)
 
     if is_fail and not is_success:
+        global _login_fail_count, _login_cooldown_until
         debug_path = str(SCREENSHOTS_DIR / "login_debug_fail.png")
         await page.screenshot(path=debug_path)
-        logger.error("Login failed, URL=%s. Debug screenshot: %s", current_url, debug_path)
+        _login_fail_count += 1
+        logger.error(
+            "Login failed, URL=%s (attempt %d/%d). Debug screenshot: %s",
+            current_url, _login_fail_count, _MAX_LOGIN_FAILS, debug_path,
+        )
+        if _login_fail_count >= _MAX_LOGIN_FAILS:
+            _login_cooldown_until = time.time() + _LOGIN_COOLDOWN_SEC
+            logger.warning(
+                "⛔ Login cooldown activated — %d consecutive failures. "
+                "Browser login paused for %d min. WS path still active.",
+                _login_fail_count, _LOGIN_COOLDOWN_SEC // 60,
+            )
         raise RuntimeError("Login failed — check credentials or captcha")
 
+    # Successful login — reset failure counter
+    _login_fail_count = 0
+    _login_cooldown_until = 0.0
     logger.info("Login successful, URL: %s", page.url)
 
 
@@ -369,7 +398,20 @@ async def _is_logged_in(page: Page) -> bool:
 
 
 async def _ensure_logged_in(context: BrowserContext, page: Page) -> None:
-    """Ensure session is active: try cookies first, then automated login."""
+    """Ensure session is active: try cookies first, then automated login.
+
+    Enforces a cooldown period after repeated login failures to avoid
+    triggering CAPTCHA / IP-level blocks on PocketOption's login page.
+    """
+    # Check cooldown — if in cooldown, refuse to attempt browser login
+    now = time.time()
+    if _login_cooldown_until > now:
+        remaining_min = int((_login_cooldown_until - now) / 60) + 1
+        raise RuntimeError(
+            f"Browser login in cooldown ({remaining_min} min remaining). "
+            "Waiting for WS path to recover or cooldown to expire."
+        )
+
     logged_in = await _is_logged_in(page)
     if logged_in:
         return
