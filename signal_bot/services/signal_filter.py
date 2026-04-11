@@ -177,6 +177,11 @@ class SignalFilter:
         # Last trade time (global)
         self._last_trade_time: float = 0.0
 
+        # Live WR cache: {strategy: live_wr_pct} — updated periodically from DB
+        # Only entries with >= 10 resolved trades are included (see database.py)
+        self._live_wr: dict[str, float] = {}
+        self._live_wr_updated_at: float = 0.0  # unix timestamp of last update
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def check(self, signal: dict) -> dict:
@@ -370,6 +375,23 @@ class SignalFilter:
                     self._pair_loss_streak.get(pair, 0),
                     self._global_loss_streak)
 
+    def update_live_wr(self, wr_dict: dict[str, float]) -> None:
+        """
+        Update the live WR cache from DB data (call periodically, e.g. every 10 min).
+        wr_dict: {strategy_name: wr_pct} — only strategies with >= 10 resolved trades.
+        Entries not in wr_dict are removed (strategy lost enough data to be reliable).
+        """
+        self._live_wr = dict(wr_dict)
+        self._live_wr_updated_at = time.time()
+        logger.info(
+            "📊 Live WR cache updated: %s",
+            {k: f"{v:.1f}%" for k, v in wr_dict.items()} or "empty"
+        )
+
+    def get_live_wr(self) -> dict[str, float]:
+        """Return current live WR cache (for inspection/debug)."""
+        return dict(self._live_wr)
+
     def reset_daily(self) -> None:
         """Reset daily counters (call at midnight)."""
         self._daily_count = 0
@@ -424,10 +446,16 @@ class SignalFilter:
 
     def _recalculate_confidence(self, signal: dict) -> float:
         """
-        new_conf = (base_wr * pair_mult * session_mult) * 0.80
+        new_conf = (effective_wr * pair_mult * session_mult) * 0.80
                    + (original_conf * 0.20)
                    + combo_bonus
                    - pair_loss_penalty
+
+        effective_wr blends static historical WR (from config) with live DB WR:
+          - No live data (< 10 trades): 100% static
+          - Live data available: 60% live + 40% static
+            → The bot continuously self-calibrates as real trades accumulate.
+
         Clamped 0-100.
         """
         strategy   = signal.get("strategy", "")
@@ -436,12 +464,25 @@ class SignalFilter:
         direction  = signal.get("direction", "")
         orig_conf  = float(signal.get("confidence", 55))
 
-        base_wr    = self.config["strategy_wr"].get(strategy, 55.0)
+        static_wr  = self.config["strategy_wr"].get(strategy, 55.0)
+
+        # ── Adaptive WR blend: live DB data overrides static when sufficient ──
+        live_wr = self._live_wr.get(strategy)
+        if live_wr is not None:
+            # 60% live + 40% static — live data has majority say but config anchors it
+            effective_wr = live_wr * 0.60 + static_wr * 0.40
+            logger.debug(
+                "Adaptive WR for %s: static=%.1f live=%.1f → effective=%.1f",
+                strategy, static_wr, live_wr, effective_wr,
+            )
+        else:
+            effective_wr = static_wr
+
         pair_mult  = self.config["pair_multiplier"].get(pair, 1.0)
         sess_mult  = self.config["session_multiplier"].get(session, 1.0)
 
-        # Weighted blend: 80% historical WR component, 20% engine score
-        new_conf   = (base_wr * pair_mult * sess_mult) * 0.80 + orig_conf * 0.20
+        # Weighted blend: 80% effective WR component, 20% engine score
+        new_conf   = (effective_wr * pair_mult * sess_mult) * 0.80 + orig_conf * 0.20
 
         # Combo bonuses
         combo = 0.0

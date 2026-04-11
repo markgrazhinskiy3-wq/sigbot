@@ -93,6 +93,10 @@ def three_candle_reversal_strategy(
         if ind.rsi < 35:
             base_conf += 5
             reason += f" | RSI {ind.rsi:.1f} перепроданность (+5)"
+        # RSI bullish divergence: price made lower low but RSI held up → strong reversal
+        if ind.rsi_bull_div:
+            base_conf += 7
+            reason += " | RSI бычья дивергенция (+7)"
 
     elif sell_wins and sell_met >= _MIN_MET:
         direction = "SELL"
@@ -103,6 +107,10 @@ def three_candle_reversal_strategy(
         if ind.rsi > 65:
             base_conf += 5
             reason += f" | RSI {ind.rsi:.1f} перекупленность (+5)"
+        # RSI bearish divergence: price made higher high but RSI weakened → strong reversal
+        if ind.rsi_bear_div:
+            base_conf += 7
+            reason += " | RSI медвежья дивергенция (+7)"
 
     # Block against strong trends (5+ candles in one direction = trend, not reversal)
     if direction == "BUY" and mode == "TRENDING_DOWN" and ctx_trend_down:

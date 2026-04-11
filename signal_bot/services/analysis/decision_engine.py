@@ -169,16 +169,21 @@ def run_decision_engine(
     # snapshot of indicator values for NO_SIGNAL debug (computed once, reused)
     _ind_dbg: dict = {
         "indicators": {
-            "atr":       round(ind.atr, 6),
-            "atr_ratio": round(ind.atr_ratio, 3),
-            "rsi":       round(ind.rsi, 1),
-            "stoch_k":   round(ind.stoch_k, 1),
-            "stoch_d":   round(ind.stoch_d, 1),
-            "ema5":      round(ind.ema5, 6),
-            "ema13":     round(ind.ema13, 6),
-            "ema21":     round(ind.ema21, 6),
-            "bb_bw":     round(ind.bb_bw, 5),
-            "momentum":  round(ind.momentum, 6),
+            "atr":          round(ind.atr, 6),
+            "atr_ratio":    round(ind.atr_ratio, 3),
+            "rsi":          round(ind.rsi, 1),
+            "rsi_bull_div": ind.rsi_bull_div,
+            "rsi_bear_div": ind.rsi_bear_div,
+            "stoch_k":      round(ind.stoch_k, 1),
+            "stoch_d":      round(ind.stoch_d, 1),
+            "ema5":         round(ind.ema5, 6),
+            "ema13":        round(ind.ema13, 6),
+            "ema21":        round(ind.ema21, 6),
+            "bb_bw":        round(ind.bb_bw, 5),
+            "momentum":     round(ind.momentum, 6),
+            "adx":          round(ind.adx, 1),
+            "adx_plus_di":  round(ind.adx_plus_di, 1),
+            "adx_minus_di": round(ind.adx_minus_di, 1),
         }
     }
 
@@ -506,6 +511,40 @@ def run_decision_engine(
         conf_raw += _pair_params.confidence_adj
         conf_raw = max(0.0, min(100.0, conf_raw))
 
+    # ── ADX filter — trend strength alignment ─────────────────────────────────
+    # ADX(14) measures trend strength (not direction): <20 = weak/no trend, >25 = strong.
+    # Trend strategies benefit from strong trends; reversal strategies are hurt by them.
+    #
+    # Trend strategies (EMA cross, OTC confirm, RSI/BB scalp):
+    #   ADX > 25 → strong trend confirming signal → +3
+    #   ADX < 15 → weak trend → market too flat for trend play → -4
+    #
+    # Reversal strategies (3-candle, stoch snap, double bottom/top):
+    #   ADX > 35 → very strong trend → reversal dangerous → -6
+    #   ADX < 20 → range-bound → ideal for reversal → +3
+    #
+    _TREND_STRATS    = {"ema_micro_cross", "otc_trend_confirm", "rsi_bb_scalp"}
+    _REVERSAL_STRATS = {"three_candle_reversal", "stoch_snap", "double_bottom_top"}
+    _adx_note = f"ADX={ind.adx:.1f}"
+
+    if best.strategy_name in _TREND_STRATS:
+        if ind.adx > 25:
+            conf_raw += 3
+            _adx_note += " >25 тренд подтверждён (+3)"
+        elif ind.adx < 15:
+            conf_raw -= 4
+            _adx_note += " <15 тренд слабый (-4)"
+
+    elif best.strategy_name in _REVERSAL_STRATS:
+        if ind.adx > 35:
+            conf_raw -= 6
+            _adx_note += " >35 сильный тренд, разворот опасен (-6)"
+        elif ind.adx < 20:
+            conf_raw += 3
+            _adx_note += " <20 флет — идеально для разворота (+3)"
+
+    conf_raw = max(0.0, min(100.0, conf_raw))
+
     # ── Threshold check ────────────────────────────────────────────────────────
     # Base floors (engine level — keeps /signal working for manual analysis):
     #   normal:  57  (small raise from original 55)
@@ -599,11 +638,17 @@ def run_decision_engine(
                 "ema13": round(ind.ema13, 6),
                 "ema21": round(ind.ema21, 6),
                 "rsi": round(ind.rsi, 1),
+                "rsi_bull_div": ind.rsi_bull_div,
+                "rsi_bear_div": ind.rsi_bear_div,
                 "stoch_k": round(ind.stoch_k, 1),
                 "stoch_d": round(ind.stoch_d, 1),
                 "atr": round(ind.atr, 6),
                 "atr_ratio": round(ind.atr_ratio, 3),
                 "bb_bw": round(ind.bb_bw, 4),
+                "adx": round(ind.adx, 1),
+                "adx_plus_di": round(ind.adx_plus_di, 1),
+                "adx_minus_di": round(ind.adx_minus_di, 1),
+                "adx_note": _adx_note,
             },
             "levels": {
                 "nearest_sup": round(levels.nearest_sup, 6),

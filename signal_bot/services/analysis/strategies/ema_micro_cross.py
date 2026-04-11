@@ -128,6 +128,10 @@ def ema_micro_cross_strategy(
         if abs(ema3_now - ema8_now) > abs(ema3_prev - ema8_prev):
             base_conf += 3
             reason += " | EMA расходятся (+3)"
+        # RSI bullish divergence: cross with hidden strength → extra confirmation
+        if ind.rsi_bull_div:
+            base_conf += 5
+            reason += " | RSI бычья дивергенция (+5)"
 
     elif sell_wins and sell_met >= _MIN_MET:
         direction = "SELL"
@@ -140,6 +144,10 @@ def ema_micro_cross_strategy(
         if abs(ema3_now - ema8_now) > abs(ema3_prev - ema8_prev):
             base_conf += 3
             reason += " | EMA расходятся (+3)"
+        # RSI bearish divergence: cross with hidden weakness → extra confirmation
+        if ind.rsi_bear_div:
+            base_conf += 5
+            reason += " | RSI медвежья дивергенция (+5)"
 
     if direction == "NONE":
         return _none(reason, {

@@ -756,3 +756,56 @@ async def remove_admin(user_id: int) -> bool:
         cursor = await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ── Live strategy WR for adaptive confidence ──────────────────────────────────
+
+async def get_recent_strategy_wr(
+    strategy: str,
+    n_trades: int = 40,
+) -> tuple[float | None, int]:
+    """
+    Return (win_rate_pct, resolved_count) for the strategy based on the last
+    `n_trades` resolved (win/loss) outcomes.
+
+    Returns (None, 0) when fewer than 10 resolved trades exist (not enough data).
+    Ignores 'pending' and 'draw'/'error' outcomes — counts only win+loss.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT outcome
+            FROM signal_outcomes
+            WHERE strategy = ?
+              AND outcome IN ('win', 'loss')
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (strategy, n_trades),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    if not rows:
+        return None, 0
+
+    total  = len(rows)
+    wins   = sum(1 for r in rows if r[0] == 'win')
+    wr_pct = round(wins / total * 100, 1)
+    return wr_pct, total
+
+
+async def get_all_strategies_live_wr(
+    strategies: list[str],
+    n_trades: int = 40,
+    min_trades: int = 10,
+) -> dict[str, float]:
+    """
+    Return live WR for all requested strategies in one call.
+    Only includes strategies with at least `min_trades` resolved outcomes.
+    """
+    result: dict[str, float] = {}
+    for strat in strategies:
+        wr, count = await get_recent_strategy_wr(strat, n_trades)
+        if wr is not None and count >= min_trades:
+            result[strat] = wr
+    return result

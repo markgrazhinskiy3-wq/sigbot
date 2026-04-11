@@ -110,6 +110,9 @@ async def auto_signal_loop(bot) -> None:
     # Give the candle cache a chance to warm up before first scan
     await asyncio.sleep(120)
 
+    # Start the live WR refresh task (runs every 10 minutes in background)
+    asyncio.create_task(_live_wr_refresh_loop())
+
     while True:
         try:
             await _scan_and_broadcast(
@@ -403,6 +406,39 @@ async def _fire_pre_alert_then_signal(
 
         except Exception as exc:
             logger.debug("Signal send failed user %d: %s", user_id, exc)
+
+
+# ── Live WR refresh ───────────────────────────────────────────────────────────
+
+_LIVE_WR_REFRESH_SEC = 600  # 10 minutes
+
+
+async def _live_wr_refresh_loop() -> None:
+    """
+    Background task: every 10 minutes, query the DB for live per-strategy WR
+    (last 40 resolved trades, min 10 to be counted) and push it into
+    SignalFilter's adaptive WR cache. This makes the confidence recalculation
+    reflect real recent performance instead of only the hardcoded config values.
+    """
+    from db.database import get_all_strategies_live_wr
+
+    _all_tracked_strategies = list(
+        _signal_filter.config.get("strategy_wr", {}).keys()
+    )
+
+    logger.info("Live WR refresh task started (interval=%ds)", _LIVE_WR_REFRESH_SEC)
+
+    while True:
+        await asyncio.sleep(_LIVE_WR_REFRESH_SEC)
+        try:
+            live_wr = await get_all_strategies_live_wr(
+                strategies=_all_tracked_strategies,
+                n_trades=40,
+                min_trades=10,
+            )
+            _signal_filter.update_live_wr(live_wr)
+        except Exception as exc:
+            logger.warning("Live WR refresh failed (non-critical): %s", exc)
 
 
 # ── Session detection ─────────────────────────────────────────────────────────
