@@ -1,0 +1,36 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/2d4ff1a9-cee1-41a5-aec5-6d9ddad1c6fa/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-04-11 16:03:52,640 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 16:03:52,628 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 16:03:52,628 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 16:03:52,622 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 16:03:52,624 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 16:03:52,640 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=?)
+2026-04-11 16:03:52,626 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 16:03:52,626 [INFO] __main__: Loading admin cache...
+2026-04-11 16:03:52,627 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 16:03:52,640 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 16:03:52,627 [INFO] __main__: Loading user language preferences...
+2026-04-11 16:03:52,628 [INFO] __main__: Loaded language preferences for 52 user(s)
+2026-04-11 16:03:52,640 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 16:03:52,628 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 16:03:52,640 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 16:03:52,663 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 16:03:52,664 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 16:03:52,664 [INFO] services.po_ws_client: Direct WS: connecting to wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke
+2026-04-11 16:03:53,262 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 16:03:53,263 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 16:03:53,263 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 16:03:53,264 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 16:03:53,265 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 16:03:53,266 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 16:03:53,412 [ERROR] services.po_ws_client: fetch_all_pairs failed: 400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke'
+2026-04-11 16:03:53,413 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 16:03:53,415 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 16:03:55,960 [INFO] __main__: Playwright chromium ready
+2026-04-11 16:03:55,960 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-04-11 16:03:55,960 [INFO] __main__: Monitor WS auth done
+2026-04-11 16:04:38,416 [INFO] services.po_ws_client: Direct WS: connecting to wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke
+2026-04-11 16:04:39,107 [ERROR] services.po_ws_client: fetch_all_pairs failed: 400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke'
+2026-04-11 16:04:39,445 [INFO] services.pocket_browser: Browser launched (with payout response interceptor)
