@@ -1,0 +1,40 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/e3cb8ff0-7289-4663-8d8e-43e5e79f7524/vol_tsz4cu73169rtlpp
+[startup] playwright install chromium started (pid=2)
+Starting Container
+2026-04-11 20:20:01,019 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 20:20:01,020 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 20:20:01,016 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 20:20:01,023 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 20:20:01,020 [INFO] __main__: Loading admin cache...
+2026-04-11 20:20:01,021 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 20:20:01,021 [INFO] __main__: Loading user language preferences...
+2026-04-11 20:20:01,022 [INFO] __main__: Loaded language preferences for 53 user(s)
+2026-04-11 20:20:01,023 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 20:20:01,023 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 20:20:01,037 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=13464622)
+2026-04-11 20:20:01,037 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 20:20:01,037 [INFO] __main__: CF session refresh skipped (not using Cloudflare Worker or no credentials)
+2026-04-11 20:20:01,037 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 20:20:01,037 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 20:20:01,037 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 20:20:01,072 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 20:20:01,072 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 20:20:01,073 [INFO] services.po_ws_client: Direct WS: connecting to wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket
+2026-04-11 20:20:01,674 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 20:20:01,674 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 20:20:01,675 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 20:20:01,675 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 20:20:01,677 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 20:20:01,677 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 20:20:01,819 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 20:20:02,284 [WARNING] services.po_ws_client: Direct WS: reader got close/error: 8
+2026-04-11 20:20:02,468 [ERROR] services.po_ws_client: fetch_all_pairs failed: Server closed connection during auth
+2026-04-11 20:20:02,468 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 20:20:04,038 [INFO] __main__: Playwright chromium ready
+2026-04-11 20:20:04,039 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-04-11 20:20:04,039 [INFO] __main__: Monitor WS auth done
+2026-04-11 20:20:47,470 [INFO] services.po_ws_client: Direct WS: connecting to wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket
+2026-04-11 20:20:48,664 [WARNING] services.po_ws_client: Direct WS: reader got close/error: 8
+2026-04-11 20:20:48,848 [ERROR] services.po_ws_client: fetch_all_pairs failed: Server closed connection during auth
+2026-04-11 20:20:49,377 [INFO] services.pocket_browser: Browser launched (with payout response interceptor)
+2026-04-11 20:21:09,406 [INFO] services.pocket_browser: Loaded 21 saved cookies from /app/signal_bot/po_cookies.json
