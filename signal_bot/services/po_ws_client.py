@@ -435,7 +435,7 @@ async def _fetch_candles_via_polling(
     for _ in range(3):
         try:
             ack = await _poll(5.0)
-            logger.debug("Polling auth ACK: %s", ack[:120])
+            logger.info("Polling auth ACK raw: %s", ack[:300])
             if "auth" in ack.lower():
                 break
         except asyncio.TimeoutError:
@@ -466,9 +466,10 @@ async def _fetch_candles_via_polling(
             except asyncio.TimeoutError:
                 break
             except Exception as e:
-                logger.debug("Polling error for %s: %s", asset, e)
+                logger.warning("Polling error for %s: %s", asset, e)
                 break
 
+            logger.info("Polling [%s] raw (%d): %s", asset, len(txt), txt[:300])
             for pkt in _parse_packets(txt):
                 # Engine.IO PONG (heartbeat reply) — ignore
                 if pkt in ("3", "2"):

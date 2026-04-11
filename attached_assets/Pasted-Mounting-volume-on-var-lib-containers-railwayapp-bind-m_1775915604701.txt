@@ -1,0 +1,40 @@
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/e3c71643-f5cd-4ff4-875c-de3b8d2640c5/vol_tsz4cu73169rtlpp
+Starting Container
+[startup] playwright install chromium started (pid=2)
+2026-04-11 13:51:24,110 [INFO] __main__: Loaded language preferences for 52 user(s)
+2026-04-11 13:51:24,110 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 13:51:24,110 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 13:51:24,110 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 13:51:24,121 [INFO] services.po_ws_client: ✅ WS auth written from PO_SSID env var → /app/signal_bot/po_ws_auth.json (uid=?)
+2026-04-11 13:51:24,121 [INFO] __main__: PO_SSID env var applied — WS auth ready without browser login
+2026-04-11 13:51:24,121 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 13:51:24,121 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 13:51:24,121 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 13:51:24,154 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 13:51:24,104 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 13:51:24,107 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 13:51:24,108 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 13:51:24,108 [INFO] __main__: Loading admin cache...
+2026-04-11 13:51:24,109 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 13:51:24,109 [INFO] __main__: Loading user language preferences...
+2026-04-11 13:51:24,154 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 13:51:24,765 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 13:51:24,765 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 13:51:24,765 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 13:51:24,766 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 13:51:24,768 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 13:51:24,769 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 13:51:24,908 [INFO] services.po_ws_client: EIO handshake: status=200 body=0{"sid":"1FDE0nhfDmwTNez2q-hn","upgrades":["websocket"],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}
+2026-04-11 13:51:24,909 [INFO] services.po_ws_client: EIO handshake: got sid=1FDE0nhfDmwTNez2q-hn
+2026-04-11 13:51:24,912 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 13:51:26,541 [INFO] __main__: Playwright chromium ready
+2026-04-11 13:51:26,542 [INFO] services.pocket_browser: Monitor WS auth is 0.0h old — skipping browser (payouts via HTTP polling)
+2026-04-11 13:51:26,542 [INFO] __main__: Monitor WS auth done
+2026-04-11 13:51:30,066 [ERROR] services.po_ws_client: fetch_all_pairs failed: 
+2026-04-11 13:51:30,067 [INFO] services.candle_cache: Cache warm-up complete (0/20 pairs). WS auth available: True
+2026-04-11 13:52:15,722 [INFO] services.po_ws_client: EIO handshake: status=200 body=0{"sid":"8XdDpGRLKBMI96r4rMhQ","upgrades":["websocket"],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}
+2026-04-11 13:52:15,722 [INFO] services.po_ws_client: EIO handshake: got sid=8XdDpGRLKBMI96r4rMhQ
+2026-04-11 13:52:16,185 [WARNING] services.po_ws_client: WS upgrade failed (400, message='Invalid response status', url='wss://api-eu.po.market/socket.io/?EIO=4&transport=websocke&sid=8XdDpGRLKBMI96r4rMhQ') — falling back to HTTP polling for candles
+2026-04-11 13:52:23,338 [INFO] services.po_ws_client: HTTP polling fallback: fetching 20 symbols
+2026-04-11 13:52:39,293 [WARNING] services.po_ws_client: HTTP polling: no candles received for EURJPY_otc
+2026-04-11 13:52:54,602 [WARNING] services.po_ws_client: HTTP polling: no candles received for AUDUSD_otc
