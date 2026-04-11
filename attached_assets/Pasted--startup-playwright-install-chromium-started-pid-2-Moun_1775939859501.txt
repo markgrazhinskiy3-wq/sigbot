@@ -1,0 +1,73 @@
+[startup] playwright install chromium started (pid=2)
+Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/800551d7-58e4-49a2-83c6-47a2a462572f/vol_tsz4cu73169rtlpp
+Starting Container
+2026-04-11 20:34:57,207 [INFO] __main__: CF session refresh skipped (not using Cloudflare Worker or no credentials)
+2026-04-11 20:34:57,207 [INFO] services.pairs_cache: No live asset data yet — showing all 20 config pairs
+2026-04-11 20:34:57,195 [INFO] __main__: Initializing strategy adaptation module...
+2026-04-11 20:34:57,207 [INFO] __main__: OTC pairs loaded: 20 pairs
+2026-04-11 20:34:57,195 [INFO] services.strategy_adaptation: strategy_adaptation: all strategies active at ×1.0 — no multipliers
+2026-04-11 20:34:57,195 [INFO] __main__: Starting Pocket Option Signal Bot
+2026-04-11 20:34:57,189 [INFO] __main__: Initializing Signal Bot database...
+2026-04-11 20:34:57,206 [ERROR] services.po_ws_client: PO_SSID env var is set but could not be parsed — expected format: 42["auth",{...}] or {"session":"...","uid":"..."}. WS auth file NOT updated.
+2026-04-11 20:34:57,191 [INFO] db.database: Database initialized at /data/signal_bot.db
+2026-04-11 20:34:57,207 [INFO] __main__: PO_SSID not set — will use saved WS auth file or browser login
+2026-04-11 20:34:57,193 [INFO] services.analytics_logger: Analytics tables ready at /data/signal_bot.db
+2026-04-11 20:34:57,193 [INFO] __main__: Loading admin cache...
+2026-04-11 20:34:57,194 [INFO] bot.handlers: Admin cache loaded: 1 extra admin(s)
+2026-04-11 20:34:57,194 [INFO] __main__: Loading user language preferences...
+2026-04-11 20:34:57,195 [INFO] __main__: Loaded language preferences for 53 user(s)
+2026-04-11 20:34:57,207 [INFO] services.candle_cache: Cache refresher task created for 20 pairs.
+2026-04-11 20:34:57,240 [INFO] services.candle_cache: Candle cache refresher started — 20 pairs, TTL=90s, interval=45s
+2026-04-11 20:34:57,240 [INFO] services.candle_cache: Initial cache warm-up via WS (20 pairs)...
+2026-04-11 20:34:57,241 [INFO] services.po_ws_client: Direct WS: connecting to wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=webso
+2026-04-11 20:34:58,274 [INFO] services.po_ws_client: WS handshake binary event: 'updateAssets'  raw_len=41930  hex_preview=5b5b352c22234141504c222c224170706c65222c2273746f636b222c322c3530
+2026-04-11 20:34:58,275 [INFO] services.po_ws_client: updateAssets: 171 assets parsed, 56 currency OTC pairs
+2026-04-11 20:34:58,275 [INFO] services.po_ws_client: updateAssets parsed: 171 total assets, 111 OTC pairs with payouts
+2026-04-11 20:34:58,275 [INFO] services.po_ws_client: OTC payouts from updateAssets: {'aapl_otc': 69, 'axp_otc': 72, 'ba_otc': 92, 'csco_otc': 88, 'fb_otc': 63, 'intc_otc': 81, 'jnj_otc': 71, 'mcd_otc': 81, 'msft_otc': 71, 'pfe_otc': 42, 'tsla_otc': 85, 'xom_otc': 71, '100gbp_otc': 45, 'ada-usd_otc': 41, 'aedcny_otc': 82, 'amd_otc': 74, 'amzn_otc': 67, 'audcad_otc': 92, 'audchf_otc': 92, 'audjpy_otc': 54, 'audnzd_otc': 92, 'audusd_otc': 66, 'aus200_otc': 67, 'avax_otc': 83, 'baba_otc': 67, 'bhdcny_otc': 92, 'bitb_otc': 79, 'bnb-usd_otc': 89, 'btcusd_otc': 92, 'cadchf_otc': 92, 'cadjpy_otc': 67, 'chfjpy_otc': 81, 'chfnok_otc': 91, 'citi_otc': 76, 'coin_otc': 80, 'd30eur_otc': 45, 'dji30_otc': 45, 'doge_otc': 52, 'dotusd_otc': 73, 'e35eur_otc': 45, 'e50eur_otc': 45, 'ethusd_otc': 84, 'eurchf_otc': 86, 'eurgbp_otc': 88, 'eurjpy_otc': 92, 'eurnzd_otc': 92, 'eurrub_otc': 92, 'eurtry_otc': 60, 'eurusd_otc': 92, 'f40eur_otc': 45, 'fdx_otc': 45, 'gbpaud_otc': 92, 'gbpjpy_otc': 85, 'gbpusd_otc': 73, 'gme_otc': 92, 'irrusd_otc': 31, 'jodcny_otc': 48, 'jpn225_otc': 45, 'kesusd_otc': 43, 'lbpusd_otc': 92, 'link_otc': 92, 'ltcusd_otc': 92, 'madusd_otc': 92, 'mara_otc': 63, 'matic_otc': 64, 'nasusd_otc': 45, 'nflx_otc': 88, 'ngnusd_otc': 92, 'nzdjpy_otc': 58, 'nzdusd_otc': 64, 'pltr_otc': 48, 'qarcny_otc': 43, 'sarcny_otc': 51, 'sol-usd_otc': 73, 'sp500_otc': 45, 'sypusd_otc': 92, 'tndusd_otc': 61, 'ton-usd_otc': 74, 'trx-usd_otc': 52, 'uahusd_otc': 62, 'ukbrent_otc': 80, 'uscrude_otc': 80, 'usdars_otc': 92, 'usdbdt_otc': 31, 'usdbrl_otc': 92, 'usdcad_otc': 92, 'usdchf_otc': 43, 'usdclp_otc': 56, 'usdcnh_otc': 88, 'usdcop_otc': 82, 'usdegp_otc': 35, 'usdidr_otc': 59, 'usdinr_otc': 84, 'usdjpy_otc': 66, 'usdmxn_otc': 53, 'usdmyr_otc': 92, 'usdphp_otc': 77, 'usdpkr_otc': 88, 'usdrub_otc': 92, 'usdsgd_otc': 92, 'usdthb_otc': 48, 'usdvnd_otc': 75, 'visa_otc': 92, 'vix_otc': 92, 'xagusd_otc': 80, 'xauusd_otc': 80, 'xngusd_otc': 45, 'xpdusd_otc': 45, 'xptusd_otc': 45, 'yerusd_otc': 68, 'zarusd_otc': 52}
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'successauth'  raw_len=29  hex_preview=7b226964223a22737575596e6e34706e69577a6d5779384a4e4858227d
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'successupdatePending'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'updateOpenedDeals'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'updateCharts'  raw_len=496  hex_preview=5b7b2263686172745f6964223a2263686172742d31222c2273657474696e6773
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'successupdateBalance'  raw_len=31  hex_preview=7b22697344656d6f223a312c2262616c616e6365223a35333136302e32347d
+2026-04-11 20:34:58,276 [INFO] services.po_ws_client: WS handshake binary event: 'updateClosedDeals'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:34:59,067 [INFO] __main__: Bot command menu registered (4 user + 20 admin commands)
+2026-04-11 20:34:59,067 [INFO] __main__: Bot started. Admin ID: 437752097
+2026-04-11 20:34:59,068 [INFO] aiogram.dispatcher: Start polling
+2026-04-11 20:34:59,068 [INFO] services.auto_signal_service: Auto-signal broadcaster started (expiry=120s, min_conf=55, pre_alert_max=55s)
+2026-04-11 20:34:59,070 [INFO] services.auto_signal_service: Auto-signals: restored 50 user settings (19 enabled)
+2026-04-11 20:34:59,071 [INFO] services.outcome_tracker: recover_pending_outcomes: nothing to recover
+2026-04-11 20:34:59,212 [INFO] aiogram.dispatcher: Run polling for bot @bezpoter_signal_bot id=8628355572 - 'TBP | Signal bot'
+2026-04-11 20:34:59,277 [INFO] services.po_ws_client: Direct WS: authenticated (uid=86535816) — handshake drained 7 events, 171 payouts captured
+2026-04-11 20:34:59,646 [INFO] __main__: Playwright chromium ready
+2026-04-11 20:34:59,646 [INFO] services.pocket_browser: Monitor WS auth is 0.1h old — skipping browser (payouts via HTTP polling)
+2026-04-11 20:34:59,647 [INFO] __main__: Monitor WS auth done
+2026-04-11 20:34:59,934 [INFO] services.po_ws_client: _fetch_symbol(EURJPY_otc): non-history binary event 'updateStream' len=39  preview=b'[["EURJPY_otc",1775946899.807,186.058]]'
+2026-04-11 20:34:59,934 [INFO] services.po_ws_client:   → decoded as JSON: [['EURJPY_otc', 1775946899.807, 186.058]]
+2026-04-11 20:35:19,535 [WARNING] services.po_ws_client: Direct WS: connection closed while fetching AUDUSD_otc
+2026-04-11 20:35:19,539 [INFO] services.po_ws_client: Direct WS: #AUDUSD_otc → 53 candles
+2026-04-11 20:35:31,542 [WARNING] services.po_ws_client: Direct WS: no candles for #AUDCAD_otc
+2026-04-11 20:35:43,543 [WARNING] services.po_ws_client: Direct WS: no candles for #AUDNZD_otc
+2026-04-11 20:35:55,546 [WARNING] services.po_ws_client: Direct WS: no candles for #AEDCNY_otc
+2026-04-11 20:35:55,546 [ERROR] services.po_ws_client: fetch_all_pairs failed: Cannot write to closing transport
+2026-04-11 20:35:55,546 [INFO] services.candle_cache: Cache warm-up complete (2/20 pairs). WS auth available: True
+2026-04-11 20:36:40,552 [INFO] services.po_ws_client: Direct WS: connecting to wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=webso
+2026-04-11 20:36:41,607 [INFO] services.po_ws_client: WS handshake binary event: 'updateAssets'  raw_len=41930  hex_preview=5b5b352c22234141504c222c224170706c65222c2273746f636b222c322c3530
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: updateAssets: 170 assets parsed, 56 currency OTC pairs
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: updateAssets parsed: 170 total assets, 110 OTC pairs with payouts
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: OTC payouts from updateAssets: {'aapl_otc': 77, 'axp_otc': 90, 'ba_otc': 92, 'fb_otc': 72, 'intc_otc': 83, 'jnj_otc': 76, 'mcd_otc': 49, 'msft_otc': 72, 'pfe_otc': 42, 'tsla_otc': 91, 'xom_otc': 69, '100gbp_otc': 45, 'ada-usd_otc': 40, 'aedcny_otc': 89, 'amd_otc': 74, 'amzn_otc': 63, 'audcad_otc': 92, 'audchf_otc': 92, 'audjpy_otc': 47, 'audnzd_otc': 92, 'audusd_otc': 72, 'aus200_otc': 67, 'avax_otc': 85, 'baba_otc': 67, 'bhdcny_otc': 92, 'bitb_otc': 79, 'bnb-usd_otc': 83, 'btcusd_otc': 92, 'cadchf_otc': 91, 'cadjpy_otc': 66, 'chfjpy_otc': 86, 'chfnok_otc': 91, 'citi_otc': 85, 'coin_otc': 80, 'd30eur_otc': 45, 'dji30_otc': 45, 'doge_otc': 52, 'dotusd_otc': 65, 'e35eur_otc': 45, 'e50eur_otc': 45, 'ethusd_otc': 83, 'eurchf_otc': 86, 'eurgbp_otc': 89, 'eurjpy_otc': 92, 'eurnzd_otc': 92, 'eurrub_otc': 92, 'eurtry_otc': 61, 'eurusd_otc': 92, 'f40eur_otc': 45, 'fdx_otc': 54, 'gbpaud_otc': 92, 'gbpjpy_otc': 85, 'gbpusd_otc': 59, 'gme_otc': 92, 'irrusd_otc': 31, 'jodcny_otc': 49, 'jpn225_otc': 45, 'kesusd_otc': 42, 'lbpusd_otc': 81, 'link_otc': 79, 'ltcusd_otc': 92, 'madusd_otc': 92, 'mara_otc': 66, 'matic_otc': 67, 'nasusd_otc': 45, 'nflx_otc': 62, 'ngnusd_otc': 92, 'nzdjpy_otc': 73, 'nzdusd_otc': 66, 'pltr_otc': 46, 'qarcny_otc': 51, 'sarcny_otc': 51, 'sol-usd_otc': 85, 'sp500_otc': 45, 'sypusd_otc': 92, 'tndusd_otc': 69, 'ton-usd_otc': 41, 'trx-usd_otc': 62, 'uahusd_otc': 62, 'ukbrent_otc': 80, 'uscrude_otc': 80, 'usdars_otc': 92, 'usdbdt_otc': 32, 'usdbrl_otc': 92, 'usdcad_otc': 92, 'usdchf_otc': 42, 'usdclp_otc': 69, 'usdcnh_otc': 88, 'usdcop_otc': 81, 'usdegp_otc': 40, 'usdidr_otc': 58, 'usdinr_otc': 80, 'usdjpy_otc': 74, 'usdmxn_otc': 52, 'usdmyr_otc': 92, 'usdphp_otc': 81, 'usdpkr_otc': 92, 'usdrub_otc': 92, 'usdsgd_otc': 92, 'usdthb_otc': 48, 'usdvnd_otc': 87, 'visa_otc': 92, 'vix_otc': 92, 'xagusd_otc': 80, 'xauusd_otc': 80, 'xngusd_otc': 45, 'xpdusd_otc': 45, 'xptusd_otc': 45, 'yerusd_otc': 78, 'zarusd_otc': 52}
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'successauth'  raw_len=29  hex_preview=7b226964223a2236474a6a542d715a4d616478694f31484a506f58227d
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'successupdatePending'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'updateOpenedDeals'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'successupdateBalance'  raw_len=31  hex_preview=7b22697344656d6f223a312c2262616c616e6365223a35333136302e32347d
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'updateCharts'  raw_len=496  hex_preview=5b7b2263686172745f6964223a2263686172742d31222c2273657474696e6773
+2026-04-11 20:36:41,609 [INFO] services.po_ws_client: WS handshake binary event: 'updateClosedDeals'  raw_len=2  hex_preview=5b5d
+2026-04-11 20:36:42,610 [INFO] services.po_ws_client: Direct WS: authenticated (uid=86535816) — handshake drained 7 events, 171 payouts captured
+2026-04-11 20:36:54,611 [INFO] services.pocket_browser: History ticks from updateHistoryNewFast: 1401
+2026-04-11 20:36:54,612 [INFO] services.pocket_browser: Parsed 45 candles from 1401 ticks (events: ['updateHistoryNewFast'])
+2026-04-11 20:36:54,612 [INFO] services.po_ws_client: Direct WS: #EURJPY_otc → 45 candles
+2026-04-11 20:36:59,072 [INFO] services.auto_signal_service: Live WR refresh task started (interval=600s)
+2026-04-11 20:37:02,757 [WARNING] services.po_ws_client: Direct WS: reader got close/error: 8
+2026-04-11 20:37:02,757 [WARNING] services.po_ws_client: Direct WS: connection closed while fetching AUDUSD_otc
+2026-04-11 20:37:02,758 [INFO] services.pocket_browser: History ticks from updateHistoryNewFast: 1311
+2026-04-11 20:37:02,758 [INFO] services.pocket_browser: Parsed 43 candles from 1311 ticks (events: ['updateHistoryNewFast'])
+2026-04-11 20:37:02,759 [INFO] services.po_ws_client: Direct WS: #AUDUSD_otc → 43 candles
