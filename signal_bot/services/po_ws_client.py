@@ -116,7 +116,9 @@ def parse_ssid_string(ssid: str) -> dict | None:
             payload = json.loads(ssid[2:])   # strip leading "42"
             if isinstance(payload, list) and len(payload) >= 2:
                 auth = payload[1]
-                if isinstance(auth, dict) and "session" in auth:
+                if isinstance(auth, dict) and (
+                    "session" in auth or "sessionToken" in auth
+                ):
                     return auth
         except Exception:
             pass
@@ -125,7 +127,9 @@ def parse_ssid_string(ssid: str) -> dict | None:
     if ssid.startswith("{"):
         try:
             auth = json.loads(ssid)
-            if isinstance(auth, dict) and "session" in auth:
+            if isinstance(auth, dict) and (
+                "session" in auth or "sessionToken" in auth
+            ):
                 return auth
         except Exception:
             pass
