@@ -27,191 +27,137 @@ logger = logging.getLogger("po-login")
 PO_LOGIN     = os.environ.get("PO_LOGIN", "").strip()
 PO_PASSWORD  = os.environ.get("PO_PASSWORD", "").strip()
 SESSION_FILE = "/root/po_session.json"
-SCREENSHOT   = "/root/po_login_debug.png"
-
-
-async def try_fill(page, selectors: list[str], value: str) -> bool:
-    for sel in selectors:
-        try:
-            el = await page.query_selector(sel)
-            if el:
-                await el.fill(value)
-                return True
-        except Exception:
-            pass
-    return False
-
-
-async def try_click(page, selectors: list[str]) -> bool:
-    for sel in selectors:
-        try:
-            el = await page.query_selector(sel)
-            if el:
-                await el.click()
-                return True
-        except Exception:
-            pass
-    return False
-
-
-async def login_and_capture() -> dict | None:
-    from playwright.async_api import async_playwright
-
-    captured_auth: dict | None = None
-    ws_auth_event = asyncio.Event()
-
-    async with async_playwright() as pw:
-        logger.info("Launching browser...")
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
-                  "--disable-blink-features=AutomationControlled"],
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
-        )
-
-        # Mask webdriver flag
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        """)
-
-        page = await context.new_page()
-
-        def on_websocket(ws):
-            async def on_frame(payload):
-                nonlocal captured_auth
-                if captured_auth:
-                    return
-                try:
-                    if isinstance(payload, str) and payload.startswith("42"):
-                        data = json.loads(payload[2:])
-                        if isinstance(data, list) and data[0] == "auth":
-                            auth = data[1]
-                            if isinstance(auth, dict) and ("session" in auth or "uid" in auth):
-                                captured_auth = auth
-                                logger.info("WS auth captured! uid=%s", auth.get("uid", "?"))
-                                ws_auth_event.set()
-                except Exception:
-                    pass
-            ws.on("framesent", lambda p: asyncio.create_task(on_frame(p)))
-
-        page.on("websocket", on_websocket)
-
-        logger.info("Opening login page...")
-        try:
-            await page.goto("https://pocketoption.com/en/login/", timeout=30000,
-                            wait_until="domcontentloaded")
-        except Exception as e:
-            logger.error("Cannot open PocketOption: %s", e)
-            await browser.close()
-            return None
-
-        await asyncio.sleep(2)
-        await page.screenshot(path=SCREENSHOT)
-        logger.info("Screenshot saved: %s", SCREENSHOT)
-
-        logger.info("Filling email...")
-        email_selectors = [
-            'input[name="email"]',
-            'input[type="email"]',
-            '#email',
-            '.email-input input',
-        ]
-        ok = await try_fill(page, email_selectors, PO_LOGIN)
-        if not ok:
-            logger.error("Email field not found — check screenshot: %s", SCREENSHOT)
-            await page.screenshot(path=SCREENSHOT)
-            await browser.close()
-            return None
-
-        logger.info("Filling password...")
-        pass_selectors = [
-            'input[name="password"]',
-            'input[type="password"]',
-            '#password',
-        ]
-        ok = await try_fill(page, pass_selectors, PO_PASSWORD)
-        if not ok:
-            logger.error("Password field not found")
-            await browser.close()
-            return None
-
-        await asyncio.sleep(1)
-        await page.screenshot(path=SCREENSHOT)
-
-        logger.info("Clicking submit...")
-        btn_selectors = [
-            'button[type="submit"]',
-            'input[type="submit"]',
-            'button.btn-primary',
-            'button.login-btn',
-            '.login-form button',
-            'form button',
-        ]
-        ok = await try_click(page, btn_selectors)
-        if not ok:
-            logger.warning("Submit button not found by selector — trying Enter key")
-            await page.keyboard.press("Enter")
-
-        logger.info("Waiting for login to complete...")
-        await asyncio.sleep(3)
-        await page.screenshot(path=SCREENSHOT)
-
-        # Wait for redirect to cabinet
-        try:
-            await page.wait_for_url("**/cabinet/**", timeout=20000)
-            logger.info("Redirected to cabinet — login successful")
-        except Exception:
-            logger.warning("No redirect to cabinet — may be on 2FA or captcha page")
-            await page.screenshot(path=SCREENSHOT)
-
-        # Wait for WS auth
-        logger.info("Waiting for WebSocket auth capture (up to 30s)...")
-        try:
-            await asyncio.wait_for(ws_auth_event.wait(), timeout=30.0)
-        except asyncio.TimeoutError:
-            logger.warning("WS auth not captured — extracting cookie as fallback")
-
-        # Try cookie
-        cookies = await context.cookies()
-        ci_session = next((c["value"] for c in cookies if c["name"] == "ci_session"), "")
-
-        await browser.close()
-
-    if captured_auth:
-        logger.info("Using WS auth payload")
-        return captured_auth
-
-    if ci_session:
-        logger.info("Using ci_session cookie (len=%d)", len(ci_session))
-        return {"session": ci_session, "isDemo": 1}
-
-    logger.error("Login failed — no auth captured. Check screenshot: %s", SCREENSHOT)
-    return None
+SCREENSHOT   = "/root/po_debug.png"
 
 
 async def main() -> None:
     if not PO_LOGIN or not PO_PASSWORD:
-        logger.error("Set env vars: PO_LOGIN and PO_PASSWORD")
+        logger.error("Set PO_LOGIN and PO_PASSWORD env vars")
         sys.exit(1)
 
-    logger.info("Logging into PocketOption as %s", PO_LOGIN)
-    auth = await login_and_capture()
+    from playwright.async_api import async_playwright
 
-    if not auth:
-        logger.error("Login failed. Check: %s", SCREENSHOT)
-        sys.exit(1)
+    logger.info("Logging in as %s ...", PO_LOGIN)
 
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+        )
+        await context.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+        )
+        page = await context.new_page()
+
+        # Step 1: open login page
+        logger.info("Opening login page...")
+        try:
+            await page.goto("https://pocketoption.com/en/login", timeout=60000)
+        except Exception as e:
+            logger.error("Page load failed: %s", e)
+            await page.screenshot(path=SCREENSHOT)
+            logger.info("Screenshot: %s", SCREENSHOT)
+            await browser.close()
+            sys.exit(1)
+
+        await asyncio.sleep(2)
+        await page.screenshot(path=SCREENSHOT)
+        logger.info("Page loaded. Screenshot: %s", SCREENSHOT)
+
+        # Step 2: find and fill email
+        email_input = None
+        for sel in ['input[name="email"]', 'input[type="email"]', '#email']:
+            try:
+                el = await page.wait_for_selector(sel, timeout=5000)
+                if el:
+                    email_input = el
+                    break
+            except Exception:
+                pass
+
+        if not email_input:
+            logger.error("Email input not found — check screenshot: %s", SCREENSHOT)
+            await browser.close()
+            sys.exit(1)
+
+        await email_input.fill(PO_LOGIN)
+        logger.info("Email filled")
+
+        # Step 3: fill password
+        pw_input = None
+        for sel in ['input[name="password"]', 'input[type="password"]', '#password']:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    pw_input = el
+                    break
+            except Exception:
+                pass
+
+        if not pw_input:
+            logger.error("Password input not found")
+            await browser.close()
+            sys.exit(1)
+
+        await pw_input.fill(PO_PASSWORD)
+        logger.info("Password filled")
+
+        await asyncio.sleep(1)
+        await page.screenshot(path=SCREENSHOT)
+
+        # Step 4: submit form
+        submitted = False
+        for sel in ['button[type="submit"]', 'input[type="submit"]', 'form button', '.btn-primary']:
+            try:
+                btn = await page.query_selector(sel)
+                if btn:
+                    await btn.click()
+                    submitted = True
+                    logger.info("Clicked submit button: %s", sel)
+                    break
+            except Exception:
+                pass
+
+        if not submitted:
+            logger.info("Submit button not found — pressing Enter")
+            await page.keyboard.press("Enter")
+
+        # Step 5: wait for redirect
+        logger.info("Waiting for redirect to cabinet...")
+        try:
+            await page.wait_for_url("**/cabinet/**", timeout=30000)
+            logger.info("Redirect OK — login successful!")
+        except Exception:
+            await page.screenshot(path=SCREENSHOT)
+            logger.warning("No redirect to cabinet in 30s — check screenshot: %s", SCREENSHOT)
+
+        await asyncio.sleep(3)
+
+        # Step 6: extract ci_session cookie
+        cookies = await context.cookies()
+        ci_session = next((c["value"] for c in cookies if c["name"] == "ci_session"), "")
+
+        if not ci_session:
+            logger.error("ci_session cookie not found — login failed")
+            await page.screenshot(path=SCREENSHOT)
+            logger.info("Check screenshot: %s", SCREENSHOT)
+            await browser.close()
+            sys.exit(1)
+
+        logger.info("ci_session cookie captured (len=%d)", len(ci_session))
+        await browser.close()
+
+    auth = {"session": ci_session, "isDemo": 1}
     with open(SESSION_FILE, "w") as f:
         json.dump(auth, f, indent=2)
 
     logger.info("Session saved → %s", SESSION_FILE)
-    logger.info("uid=%s", auth.get("uid", "?"))
     logger.info("")
-    logger.info("Next step: python3 /root/po_candle_server.py")
+    logger.info("Now run: python3 /root/po_candle_server.py")
 
 
 if __name__ == "__main__":
